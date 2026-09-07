@@ -1,0 +1,9 @@
+[project]
+name = "store-info-agent"
+version = "0.1.0"
+description = "참여가게 DB의 정보를 공개정보와 대조해 담당자 확인 대상을 선별하는 에이전트"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
