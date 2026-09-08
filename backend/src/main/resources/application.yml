@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: ktc4-backend
+
+  datasource:
+    # ${환경변수:기본값} — 배포 환경에서는 환경변수로 덮어쓰고, 로컬은 기본값(docker-compose)을 씁니다.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ktc4}
+    username: ${DB_USERNAME:ktc4}
+    password: ${DB_PASSWORD:ktc4local}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      # validate: 엔티티와 실제 테이블이 맞는지 확인만 하고 스키마를 건드리지 않습니다.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+
+server:
+  port: 8080
