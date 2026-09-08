@@ -1,0 +1,28 @@
+# ⚠️ 로컬 개발 전용입니다.
+#    운영 DB 주소·비밀번호를 여기에 적지 마세요. 이 repo 는 public 입니다.
+#    운영 값은 배포 환경의 환경변수(DB_URL / DB_USERNAME / DB_PASSWORD)로만 주입합니다.
+#
+# 아래 계정이 공개돼 있어도 안전한 이유:
+#   포트를 127.0.0.1 에만 바인딩해서 이 컴퓨터 밖에서는 접속이 불가능하기 때문입니다.
+#   (0.0.0.0 으로 열면 같은 와이파이의 다른 사람이 접속할 수 있습니다)
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ktc4-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: ktc4
+      POSTGRES_USER: ktc4
+      POSTGRES_PASSWORD: ktc4local
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ktc4 -d ktc4"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
