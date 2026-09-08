@@ -11,8 +11,8 @@ spring:
 
   jpa:
     hibernate:
-      # validate: 엔티티와 실제 테이블이 맞는지 확인만 하고 스키마를 건드리지 않습니다.
-      ddl-auto: validate
+      # update: 엔티티를 보고 없는 테이블·컬럼을 자동 생성합니다. (컬럼 삭제·타입변경은 반영 안 됨)
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: true
