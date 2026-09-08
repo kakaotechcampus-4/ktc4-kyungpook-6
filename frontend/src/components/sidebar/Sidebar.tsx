@@ -73,7 +73,7 @@ function Sidebar({
         {isUserLoading ? (
           <Skeleton className="h-4 w-8" />
         ) : userName ? (
-          <p className="shrink-0 whitespace-nowrap font-['Pretendard',sans-serif] text-xs font-medium leading-4 text-[#94a3b8]">
+          <p className="shrink-0 whitespace-nowrap font-sans text-xs font-medium leading-4 text-[#94a3b8]">
             {userName}
           </p>
         ) : null}

@@ -28,7 +28,7 @@ function NavItem({ icon, label, active = false, className, ...props }: NavItemPr
       <Icon icon={icon} className="size-6 shrink-0" />
       <span
         className={[
-          "shrink-0 whitespace-nowrap font-['Pretendard',sans-serif] text-sm leading-5",
+          "shrink-0 whitespace-nowrap font-sans text-sm leading-5",
           active ? 'font-semibold' : 'font-bold',
         ].join(' ')}
       >

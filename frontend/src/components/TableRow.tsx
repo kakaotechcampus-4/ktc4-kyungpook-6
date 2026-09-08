@@ -21,7 +21,7 @@ const STATUS_STYLE = {
 } as const;
 
 const CELL_TEXT =
-  "w-full font-['Pretendard',sans-serif] text-sm font-normal leading-5 text-[#1e293b]";
+  "w-full font-sans text-sm font-normal leading-5 text-[#1e293b]";
 
 type TableRowProps = {
   /** 상호명 */
@@ -120,7 +120,7 @@ function TableRow({
           >
             <span className={`size-1.5 shrink-0 rounded-[4px] ${badge.dot}`} />
             <p
-              className={`shrink-0 whitespace-nowrap font-['Pretendard',sans-serif] text-sm font-semibold leading-5 ${badge.text}`}
+              className={`shrink-0 whitespace-nowrap font-sans text-sm font-semibold leading-5 ${badge.text}`}
             >
               {badge.label}
             </p>

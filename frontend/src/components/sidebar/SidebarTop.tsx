@@ -17,7 +17,7 @@ function SidebarTop({ className, ...props }: SidebarTopProps) {
     >
       <div className="flex shrink-0 items-end justify-center gap-1">
         <Icon icon="ri:radar-fill" className="size-8 shrink-0 text-[#eab308]" />
-        <div className="flex shrink-0 flex-col items-start justify-center whitespace-nowrap font-['Pretendard',sans-serif] text-xs leading-4 text-black">
+        <div className="flex shrink-0 flex-col items-start justify-center whitespace-nowrap font-sans text-xs leading-4 text-black">
           <p className="mb-[-2px] shrink-0 font-medium">선한레이더</p>
           <p className="shrink-0 font-semibold">Good Radar</p>
         </div>
