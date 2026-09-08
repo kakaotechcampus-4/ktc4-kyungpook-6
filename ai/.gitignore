@@ -1,0 +1,17 @@
+# ── Python ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+.ipynb_checkpoints/
+
+# ── 비밀 ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
