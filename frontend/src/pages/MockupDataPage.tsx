@@ -1,5 +1,9 @@
 import { Icon } from '@iconify/react';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { ComponentPropsWithoutRef } from 'react';
+import { getStores } from '../services/store';
+import type { StoreResponse } from '../services/store';
 import Sidebar from '../components/sidebar/Sidebar';
 import type { SidebarNavKey } from '../components/sidebar/Sidebar';
 import TableRow from '../components/TableRow';
@@ -10,9 +14,22 @@ export interface Store {
   id: string;
   name: string;
   phone: string;
-  status: BusinessStatus;
+  status?: BusinessStatus;
   address: string;
   lastChecked: string;
+}
+
+function toStore(store: StoreResponse): Store {
+  const status = store.status?.toLowerCase();
+
+  return {
+    id: String(store.storeId),
+    name: store.name,
+    phone: store.phone ?? '-',
+    status: status === 'open' || status === 'closed' ? status : undefined,
+    address: store.addressRoad ?? '-',
+    lastChecked: store.lastCheckedAt?.replace('T', ' ') ?? '-',
+  };
 }
 
 /** 테이블 헤더 셀. Figma 176:92·176:94·176:96·176:98·176:100·176:102 */
@@ -23,7 +40,7 @@ const HEADER_TEXT =
   "whitespace-nowrap font-sans text-sm font-bold leading-5 text-white";
 
 type MockupDataPageProps = {
-  /** 표시할 가게 목록. 조회는 이 컴포넌트 밖에서 한다. */
+  /** API 조회 실패 시 표시할 기존 목업 가게 목록. */
   stores: Store[];
   /** 선택된 가게 id 목록 */
   selectedIds?: string[];
@@ -38,7 +55,7 @@ type MockupDataPageProps = {
 
 /** 선한 영향력 가게 전체 목록 페이지. Figma Home Page(176:57) */
 function MockupDataPage({
-  stores,
+  stores: mockStores,
   selectedIds = [],
   onSelectStore,
   onSelectAll,
@@ -50,9 +67,17 @@ function MockupDataPage({
   className,
   ...props
 }: MockupDataPageProps) {
-  const allSelected = stores.length > 0 && selectedIds.length === stores.length;
+  const [page, setPage] = useState(0);
+  const { data, isPending, isError } = useQuery({
+    queryKey: ['stores', { page, limit: 20 }],
+    queryFn: () => getStores({ page, limit: 20 }),
+    retry: false,
+  });
+  const stores = isError ? mockStores : (data?.content.map(toStore) ?? []);
+  const selectedCount = stores.filter((store) => selectedIds.includes(store.id)).length;
+  const allSelected = stores.length > 0 && selectedCount === stores.length;
   /** 일부만 선택된 상태. Figma 111:3911 (파란 배경 + 흰 가로줄) */
-  const someSelected = selectedIds.length > 0 && !allSelected;
+  const someSelected = selectedCount > 0 && !allSelected;
   /** 선택된 게 하나라도 있으면 헤더 클릭은 전체 해제로 동작한다. */
   const hasSelection = allSelected || someSelected;
 
@@ -96,6 +121,12 @@ function MockupDataPage({
               </div>
             </nav>
           </div>
+
+          {isError && (
+            <p role="status" className="px-4 py-2 text-sm text-[#64748b]">
+              가게 정보를 불러오지 못해 목업 데이터를 표시합니다.
+            </p>
+          )}
 
           {/*
             테이블. Figma 176:88
@@ -165,6 +196,19 @@ function MockupDataPage({
             </div>
 
             {/* 데이터 행. Figma 176:104 이하 반복 */}
+            {isPending && (
+              <div role="status" className="w-full">
+                <span className="sr-only">가게 목록을 불러오는 중입니다.</span>
+                {Array.from({ length: 5 }, (_, index) => (
+                  <TableRow key={index} isLoading />
+                ))}
+              </div>
+            )}
+            {!isPending && stores.length === 0 && (
+              <p role="status" className="px-4 py-6 text-sm text-[#64748b]">
+                표시할 가게가 없습니다.
+              </p>
+            )}
             {stores.map((store) => (
               <TableRow
                 key={store.id}
@@ -179,6 +223,27 @@ function MockupDataPage({
               />
             ))}
           </div>
+          {!isError && data && data.totalPages > 0 && (
+            <nav aria-label="가게 목록 페이지" className="flex items-center gap-4 px-4 py-3 text-sm">
+              <button
+                type="button"
+                disabled={data.page === 0}
+                onClick={() => setPage(data.page - 1)}
+                className="disabled:opacity-40"
+              >
+                이전
+              </button>
+              <span>{data.page + 1} / {data.totalPages}</span>
+              <button
+                type="button"
+                disabled={!data.hasNext}
+                onClick={() => setPage(data.page + 1)}
+                className="disabled:opacity-40"
+              >
+                다음
+              </button>
+            </nav>
+          )}
         </main>
       </div>
     </div>
