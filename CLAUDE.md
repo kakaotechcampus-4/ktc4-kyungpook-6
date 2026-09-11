@@ -6,6 +6,7 @@
 
 - [`docs/깃_협업_규칙.md`](docs/깃_협업_규칙.md) — 브랜치, 커밋 메시지, PR 규칙
 - [`docs/Jira_사용_가이드.md`](docs/Jira_사용_가이드.md) — 티켓 작성, 스프린트, 상태 관리
+- [`docs/도메인_용어집.md`](docs/도메인_용어집.md) — 도메인 용어, 코드 상 이름, 화면 라벨 매핑
 
 ## Backend (Java / Spring Boot)
 
