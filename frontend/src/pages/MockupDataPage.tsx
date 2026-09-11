@@ -1,13 +1,13 @@
-import { Icon } from '@iconify/react';
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import type { ComponentPropsWithoutRef } from 'react';
-import { getStores } from '../services/store';
-import type { StoreResponse } from '../services/store';
-import Sidebar from '../components/sidebar/Sidebar';
-import type { SidebarNavKey } from '../components/sidebar/Sidebar';
-import TableRow from '../components/TableRow';
-import type { BusinessStatus } from '../components/TableRow';
+import { Icon } from "@iconify/react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import type { ComponentPropsWithoutRef } from "react";
+import { getStores } from "../services/store";
+import type { StoreResponse } from "../services/store";
+import { useStoreListPage } from "../hooks/store";
+import Sidebar from "../components/sidebar/Sidebar";
+import TableRow from "../components/TableRow";
+import type { BusinessStatus } from "../components/TableRow";
 
 /** 가게 목록의 한 건. 필드는 TableRow가 받는 props 기준. */
 export interface Store {
@@ -25,57 +25,65 @@ function toStore(store: StoreResponse): Store {
   return {
     id: String(store.storeId),
     name: store.name,
-    phone: store.phone ?? '-',
-    status: status === 'open' || status === 'closed' ? status : undefined,
-    address: store.addressRoad ?? '-',
-    lastChecked: store.lastCheckedAt?.replace('T', ' ') ?? '-',
+    phone: store.phone ?? "-",
+    status: status === "open" || status === "closed" ? status : undefined,
+    address: store.addressRoad ?? "-",
+    lastChecked: store.lastCheckedAt?.replace("T", " ") ?? "-",
   };
 }
 
 /** 테이블 헤더 셀. Figma 176:92·176:94·176:96·176:98·176:100·176:102 */
-const HEADER_CELL = 'flex shrink-0 items-center justify-between overflow-clip';
+const HEADER_CELL = "flex shrink-0 items-center justify-between overflow-clip";
 
 /** 테이블 헤더 텍스트. Pretendard Bold 14/20, white */
 const HEADER_TEXT =
   "whitespace-nowrap font-sans text-sm font-bold leading-5 text-white";
 
-type MockupDataPageProps = {
-  /** API 조회 실패 시 표시할 기존 목업 가게 목록. */
-  stores: Store[];
-  /** 선택된 가게 id 목록 */
-  selectedIds?: string[];
-  onSelectStore?: (id: string, checked: boolean) => void;
-  onSelectAll?: (checked: boolean) => void;
-  onEditStore?: (id: string) => void;
-  activeNavKey?: SidebarNavKey;
-  onNavigate?: (key: SidebarNavKey) => void;
-  userName?: string;
-  isUserLoading?: boolean;
-} & Omit<ComponentPropsWithoutRef<'div'>, 'children'>;
+/** API 조회 실패 시 표시할 목업 가게 목록. */
+const FALLBACK_STORES: Store[] = [
+  {
+    id: "fallback-1",
+    name: "정든 국밥집",
+    phone: "053-123-4567",
+    status: "open",
+    address: "대구 북구 대학로 80",
+    lastChecked: "2026-09-01 10:00",
+  },
+  {
+    id: "fallback-2",
+    name: "북문 분식",
+    phone: "053-234-5678",
+    status: "closed",
+    address: "대구 북구 대학로 82",
+    lastChecked: "2026-08-28 14:30",
+  },
+];
+
+type MockupDataPageProps = Omit<ComponentPropsWithoutRef<"div">, "children">;
 
 /** 선한 영향력 가게 전체 목록 페이지. Figma Home Page(176:57) */
-function MockupDataPage({
-  stores: mockStores,
-  selectedIds = [],
-  onSelectStore,
-  onSelectAll,
-  onEditStore,
-  activeNavKey = 'stores',
-  onNavigate,
-  userName,
-  isUserLoading = false,
-  className,
-  ...props
-}: MockupDataPageProps) {
+function MockupDataPage({ className, ...props }: MockupDataPageProps) {
   const [page, setPage] = useState(0);
+  const {
+    selectedIds, // page를 넘겨도, selectedIds는 유지되도록
+    isSelected,
+    toggleSelect,
+    toggleSelectAll,
+    activeNavKey,
+    setActiveNavKey,
+    userName,
+    isUserLoading,
+  } = useStoreListPage();
   const { data, isPending, isError } = useQuery({
-    queryKey: ['stores', { page, limit: 20 }],
+    queryKey: ["stores", { page, limit: 20 }],
     queryFn: () => getStores({ page, limit: 20 }),
     retry: false,
   });
-  const stores = isError ? mockStores : (data?.content.map(toStore) ?? []);
-  const selectedCount = stores.filter((store) => selectedIds.includes(store.id)).length;
-  const allSelected = stores.length > 0 && selectedCount === stores.length;
+  const stores = isError ? FALLBACK_STORES : data?.content.map(toStore) ?? [];
+  const selectedCount = stores.filter((store) =>
+    selectedIds.has(store.id)
+  ).length;
+  const allSelected = stores.length > 0 && selectedCount === stores.length; // page를 넘기더라도 allSelected는 해당 페이지의 store에 대해서만 계산하도록.
   /** 일부만 선택된 상태. Figma 111:3911 (파란 배경 + 흰 가로줄) */
   const someSelected = selectedCount > 0 && !allSelected;
   /** 선택된 게 하나라도 있으면 헤더 클릭은 전체 해제로 동작한다. */
@@ -84,17 +92,17 @@ function MockupDataPage({
   return (
     <div
       className={[
-        'flex h-screen w-full flex-col items-start bg-[#f8fafc]',
+        "flex h-screen w-full flex-col items-start bg-[#f8fafc]",
         className,
       ]
         .filter(Boolean)
-        .join(' ')}
+        .join(" ")}
       {...props}
     >
       <div className="flex min-h-px w-full flex-1 items-stretch">
         <Sidebar
           activeKey={activeNavKey}
-          onNavigate={onNavigate}
+          onNavigate={setActiveNavKey}
           userName={userName}
           isUserLoading={isUserLoading}
         />
@@ -153,17 +161,20 @@ function MockupDataPage({
                     ref={(element) => {
                       if (element) element.indeterminate = someSelected;
                     }}
-                    onChange={() => onSelectAll?.(!hasSelection)}
+                    onChange={() =>
+                      toggleSelectAll(
+                        stores.map((store) => store.id),
+                        !hasSelection
+                      )
+                    }
                     className="peer sr-only"
                     aria-label="전체 선택"
                   />
                   <span
                     className={[
-                      'flex size-5 items-center justify-center overflow-clip rounded-[2px] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-white',
-                      allSelected || someSelected
-                        ? 'bg-[#3b82f6]'
-                        : 'bg-white',
-                    ].join(' ')}
+                      "flex size-5 items-center justify-center overflow-clip rounded-[2px] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-white",
+                      allSelected || someSelected ? "bg-[#3b82f6]" : "bg-white",
+                    ].join(" ")}
                   >
                     {hasSelection ? (
                       <Icon
@@ -217,14 +228,16 @@ function MockupDataPage({
                 status={store.status}
                 address={store.address}
                 lastCheckedAt={store.lastChecked}
-                checked={selectedIds.includes(store.id)}
-                onCheckedChange={(checked) => onSelectStore?.(store.id, checked)}
-                onEdit={() => onEditStore?.(store.id)}
+                checked={isSelected(store.id)}
+                onCheckedChange={(checked) => toggleSelect(store.id, checked)}
               />
             ))}
           </div>
           {!isError && data && data.totalPages > 0 && (
-            <nav aria-label="가게 목록 페이지" className="flex items-center gap-4 px-4 py-3 text-sm">
+            <nav
+              aria-label="가게 목록 페이지"
+              className="flex items-center gap-4 px-4 py-3 text-sm"
+            >
               <button
                 type="button"
                 disabled={data.page === 0}
@@ -233,7 +246,9 @@ function MockupDataPage({
               >
                 이전
               </button>
-              <span>{data.page + 1} / {data.totalPages}</span>
+              <span>
+                {data.page + 1} / {data.totalPages}
+              </span>
               <button
                 type="button"
                 disabled={!data.hasNext}
