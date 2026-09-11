@@ -1,5 +1,7 @@
-package com.ktc4.backend.store;
+package com.ktc4.backend.domain.store.entity;
 
+import com.ktc4.backend.domain.store.enums.StoreStatus;
+import com.ktc4.backend.global.entity.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -19,36 +21,14 @@ import java.time.LocalDateTime;
 @Table(
         name = "store",
         indexes = {
-                @Index(name = "idx_store_status", columnList = "status"),
+                @Index(name = "idx_store_status_last_checked_at", columnList = "status, last_checked_at"),
                 @Index(name = "idx_store_name_normalized", columnList = "name_normalized"),
                 @Index(name = "idx_store_last_checked_at", columnList = "last_checked_at")
         }
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Store {
-
-    /**
-     * 가게의 영업 상태.
-     *
-     * <p>DB 에는 이름 문자열(예: {@code "CLOSED"})로 저장한다.
-     * 순서(ordinal)로 저장하면 상수 순서를 바꾸는 순간 기존 데이터의 의미가 뒤바뀌므로,
-     * {@code status} 필드에 {@code @Enumerated(EnumType.STRING)} 을 반드시 붙인다.
-     */
-    public enum Status {
-
-        /** 영업중 */
-        OPEN,
-
-        /** 휴업 */
-        SUSPENDED,
-
-        /** 폐업 */
-        CLOSED,
-
-        /** 미확인 — 아직 확인되지 않았거나 확인에 실패한 상태 */
-        UNKNOWN
-    }
+public class Store extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -81,7 +61,7 @@ public class Store {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
-    private Status status;
+    private StoreStatus status;
 
     /** 업종 (한식, 분식 등) */
     @Column(name = "category", length = 50)
@@ -95,7 +75,7 @@ public class Store {
     @Column(name = "biz_no", length = 20)
     private String bizNo;
 
-    /** 마지막으로 정보가 확인된 시각 */
+    /** 마지막으로 가게 정보를 검증한 시각. 행 생성·수정 시각(createdAt/updatedAt)과는 별개다. */
     @Column(name = "last_checked_at")
     private LocalDateTime lastCheckedAt;
 
@@ -103,7 +83,7 @@ public class Store {
     private Store(String name, String nameNormalized,
                   String addressRoad, String addressNormalized,
                   Double lat, Double lng,
-                  Status status, String category,
+                  StoreStatus status, String category,
                   String phone, String bizNo,
                   LocalDateTime lastCheckedAt) {
         this.name = name;
@@ -112,7 +92,7 @@ public class Store {
         this.addressNormalized = addressNormalized;
         this.lat = lat;
         this.lng = lng;
-        this.status = status != null ? status : Status.UNKNOWN;
+        this.status = status != null ? status : StoreStatus.UNKNOWN;
         this.category = category;
         this.phone = phone;
         this.bizNo = bizNo;
