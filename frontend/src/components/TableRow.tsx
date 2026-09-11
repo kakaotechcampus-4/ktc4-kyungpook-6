@@ -2,21 +2,51 @@ import { Icon } from '@iconify/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import Skeleton from './ui/Skeleton';
 
-export type BusinessStatus = 'open' | 'closed';
+/** 백엔드 StoreStatus(OPEN/SUSPENDED/CLOSED/UNKNOWN)를 소문자로 옮긴 값. */
+export type BusinessStatus = 'open' | 'suspended' | 'closed' | 'unknown';
 
-/** 영업 상태별 값. Figma 뱃지 노드(111:2316 영업중 / 111:2298 휴무중) */
+/**
+ * 영업 상태별 값. 라벨은 백엔드 StoreStatus 4가지를 1:1로 옮긴다.
+ *
+ * 4가지를 "확인 필요" 같은 상위 개념으로 합치지 않는 이유:
+ * 휴업(확인된 사실)과 미확인(확인 자체가 안 된 상태)은 담당자가 할 일이 서로 다르다.
+ * 휴업은 재개 여부를 나중에 다시 보면 되지만, 미확인은 지금 확인해야 하는 건이다.
+ * 둘을 한 뱃지로 묶으면 이 차이가 화면에서 사라진다.
+ *
+ * 대신 "확인 필요"는 상태와 직교하는 축이므로 needsReview 플래그로 따로 둔다.
+ * 휴업·폐업은 모두 다시 영업중으로 돌아올 수 있어 경고색 없이 중립 계열 농도로만 구분하고,
+ * 미확인만 진한 앰버 + 경고 아이콘으로 목록에서 가장 먼저 눈에 걸리게 한다.
+ *
+ * Figma 뱃지 노드(111:2316 영업중 / 111:2298 회색 뱃지)
+ */
 const STATUS_STYLE = {
   open: {
     label: '영업중',
     background: 'bg-[#86efac]',
     dot: 'bg-[#15803d]',
     text: 'text-[#15803d]',
+    needsReview: false,
   },
-  closed: {
-    label: '휴무중',
+  suspended: {
+    label: '휴업',
     background: 'bg-[#e2e8f0]',
     dot: 'bg-[#64748b]',
     text: 'text-[#64748b]',
+    needsReview: false,
+  },
+  closed: {
+    label: '폐업',
+    background: 'bg-[#cbd5e1]',
+    dot: 'bg-[#334155]',
+    text: 'text-[#334155]',
+    needsReview: false,
+  },
+  unknown: {
+    label: '미확인',
+    background: 'bg-[#fcd34d]',
+    dot: 'bg-[#92400e]',
+    text: 'text-[#92400e]',
+    needsReview: true,
   },
 } as const;
 
@@ -38,7 +68,7 @@ type TableRowProps = {
   isLoading?: boolean;
 } & Omit<ComponentPropsWithoutRef<'div'>, 'children'>;
 
-/** 가게 목록 테이블의 한 행. Figma 111:2309(미선택·영업중) / 111:2291(선택·휴무중) */
+/** 가게 목록 테이블의 한 행. Figma 111:2309(미선택·영업중) / 111:2291(선택·회색 뱃지) */
 function TableRow({
   name,
   phone,
@@ -117,8 +147,19 @@ function TableRow({
               'flex shrink-0 items-center gap-1.5 overflow-clip rounded-[22px] px-2.5 py-0.5',
               badge.background,
             ].join(' ')}
+            title={badge.needsReview ? '담당자 확인이 필요합니다' : undefined}
+            aria-label={
+              badge.needsReview ? `${badge.label} — 담당자 확인 필요` : badge.label
+            }
           >
-            <span className={`size-1.5 shrink-0 rounded-[4px] ${badge.dot}`} />
+            {badge.needsReview ? (
+              <Icon
+                icon="lucide:alert-circle"
+                className={`size-3.5 shrink-0 ${badge.text}`}
+              />
+            ) : (
+              <span className={`size-1.5 shrink-0 rounded-[4px] ${badge.dot}`} />
+            )}
             <p
               className={`shrink-0 whitespace-nowrap font-sans text-sm font-semibold leading-5 ${badge.text}`}
             >
