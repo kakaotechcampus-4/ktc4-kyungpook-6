@@ -21,7 +21,7 @@ import openai
 from dotenv import load_dotenv
 
 from src.google_web_search_provider import GoogleWebSearchProvider
-from src.name_search import MockNameSearchProvider, NameSearchProvider
+from src.name_search import MockNameSearchProvider, NameSearchError, NameSearchProvider
 
 AI_ROOT = Path(__file__).resolve().parent.parent
 # 실행 시 작업 디렉터리가 어디든(ai/, 저장소 루트 등) ai/.env를 찾도록 경로를 명시한다.
@@ -42,6 +42,8 @@ class ModelResult:
     model_name: str
     accuracy: float
     avg_confidence: float
+    answered: int
+    total: int
     failures: list[str]
 
 
@@ -62,19 +64,21 @@ def load_test_cases(path: Path = FIXTURES_PATH) -> list[TestCase]:
 
 def run_benchmark(model_name: str, provider: NameSearchProvider, cases: list[TestCase]) -> ModelResult:
     correct = 0
+    answered = 0
     total_confidence = 0.0
     failures: list[str] = []
 
     for case in cases:
         try:
             result = provider.search_official_name(case.store_name, case.address)
-        except openai.APIError as e:
-            # 한 케이스에서 API 에러(네트워크/레이트리밋/인증 등)가 나도
+        except (openai.APIError, NameSearchError) as e:
+            # 한 케이스에서 API 에러(네트워크/레이트리밋/인증 등)나 응답 파싱 실패가 나도
             # 나머지 모델·케이스 비교는 계속 진행한다.
             print(f"[{model_name}] {case.store_name} 조회 실패: {e}")
             failures.append(case.store_name)
             continue
 
+        answered += 1
         total_confidence += result.confidence
         if result.official_name == case.expected_official_name:
             correct += 1
@@ -85,17 +89,20 @@ def run_benchmark(model_name: str, provider: NameSearchProvider, cases: list[Tes
     return ModelResult(
         model_name=model_name,
         accuracy=correct / n if n else 0.0,
-        avg_confidence=total_confidence / n if n else 0.0,
+        avg_confidence=total_confidence / answered if answered else 0.0,
+        answered=answered,
+        total=n,
         failures=failures,
     )
 
 
 def print_report(results: list[ModelResult]) -> None:
-    header = f"{'model':<24}{'accuracy':<10}{'avg_conf':<10}failures"
+    header = f"{'model':<24}{'accuracy':<10}{'avg_conf':<10}{'answered':<10}failures"
     print(header)
     print("-" * len(header))
     for r in results:
-        print(f"{r.model_name:<24}{r.accuracy:<10.1%}{r.avg_confidence:<10.2f}{r.failures}")
+        answered_col = f"{r.answered}/{r.total}"
+        print(f"{r.model_name:<24}{r.accuracy:<10.1%}{r.avg_confidence:<10.2f}{answered_col:<10}{r.failures}")
 
 
 # 테스트해볼 모델 후보 목록. 실제로 인스턴스를 만들지 않고 "만드는 방법"만 등록해둬서,
