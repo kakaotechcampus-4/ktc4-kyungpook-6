@@ -13,9 +13,6 @@ spring:
     hibernate:
       # update: 엔티티를 보고 없는 테이블·컬럼을 자동 생성합니다. (컬럼 삭제·타입변경은 반영 안 됨)
       ddl-auto: update
-    properties:
-      hibernate:
-        format_sql: true
     open-in-view: false
 
 server:

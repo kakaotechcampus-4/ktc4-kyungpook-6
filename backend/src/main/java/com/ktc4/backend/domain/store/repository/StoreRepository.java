@@ -1,5 +1,6 @@
-package com.ktc4.backend.store;
+package com.ktc4.backend.domain.store.repository;
 
+import com.ktc4.backend.domain.store.entity.Store;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
