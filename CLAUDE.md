@@ -9,7 +9,7 @@
 
 ## Backend (Java / Spring Boot)
 
-- [`backend/docs/백엔드_코딩_컨밴션_가이드.md`](backend/docs/백엔드_코딩_컨밴션_가이드.md) — 네이밍, Lombok, 예외 처리, 로깅 규칙
-- [`backend/docs/백엔드_아키택쳐_가이드.md`](backend/docs/백엔드_아키택쳐_가이드.md) — 도메인 패키지 구조
+- [`backend/docs/백엔드_코딩_컨벤션_가이드.md`](backend/docs/백엔드_코딩_컨벤션_가이드.md) — 네이밍, Lombok, 예외 처리, 로깅 규칙
+- [`backend/docs/백엔드_아키텍처_가이드.md`](backend/docs/백엔드_아키텍처_가이드.md) — 도메인 패키지 구조
 - [`backend/docs/Javadoc_가이드.md`](backend/docs/Javadoc_가이드.md) — Javadoc 작성 대상과 형식
 - [`backend/docs/스웨거_API_문서화_가이드.md`](backend/docs/스웨거_API_문서화_가이드.md) — Swagger 사용법
