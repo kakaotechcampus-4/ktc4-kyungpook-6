@@ -46,6 +46,14 @@ class OfficialNameResult:
     confidence: float  # 0.0 ~ 1.0
 
 
+class NameSearchError(Exception):
+    """벤더 API 응답을 OfficialNameResult로 바꾸는 과정에서 실패했을 때 발생한다.
+
+    원인은 다양하다 (빈 응답, 스키마를 어긴 JSON, 필드 누락/타입 불일치 등) —
+    호출하는 쪽은 원인을 세분화할 필요 없이 "이 건은 실패로 처리"만 하면 되므로 하나로 묶는다.
+    """
+
+
 class NameSearchProvider(Protocol):
     """web_search 호출 + LLM 추출을 수행하는 구현체가 따라야 하는 인터페이스."""
 
@@ -73,12 +81,20 @@ class WebSearchProvider(ABC):
         """prompt를 벤더 API에 보내고, NAME_SEARCH_JSON_SCHEMA 형식의 JSON 문자열을 반환한다."""
 
     def search_official_name(self, store_name: str, address: str) -> OfficialNameResult:
+        # _call은 try 밖에 둔다 — 벤더 API 에러(레이트리밋·인증 등)는 파싱 실패와 원인이
+        # 다르므로 NameSearchError로 뭉뚱그리지 않고 그대로 올려보낸다.
         raw = self._call(build_search_prompt(store_name, address))
-        data = json.loads(raw)
-        return OfficialNameResult(
-            official_name=data["official_name"],
-            confidence=float(data["confidence"]),
-        )
+        try:
+            data = json.loads(raw)
+            return OfficialNameResult(
+                official_name=data["official_name"],
+                confidence=float(data["confidence"]),
+            )
+        except (ValueError, KeyError, TypeError) as e:
+            # ValueError: 응답이 JSON이 아니거나(JSONDecodeError) confidence가 숫자가 아님
+            # KeyError: strict 스키마를 어기고 필드를 빠뜨림
+            # TypeError: raw가 None(예: 콘텐츠 필터링)이거나 최상위가 객체가 아님
+            raise NameSearchError(f"{self._model} 응답 파싱 실패: {raw!r}") from e
 
 
 class MockNameSearchProvider:
