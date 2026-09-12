@@ -5,6 +5,20 @@ import Skeleton from './ui/Skeleton';
 /** 백엔드 StoreStatus(OPEN/SUSPENDED/CLOSED/UNKNOWN)를 소문자로 옮긴 값. */
 export type BusinessStatus = 'open' | 'suspended' | 'closed' | 'unknown';
 
+/**
+ * 영업 상태별 값. 라벨은 백엔드 StoreStatus 4가지를 1:1로 옮긴다.
+ *
+ * 4가지를 "확인 필요" 같은 상위 개념으로 합치지 않는 이유:
+ * 휴업(확인된 사실)과 미확인(확인 자체가 안 된 상태)은 담당자가 할 일이 서로 다르다.
+ * 휴업은 재개 여부를 나중에 다시 보면 되지만, 미확인은 지금 확인해야 하는 건이다.
+ * 둘을 한 뱃지로 묶으면 이 차이가 화면에서 사라진다.
+ *
+ * 대신 "확인 필요"는 상태와 직교하는 축이므로 needsReview 플래그로 따로 둔다.
+ * 휴업·폐업은 모두 다시 영업중으로 돌아올 수 있어 경고색 없이 중립 계열 농도로만 구분하고,
+ * 미확인만 진한 앰버 + 경고 아이콘으로 목록에서 가장 먼저 눈에 걸리게 한다.
+ *
+ * Figma 뱃지 노드(111:2316 영업중 / 111:2298 회색 뱃지)
+ */
 const STATUS_STYLE = {
   open: {
     label: '영업중',
