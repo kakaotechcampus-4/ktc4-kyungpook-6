@@ -1,0 +1,20 @@
+# ── Python ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+.ipynb_checkpoints/
+
+# ── 비밀 ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── 실제 가게 데이터 (사업자등록번호 등 포함, 커밋 금지) ──────────
+eval/fixtures/*.csv

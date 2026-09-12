@@ -1,0 +1,14 @@
+package com.ktc4.backend.global.error;
+
+import lombok.Getter;
+
+public class CustomException extends RuntimeException {
+
+    @Getter
+    private final ErrorCode errorCode;
+
+    public CustomException(ErrorCode errorCode) {
+        super(errorCode.getMessage());
+        this.errorCode = errorCode;
+    }
+}
