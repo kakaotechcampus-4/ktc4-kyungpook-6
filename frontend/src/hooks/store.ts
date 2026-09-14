@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { SidebarNavKey } from '../components/sidebar/Sidebar';
-import { useAgentSurveyTrigger } from './agentSurvey';
+import { estimateSurveyMinutes, useAgentSurveyTrigger } from './agentSurvey';
 import type { UseAgentSurveyTriggerResult } from './agentSurvey';
 import { useModal } from './modal';
 
@@ -11,6 +11,12 @@ export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   openSurveyModal: () => void;
   /** 취소 또는 ESC로 모달을 닫는다. */
   closeSurveyModal: () => void;
+  /** 모달의 "조사 시작하기". */
+  startSurvey: () => void;
+  /** 조사 대상 가게 수. 모달의 "가게 수". */
+  surveyTargetCount: number;
+  /** 예상 소요 시간(분). 모달의 "예상 소요 시간". */
+  estimatedMinutes: number;
   /** 선택된 가게 id 집합 */
   selectedIds: Set<string>;
   isSelected: (id: string) => boolean;
@@ -66,11 +72,22 @@ export function useStoreListPage(): UseStoreListPageResult {
     surveyModal.open();
   };
 
+  /*
+    조사 시작. 조사 시작 API가 아직 없어 지금은 모달만 닫는다.
+    TODO: API가 나오면 여기서 호출한 뒤 결과에 따라 모달을 닫는다.
+  */
+  const startSurvey = () => {
+    surveyModal.close();
+  };
+
   return {
     ...agentSurvey,
     isSurveyModalOpen: surveyModal.isOpen,
     openSurveyModal,
     closeSurveyModal: surveyModal.close,
+    startSurvey,
+    surveyTargetCount: selectedIds.size,
+    estimatedMinutes: estimateSurveyMinutes(selectedIds.size),
     selectedIds,
     isSelected,
     toggleSelect,

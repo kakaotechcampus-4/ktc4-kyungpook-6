@@ -83,6 +83,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     isSurveyModalOpen,
     openSurveyModal,
     closeSurveyModal,
+    startSurvey,
   } = useStoreListPage();
   const { data, isPending, isError } = useQuery({
     queryKey: ["stores", { page, limit: 20 }],
@@ -283,15 +284,12 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
         onDismissTooltip={dismissTooltip}
       />
 
-      {/*
-        조사 시작 확인 모달. Figma Modal(111:3779)
-        TODO: 조사 시작 API가 나오면 onStart에서 호출한 뒤 모달을 닫는다.
-      */}
+      {/* 조사 시작 확인 모달. Figma Modal(111:3779) */}
       <AgentSurveyModal
         open={isSurveyModalOpen}
         storeCount={surveyTargetCount}
         estimatedMinutes={estimatedMinutes}
-        onStart={closeSurveyModal}
+        onStart={startSurvey}
         onCancel={closeSurveyModal}
       />
     </div>
