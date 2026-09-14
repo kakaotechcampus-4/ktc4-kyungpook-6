@@ -8,6 +8,7 @@ import { useStoreListPage } from "../hooks/store";
 import Sidebar from "../components/sidebar/Sidebar";
 import TableRow from "../components/TableRow";
 import AgentSurveyTrigger from "../components/AgentSurveyTrigger";
+import AgentSurveyModal from "../components/AgentSurveyModal";
 import type { BusinessStatus } from "../components/TableRow";
 
 /** 가게 목록의 한 건. 필드는 TableRow가 받는 props 기준. */
@@ -77,7 +78,11 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     isTriggerVisible,
     isTooltipVisible,
     dismissTooltip,
-    openSurveyDialog,
+    surveyTargetCount,
+    estimatedMinutes,
+    isSurveyModalOpen,
+    openSurveyModal,
+    closeSurveyModal,
   } = useStoreListPage();
   const { data, isPending, isError } = useQuery({
     queryKey: ["stores", { page, limit: 20 }],
@@ -270,13 +275,24 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
       {/*
         가게를 하나라도 선택하면 뜨는 조사 트리거. Figma 111:2643 / 115:5592
         position: fixed라 이 위치에 두어도 화면 우하단에 고정된다.
-        TODO: openSurveyDialog로 열리는 조사 시작 모달은 아직 없다.
       */}
       <AgentSurveyTrigger
         visible={isTriggerVisible}
         showTooltip={isTooltipVisible}
-        onButtonClick={openSurveyDialog}
+        onButtonClick={openSurveyModal}
         onDismissTooltip={dismissTooltip}
+      />
+
+      {/*
+        조사 시작 확인 모달. Figma Modal(111:3779)
+        TODO: 조사 시작 API가 나오면 onStart에서 호출한 뒤 모달을 닫는다.
+      */}
+      <AgentSurveyModal
+        open={isSurveyModalOpen}
+        storeCount={surveyTargetCount}
+        estimatedMinutes={estimatedMinutes}
+        onStart={closeSurveyModal}
+        onCancel={closeSurveyModal}
       />
     </div>
   );
