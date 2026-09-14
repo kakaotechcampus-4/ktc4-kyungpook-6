@@ -7,6 +7,7 @@ import type { StoreResponse } from "../services/store";
 import { useStoreListPage } from "../hooks/store";
 import Sidebar from "../components/sidebar/Sidebar";
 import TableRow from "../components/TableRow";
+import AgentSurveyTrigger from "../components/AgentSurveyTrigger";
 import type { BusinessStatus } from "../components/TableRow";
 
 /** 가게 목록의 한 건. 필드는 TableRow가 받는 props 기준. */
@@ -73,6 +74,10 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     setActiveNavKey,
     userName,
     isUserLoading,
+    isTriggerVisible,
+    isTooltipVisible,
+    dismissTooltip,
+    openSurveyDialog,
   } = useStoreListPage();
   const { data, isPending, isError } = useQuery({
     queryKey: ["stores", { page, limit: 20 }],
@@ -261,6 +266,18 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
           )}
         </main>
       </div>
+
+      {/*
+        가게를 하나라도 선택하면 뜨는 조사 트리거. Figma 111:2643 / 115:5592
+        position: fixed라 이 위치에 두어도 화면 우하단에 고정된다.
+        TODO: openSurveyDialog로 열리는 조사 시작 모달은 아직 없다.
+      */}
+      <AgentSurveyTrigger
+        visible={isTriggerVisible}
+        showTooltip={isTooltipVisible}
+        onButtonClick={openSurveyDialog}
+        onDismissTooltip={dismissTooltip}
+      />
     </div>
   );
 }

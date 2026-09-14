@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { SidebarNavKey } from '../components/sidebar/Sidebar';
+import { useAgentSurveyTrigger } from './agentSurvey';
+import type { UseAgentSurveyTriggerResult } from './agentSurvey';
 
-export type UseStoreListPageResult = {
+export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   /** 선택된 가게 id 집합 */
   selectedIds: Set<string>;
   isSelected: (id: string) => boolean;
@@ -18,6 +20,7 @@ export type UseStoreListPageResult = {
 
 /**
  * 가게 목록 페이지(MockupDataPage)의 선택·내비게이션·사용자 상태를 관리한다.
+ * 조사 트리거 상태는 useAgentSurveyTrigger를 합성해 함께 내려준다.
  * 로그인 사용자를 조회하는 API가 아직 없어 userName/isUserLoading은 더미 값이다.
  */
 export function useStoreListPage(): UseStoreListPageResult {
@@ -42,7 +45,11 @@ export function useStoreListPage(): UseStoreListPageResult {
     setSelectedIds(checked ? new Set(ids) : new Set());
   };
 
+  /* 트리거 노출은 현재 페이지가 아니라 전체 선택 수로 판단한다. */
+  const agentSurvey = useAgentSurveyTrigger(selectedIds.size);
+
   return {
+    ...agentSurvey,
     selectedIds,
     isSelected,
     toggleSelect,
