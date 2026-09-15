@@ -1,44 +1,41 @@
 import { useState } from 'react';
-import type { SidebarNavKey } from '../components/sidebar/Sidebar';
 import { estimateSurveyMinutes, useAgentSurveyTrigger } from './agentSurvey';
 import type { UseAgentSurveyTriggerResult } from './agentSurvey';
 import { useModal } from './modal';
+import { useCurrentUser } from './user';
+import type { UseCurrentUserResult } from './user';
+import { useSidebarNav } from './sidebarNav';
+import type { UseSidebarNavResult } from './sidebarNav';
 
-export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
-  /** 조사 시작 모달 열림 여부. */
-  isSurveyModalOpen: boolean;
-  /** 로봇 버튼 클릭 시 모달을 연다. */
-  openSurveyModal: () => void;
-  /** 취소 또는 ESC로 모달을 닫는다. */
-  closeSurveyModal: () => void;
-  /** 모달의 "조사 시작하기". */
-  startSurvey: () => void;
-  /** 조사 대상 가게 수. 모달의 "가게 수". */
-  surveyTargetCount: number;
-  /** 예상 소요 시간(분). 모달의 "예상 소요 시간". */
-  estimatedMinutes: number;
-  /** 선택된 가게 id 집합 */
-  selectedIds: Set<string>;
-  isSelected: (id: string) => boolean;
-  toggleSelect: (id: string, checked: boolean) => void;
-  toggleSelectAll: (ids: string[], checked: boolean) => void;
-  /** 사이드바에서 활성화된 내비 항목 */
-  activeNavKey: SidebarNavKey;
-  setActiveNavKey: (key: SidebarNavKey) => void;
-  /** 로그인 사용자 이름 */
-  userName: string | undefined;
-  /** 사용자 정보 조회 중 여부. Sidebar의 Skeleton 노출 여부에 쓰인다. */
-  isUserLoading: boolean;
-};
+export type UseStoreListPageResult = UseAgentSurveyTriggerResult &
+  UseSidebarNavResult &
+  UseCurrentUserResult & {
+    /** 조사 시작 모달 열림 여부. */
+    isSurveyModalOpen: boolean;
+    /** 로봇 버튼 클릭 시 모달을 연다. */
+    openSurveyModal: () => void;
+    /** 취소 또는 ESC로 모달을 닫는다. */
+    closeSurveyModal: () => void;
+    /** 모달의 "조사 시작하기". */
+    startSurvey: () => void;
+    /** 조사 대상 가게 수. 모달의 "가게 수". */
+    surveyTargetCount: number;
+    /** 예상 소요 시간(분). 모달의 "예상 소요 시간". */
+    estimatedMinutes: number;
+    /** 선택된 가게 id 집합 */
+    selectedIds: Set<string>;
+    isSelected: (id: string) => boolean;
+    toggleSelect: (id: string, checked: boolean) => void;
+    toggleSelectAll: (ids: string[], checked: boolean) => void;
+  };
 
 /**
- * 가게 목록 페이지(MockupDataPage)의 선택·내비게이션·사용자 상태를 관리한다.
- * 조사 트리거는 useAgentSurveyTrigger를, 조사 모달은 useModal을 합성해 함께 내려준다.
- * 로그인 사용자를 조회하는 API가 아직 없어 userName/isUserLoading은 더미 값이다.
+ * 가게 목록 페이지(MockupDataPage)가 쓰는 값 전부를 모은다.
+ * 이 훅이 직접 들고 있는 상태는 선택된 가게 id뿐이고,
+ * 나머지는 useAgentSurveyTrigger·useModal·useSidebarNav·useCurrentUser를 합성해 내려준다.
  */
 export function useStoreListPage(): UseStoreListPageResult {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [activeNavKey, setActiveNavKey] = useState<SidebarNavKey>('stores');
 
   const isSelected = (id: string) => selectedIds.has(id);
 
@@ -61,6 +58,8 @@ export function useStoreListPage(): UseStoreListPageResult {
   /* 트리거 노출은 현재 페이지가 아니라 전체 선택 수로 판단한다. */
   const agentSurvey = useAgentSurveyTrigger(selectedIds.size);
   const surveyModal = useModal();
+  const sidebarNav = useSidebarNav();
+  const currentUser = useCurrentUser();
 
   /*
     모달을 열 때 말풍선도 함께 닫는다.
@@ -82,6 +81,8 @@ export function useStoreListPage(): UseStoreListPageResult {
 
   return {
     ...agentSurvey,
+    ...sidebarNav,
+    ...currentUser,
     isSurveyModalOpen: surveyModal.isOpen,
     openSurveyModal,
     closeSurveyModal: surveyModal.close,
@@ -92,9 +93,5 @@ export function useStoreListPage(): UseStoreListPageResult {
     isSelected,
     toggleSelect,
     toggleSelectAll,
-    activeNavKey,
-    setActiveNavKey,
-    userName: undefined,
-    isUserLoading: false,
   };
 }
