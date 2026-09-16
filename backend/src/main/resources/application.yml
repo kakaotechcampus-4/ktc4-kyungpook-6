@@ -17,3 +17,11 @@ spring:
 
 server:
   port: 8080
+
+external:
+  # 외부 API 장애 시 무한 대기 방지 (기본값은 무제한 대기)
+  connect-timeout-ms: 3000
+  read-timeout-ms: 5000
+  nts:
+    base-url: https://api.odcloud.kr/api/nts-businessman/v1/status
+    service-key: ${NTS_SERVICE_KEY:}
