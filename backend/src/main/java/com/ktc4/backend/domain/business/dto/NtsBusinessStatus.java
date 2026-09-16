@@ -1,0 +1,22 @@
+package com.ktc4.backend.domain.business.dto;
+
+/**
+ * 국세청 사업자등록 상태조회 API 응답을 가공 없이 원본(raw) 그대로 담는 DTO.
+ *
+ * <p>필드 값의 정규화나 비교 판단은 이 DTO의 책임이 아니며, 국세청 API가 내려준 문자열을
+ * 그대로 보관한다. 사업자등록번호가 매칭되지 않은 경우 상태 관련 필드는 빈 문자열로 채워진다.
+ */
+public record NtsBusinessStatus(
+        String bNo,
+        String bStt,
+        String bSttCd,
+        String taxType,
+        String taxTypeCd,
+        String endDt,
+        String utccYn,
+        String taxTypeChangeDt,
+        String invoiceApplyDt,
+        String rbfTaxType,
+        String rbfTaxTypeCd
+) {
+}
