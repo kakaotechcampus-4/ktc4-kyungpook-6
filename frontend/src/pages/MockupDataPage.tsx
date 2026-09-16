@@ -72,7 +72,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     toggleSelect,
     toggleSelectAll,
     activeNavKey,
-    setActiveNavKey,
+    navigateTo,
     userName,
     isUserLoading,
     isTriggerVisible,
@@ -113,7 +113,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
       <div className="flex min-h-px w-full flex-1 items-stretch">
         <Sidebar
           activeKey={activeNavKey}
-          onNavigate={setActiveNavKey}
+          onNavigate={navigateTo}
           userName={userName}
           isUserLoading={isUserLoading}
         />
