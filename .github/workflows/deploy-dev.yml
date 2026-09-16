@@ -1,0 +1,25 @@
+name: Deploy to Dev Environment
+
+on:
+  push:
+    branches:
+      - develop
+
+concurrency:
+  group: deploy-local
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Rebuild and restart containers
+        run: docker compose up -d --build --remove-orphans
+
+      - name: Remove dangling images
+        run: docker image prune -f
