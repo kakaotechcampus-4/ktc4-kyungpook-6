@@ -106,8 +106,22 @@ class StoreNormalizerTest {
             assertThat(StoreNormalizer.normalizeName(raw)).isEqualTo(expected);
         }
 
+        @ParameterizedTest(name = "[{index}] \"{0}\" → \"{1}\"")
+        @CsvSource(delimiter = '|', value = {
+                "(사)예시단체     | 예시단체",
+                "㈔예시단체       | 예시단체",
+                "사단법인 예시단체  | 예시단체",
+                "사단 법인 예시단체 | 예시단체",
+                "(재)예시단체     | 예시단체",
+                "재단법인 예시단체  | 예시단체"
+        })
+        @DisplayName("사단법인·재단법인 표기도 제거한다")
+        void removesNonProfitCorporateMarks(String raw, String expected) {
+            assertThat(StoreNormalizer.normalizeName(raw)).isEqualTo(expected);
+        }
+
         @ParameterizedTest
-        @ValueSource(strings = {"주식 회사 예시분식", "㈜예시분식(샘플점)", "SAMPLE 카페 1+1", "예시분식🍜"})
+        @ValueSource(strings = {"주식 회사 예시분식", "(사)예시단체", "㈜예시분식(샘플점)", "SAMPLE 카페 1+1", "예시분식🍜"})
         @DisplayName("정규화한 값을 다시 정규화해도 결과가 같다")
         void isIdempotent(String raw) {
             String once = StoreNormalizer.normalizeName(raw);

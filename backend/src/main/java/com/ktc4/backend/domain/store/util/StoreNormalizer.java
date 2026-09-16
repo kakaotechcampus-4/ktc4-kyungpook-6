@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.util;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -15,14 +16,11 @@ import java.util.regex.Pattern;
 public final class StoreNormalizer {
 
     // 법인 표기. 괄호를 지우기 전에 먼저 제거해야 "(주)" 가 "주" 로 남지 않는다.
-    // 글자 사이 공백을 허용해야 "주식 회사" 도 지워지고, 다시 정규화해도 결과가 같다.
-    private static final List<Pattern> CORPORATE_MARKS = List.of(
-            Pattern.compile("㈜"),
-            Pattern.compile("\\(\\s*주\\s*\\)"),
-            Pattern.compile("주\\s*식\\s*회\\s*사"),
-            Pattern.compile("\\(\\s*유\\s*\\)"),
-            Pattern.compile("유\\s*한\\s*회\\s*사")
-    );
+    // ㈜ ㈔ 같은 기호는 NFKC 변환에서 "(주)" "(사)" 로 풀리므로 약칭 목록이 함께 처리한다.
+    // 표기가 늘어나면 아래 두 목록에만 추가하면 된다.
+    private static final List<String> CORPORATE_WORDS = List.of("주식회사", "유한회사", "사단법인", "재단법인");
+    private static final List<String> CORPORATE_ABBREVIATIONS = List.of("주", "유", "사", "재");
+    private static final List<Pattern> CORPORATE_MARKS = buildCorporateMarks();
 
     private static final Pattern NOT_HANGUL_ALPHA_DIGIT = Pattern.compile("[^가-힣a-z0-9]");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
@@ -32,6 +30,18 @@ public final class StoreNormalizer {
     private static final Pattern INVISIBLE = Pattern.compile("[\\u200B-\\u200D\\uFEFF]");
 
     private StoreNormalizer() {
+    }
+
+    // "주식 회사" 처럼 띄어 써도 잡히도록 글자 사이에 공백을 허용하고, 약칭은 "( 사 )" 형태까지 만든다.
+    private static List<Pattern> buildCorporateMarks() {
+        List<Pattern> marks = new ArrayList<>();
+        for (String word : CORPORATE_WORDS) {
+            marks.add(Pattern.compile(String.join("\\s*", word.split(""))));
+        }
+        for (String abbreviation : CORPORATE_ABBREVIATIONS) {
+            marks.add(Pattern.compile("\\(\\s*" + abbreviation + "\\s*\\)"));
+        }
+        return List.copyOf(marks);
     }
 
     /**
