@@ -10,11 +10,14 @@ import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
+import com.ktc4.backend.global.error.CustomException;
+import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -138,6 +141,30 @@ class SignalRepositoryTest extends PostgresContainerTest {
 
         assertThatThrownBy(() -> signalRepository.saveAndFlush(signal))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void confidence가_없으면_저장에_실패한다() {
+        Signal signal = Signal.builder()
+                .task(task)
+                .signalType(SignalType.SIGNAL_HIGH)
+                .build();
+
+        assertThatThrownBy(() -> signalRepository.saveAndFlush(signal))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {-0.1, 1.1})
+    void confidence가_0과_1_사이를_벗어나면_생성_시점에_예외를_던진다(double outOfRange) {
+        assertThatThrownBy(() -> Signal.builder()
+                .task(task)
+                .signalType(SignalType.SIGNAL_HIGH)
+                .confidence(outOfRange)
+                .build())
+                .isInstanceOf(CustomException.class)
+                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_REQUEST));
     }
 
     @Test
