@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * 선한영향력가게(무료급식 참여 매장).
@@ -71,7 +72,7 @@ public class Store extends BaseTimeEntity {
     @Column(name = "phone", length = 20)
     private String phone;
 
-    /** 사업자등록번호 */
+    /** 사업자등록번호 — 하이픈 없는 숫자로 정규화해 저장한다 */
     @Column(name = "biz_no", length = 20)
     private String bizNo;
 
@@ -97,5 +98,23 @@ public class Store extends BaseTimeEntity {
         this.phone = phone;
         this.bizNo = bizNo;
         this.lastCheckedAt = lastCheckedAt;
+    }
+
+    /**
+     * 정규화 값을 바꾼다. 정규화 규칙은 서비스 계층이 적용하고 엔티티는 결과만 받는다.
+     *
+     * <p>사업자등록번호는 이름·주소와 달리 원본 컬럼을 따로 두지 않고 정규화한 값으로 덮어쓴다.
+     * 표기가 하나뿐이라 원본을 보관할 이유가 없고, 값이 통일돼야 DB 에서 같은 사업자를 찾을 수 있다.
+     *
+     * @return 값이 실제로 바뀌었으면 true
+     */
+    public boolean updateNormalized(String nameNormalized, String addressNormalized, String bizNo) {
+        boolean changed = !nameNormalized.equals(this.nameNormalized)
+                || !addressNormalized.equals(this.addressNormalized)
+                || !Objects.equals(bizNo, this.bizNo);
+        this.nameNormalized = nameNormalized;
+        this.addressNormalized = addressNormalized;
+        this.bizNo = bizNo;
+        return changed;
     }
 }
