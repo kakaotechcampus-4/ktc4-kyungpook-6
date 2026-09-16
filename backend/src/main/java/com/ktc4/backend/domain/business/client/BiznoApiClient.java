@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
@@ -27,6 +28,7 @@ public class BiznoApiClient implements BiznoClient {
     private final String apiKey;
     private final int pageCount;
 
+    @Autowired
     public BiznoApiClient(
             RestClient.Builder builder,
             @Value("${external.bizno.base-url}") String baseUrl,

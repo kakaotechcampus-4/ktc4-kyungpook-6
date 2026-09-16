@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
@@ -30,6 +31,7 @@ public class NtsApiClient implements NtsClient {
     private final RestClient restClient;
     private final String serviceKey;
 
+    @Autowired
     public NtsApiClient(
             RestClient.Builder restClientBuilder,
             @Value("${external.nts.base-url}") String baseUrl,
