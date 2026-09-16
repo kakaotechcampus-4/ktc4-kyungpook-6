@@ -22,6 +22,13 @@ external:
   # 외부 API 장애 시 무한 대기 방지 (기본값은 무제한 대기)
   connect-timeout-ms: 3000
   read-timeout-ms: 5000
+  bizno:
+    base-url: https://bizno.net/api/fapi
+    # 시크릿 기본값은 두지 않음(public repo) — 로컬은 backend/.env, 배포는 환경변수로 주입
+    api-key: ${BIZNO_API_KEY:}
+    # 검색 결과 한 번에 몇 건까지 받을지. 무료 API의 "1일 200건" 제한은 호출 횟수 기준이라
+    # 이 값을 올려도 쿼터 소모는 늘지 않는다(실측 확인됨) — 필요하면 여기 숫자만 바꾸면 됨.
+    page-count: 50
   nts:
     base-url: https://api.odcloud.kr/api/nts-businessman/v1/status
     service-key: ${NTS_SERVICE_KEY:}
