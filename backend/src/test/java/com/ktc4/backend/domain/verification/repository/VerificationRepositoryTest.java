@@ -65,7 +65,7 @@ class VerificationRepositoryTest extends PostgresContainerTest {
         task = taskRepository.saveAndFlush(Task.builder()
                 .job(job)
                 .store(store)
-                .classification(TaskClassification.TASK_HIGH)
+                .classification(TaskClassification.PRIORITY_CHECK)
                 .build());
     }
 
