@@ -31,8 +31,6 @@ dependencies {
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    // DB 연동 테스트용 인메모리 DB. 테스트에서만 쓰고 운영에는 들어가지 않는다.
-    testRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') { useJUnitPlatform() }

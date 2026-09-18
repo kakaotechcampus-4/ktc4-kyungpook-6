@@ -1,7 +1,10 @@
 package com.ktc4.backend.domain.store.dto;
 
+import com.ktc4.backend.domain.business.dto.BusinessStatus;
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.NtsLookupResult;
+import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 
 import java.time.LocalDate;
@@ -9,9 +12,10 @@ import java.time.LocalDate;
 /**
  * AI 1차 조사에 넘기는 가게별 자료.
  *
- * <p>우리 DB 상태({@code internalStatus})와 국세청 상태({@code ntsStatus})를 판정 없이 나란히 담는다.
- * AI 가 이름·주소로 가게를 찾아볼 수 있도록 원본과 정규화 값을 함께 넣는다.
- * {@code ntsStatus} / {@code ntsClosedAt} 은 사업자번호가 없거나 형식이 틀렸거나 조회에 실패하면 null 이다.
+ * <p>AI 가 이름·주소로 가게를 찾아볼 수 있도록 원본과 정규화 값을 함께 담는다.
+ * 우리 상태와 국세청 상태가 다른지는 코드가 {@code statusComparison} 으로 계산해 두고,
+ * 그 불일치가 실제 폐업을 뜻하는지 같은 해석만 AI 에 맡긴다.
+ * {@code ntsStatus} / {@code ntsClosedAt} 이 비어 있는 이유는 {@code ntsLookup} 으로 구분한다.
  */
 public record StoreCheckResponse(
         Long storeId,
@@ -22,11 +26,14 @@ public record StoreCheckResponse(
         String phone,
         String bizNo,
         StoreStatus internalStatus,
+        NtsLookupResult ntsLookup,
         BusinessState ntsStatus,
-        LocalDate ntsClosedAt
+        LocalDate ntsClosedAt,
+        StatusComparison statusComparison
 ) {
 
-    public static StoreCheckResponse of(Store store, BusinessState ntsStatus, LocalDate ntsClosedAt) {
+    public static StoreCheckResponse of(Store store, NtsLookupResult ntsLookup, BusinessStatus nts) {
+        BusinessState ntsStatus = nts == null ? null : nts.state();
         return new StoreCheckResponse(
                 store.getStoreId(),
                 store.getName(),
@@ -36,8 +43,10 @@ public record StoreCheckResponse(
                 store.getPhone(),
                 store.getBizNo(),
                 store.getStatus(),
+                ntsLookup,
                 ntsStatus,
-                ntsClosedAt
+                nts == null ? null : nts.closedAt(),
+                StatusComparison.of(store.getStatus(), ntsStatus)
         );
     }
 }
