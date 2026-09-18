@@ -71,10 +71,6 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     isSelected,
     toggleSelect,
     toggleSelectAll,
-    activeNavKey,
-    navigateTo,
-    userName,
-    isUserLoading,
     isTriggerVisible,
     isTooltipVisible,
     dismissTooltip,
@@ -111,12 +107,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
       {...props}
     >
       <div className="flex min-h-px w-full flex-1 items-stretch">
-        <Sidebar
-          activeKey={activeNavKey}
-          onNavigate={navigateTo}
-          userName={userName}
-          isUserLoading={isUserLoading}
-        />
+        <Sidebar />
 
         {/* Main Screen. Figma 176:80 */}
         <main className="flex min-w-px flex-1 flex-col items-start gap-1 overflow-auto bg-white py-4">

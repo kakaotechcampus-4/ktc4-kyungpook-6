@@ -29,16 +29,8 @@ type AnalysisResultPageProps = Omit<
  * useAnalysisResultPage로 필요한 데이터를 스스로 불러온다.
  */
 function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
-  const {
-    activeNavKey,
-    navigateTo,
-    userName,
-    isUserLoading,
-    finishedAtLabel,
-    groups,
-    isPending,
-    isError,
-  } = useAnalysisResultPage();
+  const { finishedAtLabel, groups, isPending, isError } =
+    useAnalysisResultPage();
 
   return (
     <div
@@ -50,12 +42,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
         .join(' ')}
       {...props}
     >
-      <Sidebar
-        activeKey={activeNavKey}
-        onNavigate={navigateTo}
-        userName={userName}
-        isUserLoading={isUserLoading}
-      />
+      <Sidebar />
 
       {/* Frame 41. Figma 112:5015 */}
       <main className="flex min-w-px flex-1 flex-col items-start overflow-auto bg-white">
