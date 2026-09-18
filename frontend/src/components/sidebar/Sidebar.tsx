@@ -2,33 +2,32 @@ import type { ComponentPropsWithoutRef } from 'react';
 import NavItem from './NavItem';
 import SidebarTop from './SidebarTop';
 import Skeleton from '../ui/Skeleton';
+import { useSidebarNav } from '../../hooks/sidebarNav';
+import type { SidebarNavKey } from '../../hooks/sidebarNav';
+import { useCurrentUser } from '../../hooks/user';
 
-const NAV_ITEMS = [
+const NAV_ITEMS: {
+  key: SidebarNavKey;
+  icon: string;
+  label: string;
+}[] = [
   { key: 'stores', icon: 'mingcute:list-check-fill', label: '가게 목록' },
   { key: 'analysis', icon: 'mingcute:robot-fill', label: '분석 결과' },
-] as const;
+];
 
-export type SidebarNavKey = (typeof NAV_ITEMS)[number]['key'];
+type SidebarProps = Omit<ComponentPropsWithoutRef<'aside'>, 'children'>;
 
-type SidebarProps = {
-  /** 활성 내비 항목 */
-  activeKey?: SidebarNavKey;
-  onNavigate?: (key: SidebarNavKey) => void;
-  /** 로그인 사용자 이름 */
-  userName?: string;
-  /** 사용자 정보 조회 중일 때만 true. Skeleton은 이 값으로만 노출한다. */
-  isUserLoading?: boolean;
-} & Omit<ComponentPropsWithoutRef<'aside'>, 'children'>;
+/**
+ * 공통 사이드바. Figma Sidebar(176:59)
+ *
+ * 활성 내비 항목과 로그인 사용자는 props로 받지 않고 훅으로 직접 알아낸다.
+ * 어느 페이지에 놓이든 값이 같은 레이아웃 전역 관심사라,
+ * 페이지가 받아서 다시 내려주면 화면이 늘어날 때마다 같은 코드가 복사된다.
+ */
+function Sidebar({ className, ...props }: SidebarProps) {
+  const { activeNavKey, navigateTo } = useSidebarNav();
+  const { userName, isUserLoading } = useCurrentUser();
 
-/** 공통 사이드바. Figma Sidebar(176:59) */
-function Sidebar({
-  activeKey = 'stores',
-  onNavigate,
-  userName,
-  isUserLoading = false,
-  className,
-  ...props
-}: SidebarProps) {
   const initial = userName?.charAt(0);
 
   return (
@@ -49,8 +48,8 @@ function Sidebar({
             key={item.key}
             icon={item.icon}
             label={item.label}
-            active={activeKey === item.key}
-            onClick={() => onNavigate?.(item.key)}
+            active={activeNavKey === item.key}
+            onClick={() => navigateTo(item.key)}
           />
         ))}
       </nav>

@@ -11,10 +11,6 @@ import type {
   SurveyEvidence,
   TaskClassification,
 } from '../components/AgentSurveyResultCard';
-import { useCurrentUser } from './user';
-import type { UseCurrentUserResult } from './user';
-import { useSidebarNav } from './sidebarNav';
-import type { UseSidebarNavResult } from './sidebarNav';
 
 /** 백엔드 enum을 카드가 쓰는 소문자 값으로 옮긴다. */
 const CLASSIFICATION_MAP: Record<TaskClassificationResponse, TaskClassification> =
@@ -173,30 +169,27 @@ const FALLBACK_RESULT: JobResultResponse = {
   ],
 };
 
-export type UseAnalysisResultPageResult = UseSidebarNavResult &
-  UseCurrentUserResult & {
-    /** 브레드크럼에 표시할 조사 완료 시각. 없으면 undefined. */
-    finishedAtLabel: string | undefined;
-    /** 분류별 Task 목록. 화면의 세 섹션이 그대로 쓴다. */
-    groups: AnalysisTaskGroups;
-    /** 조사 결과 조회 중 여부. Skeleton 노출 여부에 쓰인다. */
-    isPending: boolean;
-    /** 조회 실패 여부. 목업 결과로 대체해 보여준다. */
-    isError: boolean;
-  };
+export type UseAnalysisResultPageResult = {
+  /** 브레드크럼에 표시할 조사 완료 시각. 없으면 undefined. */
+  finishedAtLabel: string | undefined;
+  /** 분류별 Task 목록. 화면의 세 섹션이 그대로 쓴다. */
+  groups: AnalysisTaskGroups;
+  /** 조사 결과 조회 중 여부. Skeleton 노출 여부에 쓰인다. */
+  isPending: boolean;
+  /** 조회 실패 여부. 목업 결과로 대체해 보여준다. */
+  isError: boolean;
+};
 
 /**
- * 분석 결과 페이지(AnalysisResultPage)가 쓰는 값 전부를 모은다.
+ * 분석 결과 페이지(AnalysisResultPage)가 쓰는 조사 결과를 모은다.
  *
  * 페이지는 이 훅 하나만 부르고 props로는 className만 받는다.
- * 조사 결과 조회는 여기서, 사이드바 내비와 사용자 정보는 useSidebarNav·useCurrentUser를
- * 합성해 함께 내려준다. 어느 가게 목록을 보는지는 URL(:jobId)이 정하므로
- * 훅이 직접 useParams로 읽는다.
+ * 어느 가게 목록을 보는지는 URL(:jobId)이 정하므로 훅이 직접 useParams로 읽는다.
+ * 사이드바 내비·로그인 사용자는 이 화면에만 걸린 관심사가 아니라
+ * 레이아웃 전역 값이라 Sidebar가 직접 부른다.
  */
 export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   const { jobId } = useParams<{ jobId?: string }>();
-  const sidebarNav = useSidebarNav();
-  const currentUser = useCurrentUser();
 
   const { data, isPending, isError } = useQuery({
     queryKey: ['jobResult', jobId ?? 'latest'],
@@ -207,8 +200,6 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   const result = isError ? FALLBACK_RESULT : data;
 
   return {
-    ...sidebarNav,
-    ...currentUser,
     finishedAtLabel: formatFinishedAt(result?.finishedAt ?? null),
     groups: groupByClassification(result?.tasks.map(toAnalysisTask) ?? []),
     isPending,
