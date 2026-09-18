@@ -6,6 +6,7 @@ import com.ktc4.backend.domain.business.service.BusinessLookupService;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
@@ -57,8 +58,9 @@ public class StoreService {
     /**
      * 가게 정보와 국세청 사업자 상태를 나란히 정리해 AI 1차 조사 자료를 만든다.
      *
-     * <p>둘이 같은지·다른지는 판정하지 않는다. 국세청의 폐업은 사업자 기준이라 실제 매장 폐업과 다를 수 있어,
-     * 판단은 AI 조사에 맡긴다. 결과는 저장하지 않고 가게 상태도 바꾸지 않는다.
+     * <p>두 상태가 같은지·어떻게 다른지는 값 비교라 코드가 계산해 담는다({@code StatusComparison}).
+     * 그 불일치가 실제 매장 폐업을 뜻하는지는 AI 조사에 맡긴다. 국세청의 폐업은 사업자 기준이라 실제와 다를 수 있다.
+     * 결과는 저장하지 않고 가게 상태도 바꾸지 않는다.
      *
      * <p>외부 API 를 기다리는 동안 DB 커넥션을 붙잡지 않도록 트랜잭션 없이 실행한다.
      *
@@ -84,31 +86,8 @@ public class StoreService {
                 .toList();
     }
 
-    /**
-     * 모든 가게의 정규화 값을 현재 규칙으로 다시 계산한다.
-     *
-     * <p>정규화 규칙을 바꿨거나, SQL·CSV 로 직접 넣어 정규화 값이 틀릴 수 있을 때 실행한다.
-     * 전체를 한 번에 메모리에 올리므로 가게 수가 수만 건을 넘으면 나눠 처리하도록 바꿔야 한다.
-     *
-     * @return 정규화 값이 실제로 바뀐 가게 수
-     */
-    @Transactional
-    public int renormalizeAll() {
-        int changed = 0;
-        for (Store store : storeRepository.findAll()) {
-            String bizNo = BizNoNormalizer.normalize(store.getBizNo());
-            boolean updated = store.updateNormalized(
-                    StoreNormalizer.normalizeName(store.getName()),
-                    StoreNormalizer.normalizeAddress(store.getAddressRoad()),
-                    bizNo.isEmpty() ? null : bizNo);
-            if (updated) {
-                changed++;
-            }
-        }
-        return changed;
-    }
-
-    // 국세청 조회를 100건씩 나눠 수행한다. 한 묶음이 실패하면 그 묶음의 번호만 결과에서 빠진다.
+    // 국세청 조회를 100건씩 나눠 수행한다. 한 묶음이 실패하면 그 묶음의 번호만 결과에서 빠지고,
+    // 해당 가게는 toCheckResponse 에서 UNCONFIRMED 로 기록된다.
     private Map<String, BusinessStatus> lookupNtsStatuses(List<String> bizNos) {
         Map<String, BusinessStatus> result = new HashMap<>();
         for (int from = 0; from < bizNos.size(); from += NTS_BATCH_SIZE) {
@@ -137,11 +116,17 @@ public class StoreService {
         }
     }
 
+    // 조회하지 않은 가게(NO_BIZ_NO)와 조회했지만 답을 못 받은 가게(UNCONFIRMED)를 구분해 둔다.
+    // 앞은 데이터를 고쳐야 하고, 뒤는 다시 조회하면 확인될 수 있어서 대응이 다르다.
     private StoreCheckResponse toCheckResponse(Store store, Map<String, BusinessStatus> ntsStatuses) {
-        BusinessStatus nts = ntsStatuses.get(BizNoNormalizer.normalize(store.getBizNo()));
-        if (nts == null) {
-            return StoreCheckResponse.of(store, null, null);
+        String bizNo = BizNoNormalizer.normalize(store.getBizNo());
+        if (!BizNoNormalizer.isValid(bizNo)) {
+            return StoreCheckResponse.of(store, NtsLookupResult.NO_BIZ_NO, null);
         }
-        return StoreCheckResponse.of(store, nts.state(), nts.closedAt());
+        BusinessStatus nts = ntsStatuses.get(bizNo);
+        if (nts == null) {
+            return StoreCheckResponse.of(store, NtsLookupResult.UNCONFIRMED, null);
+        }
+        return StoreCheckResponse.of(store, NtsLookupResult.CONFIRMED, nts);
     }
 }
