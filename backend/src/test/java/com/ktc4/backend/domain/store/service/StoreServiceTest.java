@@ -102,6 +102,7 @@ class StoreServiceTest {
         assertThat(response.ntsStatus()).isEqualTo(BusinessState.CLOSED);
         assertThat(response.ntsClosedAt()).isEqualTo(LocalDate.of(2026, 3, 1));
         assertThat(response.statusComparison()).isEqualTo(StatusComparison.OPEN_BUT_CLOSED);
+        assertThat(response.statusMismatch()).isTrue();
         assertThat(response.bizNo()).isEqualTo("123-45-67890");
     }
 
@@ -119,6 +120,7 @@ class StoreServiceTest {
             assertThat(response.ntsLookup()).isEqualTo(NtsLookupResult.NO_BIZ_NO);
             assertThat(response.ntsStatus()).isNull();
             assertThat(response.statusComparison()).isEqualTo(StatusComparison.NOT_COMPARABLE);
+            assertThat(response.statusMismatch()).isFalse();
         });
         verify(businessLookupService, never()).getNtsStatuses(anyList());
     }
@@ -167,6 +169,7 @@ class StoreServiceTest {
         assertThat(responses.get(0).ntsLookup()).isEqualTo(NtsLookupResult.UNCONFIRMED);
         assertThat(responses.get(1).ntsLookup()).isEqualTo(NtsLookupResult.CONFIRMED);
         assertThat(responses.get(1).statusComparison()).isEqualTo(StatusComparison.MATCH);
+        assertThat(responses.get(1).statusMismatch()).isFalse();
     }
 
     @Test
@@ -226,6 +229,7 @@ class StoreServiceTest {
         assertThat(response.ntsLookup()).isEqualTo(NtsLookupResult.CONFIRMED);
         assertThat(response.ntsStatus()).isEqualTo(BusinessState.CLOSED);
         assertThat(response.statusComparison()).isEqualTo(StatusComparison.NOT_COMPARABLE);
+        assertThat(response.statusMismatch()).isFalse();
     }
 
     @Test
