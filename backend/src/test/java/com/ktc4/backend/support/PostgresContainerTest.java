@@ -33,8 +33,10 @@ import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTest
 @Import(JpaAuditingConfig.class)
 public abstract class PostgresContainerTest {
 
+    // public 인 이유: Repository 슬라이스가 아닌 테스트(@SpringBootTest 컨텍스트 스모크 테스트)도
+    // 같은 컨테이너 하나를 그대로 재사용하기 위해서다. 테스트마다 따로 띄우면 Postgres 가 여러 개 뜬다.
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");
+    public static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");
 
     static {
         POSTGRES.start();

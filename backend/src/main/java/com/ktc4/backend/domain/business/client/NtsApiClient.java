@@ -23,9 +23,6 @@ import org.springframework.web.client.RestClientException;
 public class NtsApiClient implements NtsClient {
 
     private static final Pattern NON_DIGIT_PATTERN = Pattern.compile("\\D");
-    // 국세청 API 자체 제한: 1회 호출당 최대 100건 (실제 호출로 확인함 — 100건은 정상 처리,
-    // 101건은 HTTP 413 Payload Too Large로 거절됨).
-    private static final int MAX_BATCH_SIZE = 100;
 
     private final RestClient restClient;
     private final String serviceKey;

@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.store.service;
 
+import com.ktc4.backend.domain.business.client.NtsClient;
 import com.ktc4.backend.domain.business.dto.BusinessStatus;
 import com.ktc4.backend.domain.business.dto.NtsBusinessStatus;
 import com.ktc4.backend.domain.business.service.BusinessLookupService;
@@ -32,9 +33,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class StoreService {
-
-    // 국세청 API 가 1회 호출당 받는 최대 건수. 한 묶음이 실패해도 나머지는 살리려고 직접 나눠 호출한다.
-    private static final int NTS_BATCH_SIZE = 100;
 
     private final StoreRepository storeRepository;
     private final BusinessLookupService businessLookupService;
@@ -86,12 +84,13 @@ public class StoreService {
                 .toList();
     }
 
-    // 국세청 조회를 100건씩 나눠 수행한다. 한 묶음이 실패하면 그 묶음의 번호만 결과에서 빠지고,
+    // 국세청 조회를 API 한도(NtsClient.MAX_BATCH_SIZE)만큼씩 나눠 수행한다. 한 묶음이 실패하면 그 묶음의 번호만 결과에서 빠지고,
     // 해당 가게는 toCheckResponse 에서 UNCONFIRMED 로 기록된다.
     private Map<String, BusinessStatus> lookupNtsStatuses(List<String> bizNos) {
         Map<String, BusinessStatus> result = new HashMap<>();
-        for (int from = 0; from < bizNos.size(); from += NTS_BATCH_SIZE) {
-            List<String> chunk = bizNos.subList(from, Math.min(from + NTS_BATCH_SIZE, bizNos.size()));
+        for (int from = 0; from < bizNos.size(); from += NtsClient.MAX_BATCH_SIZE) {
+            List<String> chunk = bizNos.subList(from,
+                    Math.min(from + NtsClient.MAX_BATCH_SIZE, bizNos.size()));
             try {
                 collect(businessLookupService.getNtsStatuses(chunk), Set.copyOf(chunk), result);
             } catch (CustomException e) {
