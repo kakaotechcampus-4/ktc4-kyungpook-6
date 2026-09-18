@@ -4,7 +4,9 @@
          → 주소가 다른 지역이면 기각 / 번호가 있으면 역조회 / 아니면 이름 검색
          → 비즈노 결과를 모아 등급 판정
 
-지표는 **도달률**(후보 안에 정답 번호가 있는가)과 **오염률**(후보 1건으로 확정했는데 틀린가)이다.
+지표는 **도달률**(후보 안에 정답 번호가 있는가)과 **오염률**(확실하다고 표시한 것 중 틀린
+비율)이다. 오염률의 분모는 전체가 아니라 **`is_unambiguous` 표시가 붙은 건수**다 — 전체로
+나누면 아무것도 표시하지 않을수록 지표가 좋아진다.
 채택 정책은 의도적으로 단순하다 — 비즈노에 주소가 없어 여러 건 중 하나를 고를 근거가 없다.
 
 **파싱 실패율도 함께 잰다.** 그라운딩 검색을 켜면 응답 형식을 강제할 수 없는데(`vertex.py`),
@@ -31,7 +33,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.biz_number.bizno import PAGE_SIZE, BiznoClient, BiznoError, BiznoRecord, digits_only, is_well_formed
+from src.biz_number.bizno import (
+    DEFAULT_MAX_PAGES,
+    PAGE_SIZE,
+    BiznoClient,
+    BiznoError,
+    BiznoRecord,
+    digits_only,
+    is_well_formed,
+)
 from src.biz_number.matching import address_conflicts, suggest
 from src.biz_number.web_search import (
     CANDIDATES_PROMPT_VERSION,
@@ -253,6 +263,11 @@ def main() -> int:
 
     reached = contaminated = counted = no_candidate = 0
     excluded = total_rejected = 0
+    # 오염률의 분모. 전체(`counted`)로 나누면 "표시를 적게 할수록 좋아지는" 지표가 된다.
+    flagged = 0
+    # 상한(`max_pages`)에 걸려 잘린 조회 수. 풀이 잘리면 등급·동점 판정이 달라져
+    # 오염률이 흔들린다 — 수치를 읽을 때 필요한 측정 조건이다.
+    truncated_lookups = 0
     # 실패율의 분모는 `counted`가 아니라 `called`다 — 캐시 히트는 호출이 없어 깨질 일도 없다.
     called = parse_failed_cases = parse_recovered = parse_dead = 0
     api_failed_cases = api_dead = 0
@@ -305,7 +320,9 @@ def main() -> int:
                 if record is not None:
                     pooled.append(record)
                     continue
-            found, _ = bizno.search_by_name(candidate.name)
+            found, complete = bizno.search_by_name(candidate.name)
+            if not complete:
+                truncated_lookups += 1
             pooled.extend(found)
 
         s = suggest(name, pooled)
@@ -320,8 +337,10 @@ def main() -> int:
             counted += 1
             if hit:
                 reached += 1
-            if s.is_unambiguous and s.best and digits_only(s.best.record.bizno) != expected:
-                contaminated += 1
+            if s.is_unambiguous:
+                flagged += 1
+                if s.best and digits_only(s.best.record.bizno) != expected:
+                    contaminated += 1
             if not candidates:
                 no_candidate += 1
             total_rejected += rejected
@@ -340,9 +359,19 @@ def main() -> int:
     if counted:
         print(f"집계 대상 {counted}건 (E유형 {excluded}건 제외)")
         print(f"  번호 도달률   {reached}/{counted} = {reached / counted:.1%}")
-        print(f"  오염률        {contaminated}/{counted} = {contaminated / counted:.1%}")
+        if flagged:
+            print(
+                f"  오염률        {contaminated}/{flagged} = {contaminated / flagged:.1%}"
+                f"  (확실 표시가 붙은 건 중 오답)"
+            )
+        else:
+            print("  오염률        측정 불가 — 확실 표시가 붙은 건이 0건이다")
         print(f"  후보 0건      {no_candidate}/{counted}")
         print(f"  주소 불일치로 기각한 후보  {total_rejected}개")
+        print(
+            f"  측정 조건     비즈노 max_pages={DEFAULT_MAX_PAGES},"
+            f" 상한에 걸려 잘린 조회 {truncated_lookups}건"
+        )
 
     # 형식 강제를 못 쓰는 대가. 도달률과 분모가 다르므로(캐시 히트 제외) 따로 출력한다.
     if called:
