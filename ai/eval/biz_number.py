@@ -236,7 +236,20 @@ def build_provider(model: str, rows: list[dict]):
     return MODEL_FACTORIES[model]()
 
 
+def _force_utf8_output() -> None:
+    """리포트를 UTF-8로 내보낸다.
+
+    윈도우 기본 콘솔이 cp949라 리포트에 섞인 문자 일부(`—` 등)에서
+    UnicodeEncodeError로 죽는다. 수치와 캐시 저장은 그 전에 끝나므로 데이터가 날아가진
+    않지만, 측정 결과를 다 찍기 전에 트레이스백이 나는 건 곤란하다.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    _force_utf8_output()
     parser = argparse.ArgumentParser(description="웹검색 후보 생성 방식 측정")
     parser.add_argument(
         "--model", default="mock", help="mock | oracle | 벤치마크 모델명. 기본 mock (과금 없음)"
