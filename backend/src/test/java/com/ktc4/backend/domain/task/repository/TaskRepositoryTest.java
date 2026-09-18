@@ -60,7 +60,7 @@ class TaskRepositoryTest extends PostgresContainerTest {
         Task task = Task.builder()
                 .job(job)
                 .store(store)
-                .classification(TaskClassification.TASK_HIGH)
+                .classification(TaskClassification.PRIORITY_CHECK)
                 .build();
 
         Long savedId = entityManager.persistAndFlush(task).getTaskId();
@@ -70,7 +70,7 @@ class TaskRepositoryTest extends PostgresContainerTest {
 
         assertThat(found.getJob().getJobId()).isEqualTo(job.getJobId());
         assertThat(found.getStore().getStoreId()).isEqualTo(store.getStoreId());
-        assertThat(found.getClassification()).isEqualTo(TaskClassification.TASK_HIGH);
+        assertThat(found.getClassification()).isEqualTo(TaskClassification.PRIORITY_CHECK);
         assertThat(found.getProposedChanges()).isNull();
     }
 
@@ -80,7 +80,7 @@ class TaskRepositoryTest extends PostgresContainerTest {
         Task task = Task.builder()
                 .job(job)
                 .store(store)
-                .classification(TaskClassification.TASK_LOW)
+                .classification(TaskClassification.ADDITIONAL_CHECK)
                 .proposedChanges(changes)
                 .build();
 
@@ -111,7 +111,7 @@ class TaskRepositoryTest extends PostgresContainerTest {
     void job이_없으면_저장에_실패한다() {
         Task task = Task.builder()
                 .store(store)
-                .classification(TaskClassification.TASK_NONE)
+                .classification(TaskClassification.NO_CHANGE)
                 .build();
 
         assertThatThrownBy(() -> taskRepository.saveAndFlush(task))
@@ -122,7 +122,7 @@ class TaskRepositoryTest extends PostgresContainerTest {
     void store가_없으면_저장에_실패한다() {
         Task task = Task.builder()
                 .job(job)
-                .classification(TaskClassification.TASK_NONE)
+                .classification(TaskClassification.NO_CHANGE)
                 .build();
 
         assertThatThrownBy(() -> taskRepository.saveAndFlush(task))
@@ -147,7 +147,7 @@ class TaskRepositoryTest extends PostgresContainerTest {
         Task task = Task.builder()
                 .job(nonExistentJob)
                 .store(store)
-                .classification(TaskClassification.TASK_NONE)
+                .classification(TaskClassification.NO_CHANGE)
                 .build();
 
         assertThatThrownBy(() -> taskRepository.saveAndFlush(task))
