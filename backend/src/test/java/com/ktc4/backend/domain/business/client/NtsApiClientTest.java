@@ -1,16 +1,21 @@
 package com.ktc4.backend.domain.business.client;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.ktc4.backend.domain.business.dto.NtsBusinessStatus;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,6 +45,8 @@ class NtsApiClientTest {
 
     private MockRestServiceServer mockServer;
     private NtsApiClient ntsApiClient;
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger ntsApiClientLogger;
 
     @BeforeEach
     void setUp() {
@@ -47,6 +54,16 @@ class NtsApiClientTest {
         mockServer = MockRestServiceServer.bindTo(builder).build();
         RestClient restClient = builder.build();
         ntsApiClient = new NtsApiClient(restClient, SERVICE_KEY);
+
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        ntsApiClientLogger = (Logger) LoggerFactory.getLogger(NtsApiClient.class);
+        ntsApiClientLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ntsApiClientLogger.detachAppender(logAppender);
     }
 
     @Test
@@ -208,6 +225,10 @@ class NtsApiClientTest {
                 .isInstanceOf(CustomException.class)
                 .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INVALID_REQUEST));
+
+        // 예외 응답엔 원인이 안 담기므로(ErrorCode 고정 메시지), 서버 로그에 이유가 남는지 확인한다.
+        assertThat(logAppender.list)
+                .anySatisfy(event -> assertThat(event.getLevel()).isEqualTo(Level.WARN));
     }
 
     @Test
@@ -228,32 +249,170 @@ class NtsApiClientTest {
     }
 
     @Test
-    void 사업자번호가_100건을_넘으면_100건씩_나눠서_호출하고_순서대로_이어붙여서_반환한다() {
+    void 사업자번호가_정확히_100건이면_분할_없이_한_번만_호출한다() {
         // 국세청 API 자체가 1회 최대 100건까지만 받는다(실제 호출로 확인: 101건은 413 거절).
-        // 150건을 넘기면 100+50으로 두 번 호출되고, 결과가 입력 순서 그대로 이어붙어야 한다.
-        List<String> firstChunk = bizNoRange(0, 100);
-        List<String> secondChunk = bizNoRange(100, 50);
+        // 분할 책임은 상위(배치/호출자)로 넘겼으므로, 100건까지는 그대로 한 번에 보낸다.
+        List<String> bizNos = bizNoRange(0, 100);
 
         mockServer.expect(requestTo(EXPECTED_REQUEST_URI))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(content().json(toRequestJson(firstChunk)))
-                .andRespond(withSuccess(toResponseJson(firstChunk), MediaType.APPLICATION_JSON));
-        mockServer.expect(requestTo(EXPECTED_REQUEST_URI))
-                .andExpect(method(HttpMethod.POST))
-                .andExpect(content().json(toRequestJson(secondChunk)))
-                .andRespond(withSuccess(toResponseJson(secondChunk), MediaType.APPLICATION_JSON));
+                .andExpect(content().json(toRequestJson(bizNos)))
+                .andRespond(withSuccess(toResponseJson(bizNos), MediaType.APPLICATION_JSON));
 
-        List<String> allBizNos = new ArrayList<>(firstChunk);
-        allBizNos.addAll(secondChunk);
+        List<NtsBusinessStatus> result = ntsApiClient.getStatuses(bizNos);
 
-        List<NtsBusinessStatus> result = ntsApiClient.getStatuses(allBizNos);
-
-        assertThat(result).hasSize(150);
-        assertThat(result.get(0).bNo()).isEqualTo(firstChunk.get(0));
-        assertThat(result.get(99).bNo()).isEqualTo(firstChunk.get(99));
-        assertThat(result.get(100).bNo()).isEqualTo(secondChunk.get(0));
-        assertThat(result.get(149).bNo()).isEqualTo(secondChunk.get(49));
+        assertThat(result).hasSize(100);
+        assertThat(result.get(0).bNo()).isEqualTo(bizNos.get(0));
+        assertThat(result.get(99).bNo()).isEqualTo(bizNos.get(99));
         mockServer.verify();
+    }
+
+    @Test
+    void 사업자번호가_100건을_넘으면_API를_호출하지_않고_INVALID_REQUEST_예외를_던진다() {
+        // 분할 루프를 지웠으므로 100건 초과는 더 이상 자동으로 나눠 처리하지 않고, 호출자가 나눠서
+        // 넘기도록 그 자리에서 막는다. mockServer에 expectation을 등록하지 않았으므로, 만약 코드가
+        // 실제로 HTTP 호출을 시도하면 AssertionError가 나서 이 테스트가 실패한다 — 즉 테스트가
+        // CustomException으로 끝난다는 것 자체가 "호출을 시도하지 않았다"는 증거다.
+        List<String> tooManyBizNos = bizNoRange(0, 101);
+
+        assertThatThrownBy(() -> ntsApiClient.getStatuses(tooManyBizNos))
+                .isInstanceOf(CustomException.class)
+                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_REQUEST));
+
+        assertThat(logAppender.list)
+                .anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(event.getFormattedMessage()).contains("101");
+                });
+    }
+
+    @Test
+    void 응답의_request_cnt가_요청_건수와_다르면_경고_로그를_남긴다() {
+        // 실제 요청은 2건인데 응답 request_cnt가 1건이라고 답하는, 응답이 덜 온 상황을 재현한다.
+        mockServer.expect(requestTo(EXPECTED_REQUEST_URI))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"b_no\":[\"3058148738\",\"1058148739\"]}"))
+                .andRespond(withSuccess("""
+                        {
+                          "request_cnt": 1,
+                          "match_cnt": 1,
+                          "status_code": "OK",
+                          "data": [
+                            {
+                              "b_no": "3058148738",
+                              "b_stt": "계속사업자",
+                              "b_stt_cd": "01",
+                              "tax_type": "",
+                              "tax_type_cd": "",
+                              "end_dt": "",
+                              "utcc_yn": "",
+                              "tax_type_change_dt": "",
+                              "invoice_apply_dt": "",
+                              "rbf_tax_type": "",
+                              "rbf_tax_type_cd": ""
+                            }
+                          ]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        List<NtsBusinessStatus> result = ntsApiClient.getStatuses(List.of("3058148738", "1058148739"));
+
+        // 응답이 짧아져도 받은 만큼은 그대로 반환해야 한다 — WARN 로그가 데이터 경로를 끊지 않는지 확인.
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).bNo()).isEqualTo("3058148738");
+        assertThat(logAppender.list)
+                .anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                    // 인자 순서가 바뀌어도 우연히 통과하지 않도록, 값이 박힌 자리까지 같이 확인한다.
+                    assertThat(event.getFormattedMessage()).contains("요청 2건").contains("request_cnt 1건");
+                });
+    }
+
+    @Test
+    void 응답에_request_cnt_필드가_없으면_예외_없이_정상_처리한다() {
+        // request_cnt는 nullable(Integer)로 매핑돼 있다 — 필드 자체가 없는 응답에서 언박싱 NPE가
+        // 나지 않는지 확인한다.
+        mockServer.expect(requestTo(EXPECTED_REQUEST_URI))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"b_no\":[\"3058148738\"]}"))
+                .andRespond(withSuccess("""
+                        {
+                          "status_code": "OK",
+                          "data": [
+                            {
+                              "b_no": "3058148738",
+                              "b_stt": "계속사업자",
+                              "b_stt_cd": "01",
+                              "tax_type": "",
+                              "tax_type_cd": "",
+                              "end_dt": "",
+                              "utcc_yn": "",
+                              "tax_type_change_dt": "",
+                              "invoice_apply_dt": "",
+                              "rbf_tax_type": "",
+                              "rbf_tax_type_cd": ""
+                            }
+                          ]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        List<NtsBusinessStatus> result = ntsApiClient.getStatuses(List.of("3058148738"));
+
+        assertThat(result).hasSize(1);
+        assertThat(logAppender.list).noneMatch(event -> event.getLevel() == Level.WARN);
+    }
+
+    @Test
+    void 응답에_data_필드가_없으면_경고_로그를_남기고_빈_리스트를_반환한다() {
+        // HTTP 는 200으로 성공했지만 바디에 data 필드 자체가 없는 경우(게이트웨이 이상 등) —
+        // "조회 대상 0건이라 결과 없음"과 구분되지 않은 채 조용히 빈 리스트만 돌아가면 안 된다.
+        mockServer.expect(requestTo(EXPECTED_REQUEST_URI))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("""
+                        {
+                          "status_code": "OK"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        List<NtsBusinessStatus> result = ntsApiClient.getStatuses(List.of("3058148738"));
+
+        assertThat(result).isEmpty();
+        assertThat(logAppender.list)
+                .anySatisfy(event -> assertThat(event.getLevel()).isEqualTo(Level.WARN));
+    }
+
+    @Test
+    void 응답의_request_cnt가_요청_건수와_같으면_경고_로그를_남기지_않는다() {
+        mockServer.expect(requestTo(EXPECTED_REQUEST_URI))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"b_no\":[\"3058148738\"]}"))
+                .andRespond(withSuccess("""
+                        {
+                          "request_cnt": 1,
+                          "match_cnt": 1,
+                          "status_code": "OK",
+                          "data": [
+                            {
+                              "b_no": "3058148738",
+                              "b_stt": "계속사업자",
+                              "b_stt_cd": "01",
+                              "tax_type": "",
+                              "tax_type_cd": "",
+                              "end_dt": "",
+                              "utcc_yn": "",
+                              "tax_type_change_dt": "",
+                              "invoice_apply_dt": "",
+                              "rbf_tax_type": "",
+                              "rbf_tax_type_cd": ""
+                            }
+                          ]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        ntsApiClient.getStatuses(List.of("3058148738"));
+
+        assertThat(logAppender.list).noneMatch(event -> event.getLevel() == Level.WARN);
     }
 
     private static List<String> bizNoRange(int start, int count) {
