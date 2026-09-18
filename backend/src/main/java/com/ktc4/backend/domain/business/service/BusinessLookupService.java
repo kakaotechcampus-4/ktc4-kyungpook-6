@@ -37,12 +37,11 @@ public class BusinessLookupService {
      * 국세청 사업자등록 상태조회 API를 호출하여 사업자등록번호 목록의 상태를 그대로 반환한다.
      *
      * <p>매칭되지 않은 사업자등록번호도 결과 목록에서 빠지지 않고, 상태 관련 필드가 빈 문자열로
-     * 채워진 채 포함된다(자세한 계약은 {@link com.ktc4.backend.domain.business.client.NtsClient}
-     * 참고).
+     * 채워진 채 포함된다(자세한 계약과 100건 제한·1:1 대응 예외 상황은
+     * {@link com.ktc4.backend.domain.business.client.NtsClient} 참고).
      *
-     * @param bizNos 조회할 사업자등록번호 목록 (하이픈 포함 여부 무관, 건수 제한 없음 — 100건
-     *               초과 시 내부적으로 자동 분할 호출됨)
-     * @return 입력 목록과 1:1로 대응하는 사업자등록 상태 목록(원본 그대로)
+     * @param bizNos 조회할 사업자등록번호 목록 (하이픈 포함 여부 무관, 최대 100건 — 넘으면 예외)
+     * @return 정상적인 경우 입력 목록과 1:1로 대응하는 사업자등록 상태 목록(원본 그대로)
      */
     public List<NtsBusinessStatus> getNtsStatuses(List<String> bizNos) {
         return ntsClient.getStatuses(bizNos);
