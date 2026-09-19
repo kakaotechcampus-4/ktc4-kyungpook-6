@@ -4,8 +4,13 @@
          → 주소가 다른 지역이면 기각 / 번호가 있으면 역조회 / 아니면 이름 검색
          → 비즈노 결과를 모아 등급 판정
 
-지표는 **도달률**(후보 안에 정답 번호가 있는가)과 **오염률**(후보 1건으로 확정했는데 틀린가)이다.
+지표는 **도달률**(후보 안에 정답 번호가 있는가)과 **오염률**(확실하다고 표시한 것 중 틀린
+비율)이다. 오염률의 분모는 전체가 아니라 **`is_unambiguous` 표시가 붙은 건수**다 — 전체로
+나누면 아무것도 표시하지 않을수록 지표가 좋아진다.
 채택 정책은 의도적으로 단순하다 — 비즈노에 주소가 없어 여러 건 중 하나를 고를 근거가 없다.
+
+**파싱 실패율도 함께 잰다.** 그라운딩 검색을 켜면 응답 형식을 강제할 수 없는데(`vertex.py`),
+그 대가가 얼마인지는 관측하지 않으면 모른다. 재시도가 가려주기 전 수치를 센다.
 
 `--model oracle`은 정답 이름을 후보로 넣어 **상한선**을 잰다. LLM 과금이 없다.
 응답은 `eval/.cache/`에 저장하므로 재실행은 공짜다 — 비즈노 무료 티어가 1일 200건이라 중요하다.
@@ -23,12 +28,20 @@ import argparse
 import csv
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.biz_number.bizno import PAGE_SIZE, BiznoClient, BiznoError, BiznoRecord, digits_only, is_well_formed
+from src.biz_number.bizno import (
+    DEFAULT_MAX_PAGES,
+    PAGE_SIZE,
+    BiznoClient,
+    BiznoError,
+    BiznoRecord,
+    digits_only,
+    is_well_formed,
+)
 from src.biz_number.matching import address_conflicts, suggest
 from src.biz_number.web_search import (
     CANDIDATES_PROMPT_VERSION,
@@ -125,8 +138,24 @@ def is_contaminated(row: dict) -> bool:
     return (row.get("유형") or "").strip().startswith("E")
 
 
-def fetch_candidates(provider, name: str, address: str, cache: dict) -> tuple[list | None, str]:
-    """후보를 캐시에서 읽거나 호출한다. `(후보목록, 실패사유)` — 실패면 후보가 None이다.
+@dataclass(frozen=True)
+class FetchResult:
+    """후보 조회 한 건의 결과. **시도 단위 실패를 함께 들고 온다.**
+
+    성공/실패만 돌려주면 재시도가 가려준 실패가 집계에서 사라진다 — 1차가 깨지고 2차가
+    성공한 건이 "실패 0건"으로 보인다. 그러면 리포트가 말할 수 있는 건 "2회 안에는 됐다"
+    뿐이고, 형식 강제를 포기한 대가가 실제로 얼마인지는 여전히 모른다.
+    """
+
+    candidates: list | None  # None이면 모든 시도가 실패했다
+    failure: str  # 마지막 실패 사유. 성공이면 빈 문자열
+    called: bool  # 실제로 모델을 불렀는가. 캐시 히트면 False — 실패율의 분모에서 빠진다
+    parse_failures: int = 0  # 이 건에서 파싱이 깨진 시도 수
+    api_failures: int = 0  # 이 건에서 벤더 API가 실패한 시도 수
+
+
+def fetch_candidates(provider, name: str, address: str, cache: dict) -> FetchResult:
+    """후보를 캐시에서 읽거나 호출한다. 실패해도 **무엇이 몇 번 깨졌는지** 함께 돌려준다.
 
     **파싱 실패는 캐시하지 않는다.** 예전에는 실패를 `[]`로 저장해서 세 가지가 겹쳤다.
       - 일시적 실패가 영구 캐시돼 다음 실행에서 재시도되지 않았다
@@ -134,10 +163,12 @@ def fetch_candidates(provider, name: str, address: str, cache: dict) -> tuple[li
       - 리포트에 잡히지 않아 실패율을 알 수 없었다
 
     검색 도구를 쓰면 JSON 스키마를 강제할 수 없어 형식 이탈이 구조적으로 가능하다.
-    LLM은 비결정적이라 같은 프롬프트로 다시 부르면 성공하는 경우가 많아 한 번 더 시도한다.
+    그래서 한 번 더 시도하되, **재시도가 살려낸 건수도 세어서 올려보낸다** — 재시도가
+    실제로 값을 하는지, 2단계 분리(검색 ON → 검색 OFF + 스키마 강제)까지 가야 하는지는
+    그 수치로 판단할 일이다.
     """
     if name in cache:
-        return cache[name], ""
+        return FetchResult(candidates=cache[name], failure="", called=False)
 
     # 벤더 API 에러(레이트리밋·인증 만료·쿼터)는 파싱 실패와 원인이 다르다. 예전에는
     # 잡지 않아서 한 건이 터지면 실행 전체가 죽었고, 캐시가 마지막에 한 번만 저장되던
@@ -145,18 +176,21 @@ def fetch_candidates(provider, name: str, address: str, cache: dict) -> tuple[li
     # 사유는 구분해서 돌려준다 — 형식 문제와 인프라 문제를 같은 지표로 세면 안 된다.
     api_errors = _vendor_api_errors()
     last_error = ""
+    parse_failures = api_failures = 0
     for _ in range(LLM_ATTEMPTS):
         try:
             candidates = [asdict(c) for c in provider.search_name_candidates(name, address)]
         except CandidateParseError as e:
+            parse_failures += 1
             last_error = f"파싱:{e}"
             continue
         except api_errors as e:  # noqa: B030 - 런타임에 결정되는 예외 튜플
+            api_failures += 1
             last_error = f"API:{type(e).__name__}: {e}"
             continue
         cache[name] = candidates
-        return candidates, ""
-    return None, last_error
+        return FetchResult(candidates, "", True, parse_failures, api_failures)
+    return FetchResult(None, last_error, True, parse_failures, api_failures)
 
 
 class _OracleProvider:
@@ -202,7 +236,20 @@ def build_provider(model: str, rows: list[dict]):
     return MODEL_FACTORIES[model]()
 
 
+def _force_utf8_output() -> None:
+    """리포트를 UTF-8로 내보낸다.
+
+    윈도우 기본 콘솔이 cp949라 리포트에 섞인 문자 일부(`—` 등)에서
+    UnicodeEncodeError로 죽는다. 수치와 캐시 저장은 그 전에 끝나므로 데이터가 날아가진
+    않지만, 측정 결과를 다 찍기 전에 트레이스백이 나는 건 곤란하다.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    _force_utf8_output()
     parser = argparse.ArgumentParser(description="웹검색 후보 생성 방식 측정")
     parser.add_argument(
         "--model", default="mock", help="mock | oracle | 벤치마크 모델명. 기본 mock (과금 없음)"
@@ -228,7 +275,15 @@ def main() -> int:
     bizno = CachedBizno(BiznoClient(), bizno_cache)
 
     reached = contaminated = counted = no_candidate = 0
-    excluded = total_rejected = parse_failures = api_failures = 0
+    excluded = total_rejected = 0
+    # 오염률의 분모. 전체(`counted`)로 나누면 "표시를 적게 할수록 좋아지는" 지표가 된다.
+    flagged = 0
+    # 상한(`max_pages`)에 걸려 잘린 조회 수. 풀이 잘리면 등급·동점 판정이 달라져
+    # 오염률이 흔들린다 — 수치를 읽을 때 필요한 측정 조건이다.
+    truncated_lookups = 0
+    # 실패율의 분모는 `counted`가 아니라 `called`다 — 캐시 히트는 호출이 없어 깨질 일도 없다.
+    called = parse_failed_cases = parse_recovered = parse_dead = 0
+    api_failed_cases = api_dead = 0
 
     print(f"모델: {args.model}\n")
     print(f"{'상호명':<24} {'후보':<5} {'주소기각':<7} {'비즈노':<7} {'최고등급':<20} {'도달':<5}")
@@ -237,20 +292,31 @@ def main() -> int:
     for row in rows:
         name, address = row["상호명"], row["정제도로명주소"] or row["정제지번주소"]
 
-        raw_candidates, failure = fetch_candidates(provider, name, address, llm_cache)
+        result = fetch_candidates(provider, name, address, llm_cache)
         # 호출 결과를 바로 저장한다. 실행이 중간에 죽어도 이미 산 응답은 지킨다.
         _save(LLM_CACHE_PATH, all_llm)
-        if raw_candidates is None:
+
+        if result.called:
+            called += 1
+            # 최종 성공했어도 중간에 깨졌으면 센다 — 이게 재시도가 가려주던 수치다.
+            if result.parse_failures:
+                parse_failed_cases += 1
+                if result.candidates is not None:
+                    parse_recovered += 1
+            if result.api_failures:
+                api_failed_cases += 1
+
+        if result.candidates is None:
             counted += 0 if is_contaminated(row) else 1
-            if failure.startswith("API:"):
-                api_failures += 1
+            if result.failure.startswith("API:"):
+                api_dead += 1
                 label = "API 실패"
             else:
-                parse_failures += 1
+                parse_dead += 1
                 label = "파싱 실패"
-            print(f"{name[:22]:<24} [{label} {LLM_ATTEMPTS}회] {failure[:60]}")
+            print(f"{name[:22]:<24} [{label} {LLM_ATTEMPTS}회] {result.failure[:60]}")
             continue
-        candidates = [NameCandidate(**c) for c in raw_candidates]
+        candidates = [NameCandidate(**c) for c in result.candidates]
 
         # 후보를 끝까지 전부 처리한다 — 어느 게 맞는지 모르므로 먼저 찾았다고 멈추지 않는다.
         pooled: list[BiznoRecord] = []
@@ -267,7 +333,9 @@ def main() -> int:
                 if record is not None:
                     pooled.append(record)
                     continue
-            found, _ = bizno.search_by_name(candidate.name)
+            found, complete = bizno.search_by_name(candidate.name)
+            if not complete:
+                truncated_lookups += 1
             pooled.extend(found)
 
         s = suggest(name, pooled)
@@ -282,8 +350,10 @@ def main() -> int:
             counted += 1
             if hit:
                 reached += 1
-            if s.is_unambiguous and s.best and digits_only(s.best.record.bizno) != expected:
-                contaminated += 1
+            if s.is_unambiguous:
+                flagged += 1
+                if s.best and digits_only(s.best.record.bizno) != expected:
+                    contaminated += 1
             if not candidates:
                 no_candidate += 1
             total_rejected += rejected
@@ -302,14 +372,35 @@ def main() -> int:
     if counted:
         print(f"집계 대상 {counted}건 (E유형 {excluded}건 제외)")
         print(f"  번호 도달률   {reached}/{counted} = {reached / counted:.1%}")
-        print(f"  오염률        {contaminated}/{counted} = {contaminated / counted:.1%}")
+        if flagged:
+            print(
+                f"  오염률        {contaminated}/{flagged} = {contaminated / flagged:.1%}"
+                f"  (확실 표시가 붙은 건 중 오답)"
+            )
+        else:
+            print("  오염률        측정 불가 — 확실 표시가 붙은 건이 0건이다")
         print(f"  후보 0건      {no_candidate}/{counted}")
         print(f"  주소 불일치로 기각한 후보  {total_rejected}개")
         print(
-            f"  응답 파싱 실패            {parse_failures}건"
-            f"  ({LLM_ATTEMPTS}회 시도 후에도 JSON을 못 얻음 — 형식 강제를 못 쓰는 대가)"
+            f"  측정 조건     비즈노 max_pages={DEFAULT_MAX_PAGES},"
+            f" 상한에 걸려 잘린 조회 {truncated_lookups}건"
         )
-        print(f"  벤더 API 실패             {api_failures}건  (레이트리밋·인증 등, 형식과 무관)")
+
+    # 형식 강제를 못 쓰는 대가. 도달률과 분모가 다르므로(캐시 히트 제외) 따로 출력한다.
+    if called:
+        print()
+        print(f"실제 호출 {called}건 기준")
+        print(
+            f"  응답 파싱 실패  {parse_failed_cases}/{called} = {parse_failed_cases / called:.1%}"
+            f"  (재시도로 복구 {parse_recovered}건, {LLM_ATTEMPTS}회 모두 실패 {parse_dead}건)"
+        )
+        print(
+            f"  벤더 API 실패   {api_failed_cases}/{called}"
+            f"  ({LLM_ATTEMPTS}회 모두 실패 {api_dead}건 — 레이트리밋·인증 등, 형식과 무관)"
+        )
+    else:
+        print()
+        print("파싱 실패율   측정 불가 — 호출이 없었다(전부 캐시 히트). --refresh로 재호출할 것")
     print(f"\n캐시: {LLM_CACHE_PATH.name}, {BIZNO_CACHE_PATH.name}")
     return 0
 
