@@ -1,0 +1,10 @@
+build/
+.gradle/
+docs/
+docker-compose.yml
+Dockerfile
+.dockerignore
+.env
+.env.*
+!.env.example
+README.md

@@ -1,0 +1,59 @@
+# ⚠️ 로컬 개발 전용입니다. Frontend + Backend + DB를 한 번에 띄웁니다.
+#    운영 값을 여기에 적지 마세요. 이 repo는 public입니다.
+#    운영 값은 배포 환경의 환경변수로만 주입합니다.
+#
+# Backend + DB만 필요하면 backend/docker-compose.yml 을 따로 쓰세요.
+# 컨테이너 이름(ktc4-postgres 등)이 겹치므로 두 compose를 동시에 띄우지는 마세요.
+#
+# 값을 바꾸고 싶으면 .env.example 을 복사해 .env 로 만들어 채우세요 (docker compose가 자동으로 읽습니다).
+# .env 가 없어도 아래 fallback 값으로 그대로 동작합니다.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ktc4-postgres
+    # 호스트에 포트를 열지 않습니다 — backend는 같은 docker 네트워크에서 "postgres:5432"로 접속하므로
+    # 필요 없고, DB 클라이언트로 직접 붙어야 하면 `docker compose exec postgres psql -U ... -d ...`
+    # 또는 SSH 터널을 쓰세요. 그래도 꼭 호스트에 열어야 한다면 POSTGRES_PORT를 쓰는 ports: 항목을
+    # 다시 추가하면 됩니다 (backend/docker-compose.yml 참고).
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ktc4}
+      POSTGRES_USER: ${POSTGRES_USER:-ktc4}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ktc4local}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ktc4-backend
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    environment:
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/ktc4}
+      DB_USERNAME: ${DB_USERNAME:-ktc4}
+      DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_PORT:-8080}}
+    container_name: ktc4-frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
