@@ -7,6 +7,8 @@ import type { StoreResponse } from "../services/store";
 import { useStoreListPage } from "../hooks/store";
 import Sidebar from "../components/sidebar/Sidebar";
 import TableRow from "../components/TableRow";
+import AgentSurveyTrigger from "../components/AgentSurveyTrigger";
+import AgentSurveyModal from "../components/AgentSurveyModal";
 import type { BusinessStatus } from "../components/TableRow";
 
 /** 가게 목록의 한 건. 필드는 TableRow가 받는 props 기준. */
@@ -69,10 +71,15 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     isSelected,
     toggleSelect,
     toggleSelectAll,
-    activeNavKey,
-    setActiveNavKey,
-    userName,
-    isUserLoading,
+    isTriggerVisible,
+    isTooltipVisible,
+    dismissTooltip,
+    surveyTargetCount,
+    estimatedMinutes,
+    isSurveyModalOpen,
+    openSurveyModal,
+    closeSurveyModal,
+    startSurvey,
   } = useStoreListPage();
   const { data, isPending, isError } = useQuery({
     queryKey: ["stores", { page, limit: 20 }],
@@ -100,12 +107,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
       {...props}
     >
       <div className="flex min-h-px w-full flex-1 items-stretch">
-        <Sidebar
-          activeKey={activeNavKey}
-          onNavigate={setActiveNavKey}
-          userName={userName}
-          isUserLoading={isUserLoading}
-        />
+        <Sidebar />
 
         {/* Main Screen. Figma 176:80 */}
         <main className="flex min-w-px flex-1 flex-col items-start gap-1 overflow-auto bg-white py-4">
@@ -261,6 +263,26 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
           )}
         </main>
       </div>
+
+      {/*
+        가게를 하나라도 선택하면 뜨는 조사 트리거. Figma 111:2643 / 115:5592
+        position: fixed라 이 위치에 두어도 화면 우하단에 고정된다.
+      */}
+      <AgentSurveyTrigger
+        visible={isTriggerVisible}
+        showTooltip={isTooltipVisible}
+        onButtonClick={openSurveyModal}
+        onDismissTooltip={dismissTooltip}
+      />
+
+      {/* 조사 시작 확인 모달. Figma Modal(111:3779) */}
+      <AgentSurveyModal
+        open={isSurveyModalOpen}
+        storeCount={surveyTargetCount}
+        estimatedMinutes={estimatedMinutes}
+        onStart={startSurvey}
+        onCancel={closeSurveyModal}
+      />
     </div>
   );
 }

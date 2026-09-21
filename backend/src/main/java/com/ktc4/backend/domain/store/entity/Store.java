@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * 선한영향력가게(무료급식 참여 매장).
@@ -71,7 +72,7 @@ public class Store extends BaseTimeEntity {
     @Column(name = "phone", length = 20)
     private String phone;
 
-    /** 사업자등록번호 */
+    /** 사업자등록번호 — 하이픈 없는 숫자로 정규화해 저장한다 */
     @Column(name = "biz_no", length = 20)
     private String bizNo;
 
