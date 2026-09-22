@@ -177,16 +177,17 @@ class StoreControllerTest {
         }
 
         @Test
-        @DisplayName("storeId 가 숫자가 아니면 ErrorResponse 규격으로 400을 반환한다")
+        @DisplayName("storeId 가 숫자가 아니면 표준 에러 규격으로 400을 반환한다")
         void rejectsNonNumericStoreId() throws Exception {
-            // 이 경로만 GlobalExceptionHandler 를 타서 {code, message} 로 응답한다.
-            // 반면 위의 본문 검증 실패들은 아직 스프링 기본 형태로 나간다 — 에러 규격화 티켓에서 맞춘다.
+            // 에러 응답 규격(type 이 식별자)은 GlobalExceptionHandlerTest 가 전담한다. 여기서는
+            // 이 경로가 규격을 타는지만 확인한다.
             mockMvc.perform(patch("/api/stores/abc")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"맛나 치킨\"}"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                    .andExpect(jsonPath("$.message").exists());
+                    .andExpect(jsonPath("$.type").value(
+                            "https://kakaotechcampus-4.github.io/ktc4-kyungpook-6/errors/invalid-request"))
+                    .andExpect(jsonPath("$.title").value("요청 값이 올바르지 않습니다"));
         }
     }
 
