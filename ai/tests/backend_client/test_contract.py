@@ -136,11 +136,14 @@ def test_required_fields_exist_in_backend(relative_path: str, model: type[BaseMo
         (f.alias or name) for name, f in model.model_fields.items() if f.is_required()
     }
     missing = required - java_fields
-    if missing == {"dataProblem"} or "dataProblem" in missing:
-        pytest.skip(
-            "PR #32 미머지 — 이 모델은 #32 스펙(dataProblem·ntsCheckedAt·lat·lng 포함) 기준이다. "
-            "#32 가 develop 에 들어오면 이 검사가 자동으로 켜진다."
-        )
+    # PR #32 가 들어오기 전에는 #32 에서 생기는 필드가 없는 게 정상이다. 그 필드들만 빼고
+    # **나머지는 그대로 검사한다** — "#32 미머지"를 이유로 통째로 건너뛰면 다른 필드가
+    # 빠지거나 이름이 바뀐 것까지 같이 가려진다.
+    pending = {"dataProblem", "ntsCheckedAt", "lat", "lng"}
+    if missing & pending:
+        missing -= pending
+        if not missing:
+            pytest.skip("PR #32 미머지 — #32 에서 생기는 필드만 빠져 있다. 머지되면 자동으로 켜진다.")
     assert not missing, (
         f"{model.__name__} 이 필수로 요구하는 필드가 백엔드에 없습니다: {sorted(missing)}\n"
         f"  백엔드: {sorted(java_fields)}"

@@ -11,10 +11,17 @@ docker compose로 띄우면 서비스명(`http://backend:8080`)이 되므로 반
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import httpx
+from dotenv import load_dotenv
 
 from src.backend_client.models import NtsCheckFilter, Page, Store, StoreCheck
+
+# `.env` 는 아무도 안 읽어 준다. uvicorn 은 `--env-file` 을 줘야 읽고, 배치로 돌리면
+# 그마저도 없다. 그러면 BACKEND_BASE_URL 을 적어 놔도 조용히 기본값으로 떨어지고,
+# compose 안에서는 "백엔드가 죽었다"로 보인다 — 실제로는 주소를 안 읽은 것이다.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 DEFAULT_BASE_URL = "http://localhost:8080"
 
@@ -47,9 +54,16 @@ class BackendClient:
         client: httpx.Client | None = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
-        self._base_url = (base_url or os.environ.get("BACKEND_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-        self._client = client or httpx.Client(base_url=self._base_url, timeout=timeout)
-        self._owns_client = client is None
+        if client is not None:
+            # 주입받은 client 가 주소·타임아웃을 이미 갖고 있다. base_url 을 따로 들고 있으면
+            # 오류 메시지가 실제 호출 주소와 달라져 디버깅을 엉뚱한 곳으로 끈다.
+            self._client = client
+            self._base_url = str(client.base_url).rstrip("/")
+            self._owns_client = False
+        else:
+            self._base_url = (base_url or os.environ.get("BACKEND_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+            self._client = httpx.Client(base_url=self._base_url, timeout=timeout)
+            self._owns_client = True
 
     def close(self) -> None:
         if self._owns_client:
