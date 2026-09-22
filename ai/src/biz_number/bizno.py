@@ -1,6 +1,7 @@
-"""비즈노 조회 — 사업자등록번호 ↔ 상호명.
+"""비즈노 **직접 호출** 구현 — 사업자등록번호 ↔ 상호명.
 
-**테스트용 임시** 백엔드에서 구현한 쪽으로 갈아 끼울 예정
+**테스트용 임시.** 백엔드 경유 구현체로 갈아끼울 예정이다(`docs/백엔드_연동_방식.md`).
+어휘와 계약은 `lookup.py`에 있으므로 **이 파일만 지우면 된다.**
 
 공식 문서가 JS 렌더링이라 스펙을 전부 실제 호출로 알아냈다. 모르면 조용히 틀리는 것들 —
 **오류가 HTTP 200으로 온다**(`resultCode != 0`을 직접 검사할 것), **`items`가 0건일 때
@@ -26,37 +27,7 @@ import urllib.request
 
 from dataclasses import dataclass
 
-
-@dataclass(frozen=True)
-class BiznoRecord:
-    """사업자 한 건. 주소·업종은 없다 — 비즈노가 주지 않는다(gb 값과 무관)."""
-
-    company: str  # 국세청 등록상호명
-    bizno: str  # 사업자등록번호 (하이픈 포함)
-    corp_no: str  # 법인등록번호, 개인사업자는 빈 문자열
-    status: str  # "계속사업자" / "폐업자" 등
-    status_code: str  # bsttcd. "01" = 계속사업자
-    tax_type: str
-    closed_date: str  # 폐업일. 폐업이 아니면 빈 문자열
-
-
-def digits_only(bizno: str) -> str:
-    """사업자등록번호에서 숫자만 남긴다 — 하이픈 유무가 제각각이라 비교 전에 맞춘다."""
-    return "".join(c for c in bizno if c.isdigit())
-
-
-def is_well_formed(bizno: str) -> bool:
-    """조회해볼 가치가 있는 번호인가 (10자리).
-
-    웹 페이지가 뒷자리를 가려놓는 경우가 있어(`495-86-0****`) 모델이 그대로 물어온다.
-    체크섬까지 보지는 않는다 — 형식이 맞으면 조회해보고 없으면 없는 대로 처리한다.
-    """
-    return len(digits_only(bizno)) == 10
-
-
-# 국세청이 계속사업자에 쓰는 코드. 이 값이 아니면 폐업·휴업 등으로 본다.
-ACTIVE_STATUS_CODE = "01"
-
+from src.biz_number.lookup import BiznoError, BiznoRecord, digits_only
 
 BASE_URL = "https://bizno.net/api/fapi"
 
@@ -87,10 +58,6 @@ class BiznoPage:
     page: int
     max_page: int
     total_count: int
-
-
-class BiznoError(Exception):
-    """비즈노 호출이 실패했거나 응답이 기대한 형태가 아닐 때."""
 
 
 class BiznoClient:

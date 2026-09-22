@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.biz_number.bizno import PAGE_SIZE, BiznoClient, BiznoError, BiznoRecord, digits_only
+from src.biz_number.bizno import PAGE_SIZE, BiznoClient
+from src.biz_number.lookup import BiznoError, BiznoRecord, digits_only
 
 
 @pytest.mark.parametrize(
@@ -125,7 +126,7 @@ def test_missing_api_key_raises():
     ],
 )
 def test_is_well_formed(raw, expected):
-    from src.biz_number.bizno import is_well_formed
+    from src.biz_number.lookup import is_well_formed
 
     assert is_well_formed(raw) is expected
 
