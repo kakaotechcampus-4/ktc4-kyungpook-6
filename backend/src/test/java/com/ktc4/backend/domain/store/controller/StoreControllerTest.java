@@ -1,6 +1,13 @@
 package com.ktc4.backend.domain.store.controller;
 
+import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
+import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
+import com.ktc4.backend.domain.store.enums.NtsLookupResult;
+import com.ktc4.backend.domain.store.enums.StatusComparison;
+import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.StoreService;
+import com.ktc4.backend.global.dto.PageResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -10,6 +17,16 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -191,6 +208,94 @@ class StoreControllerTest {
         void confirmIsRoutedAndNotImplemented() throws Exception {
             mockMvc.perform(post(STORE_PATH + "/confirm"))
                     .andExpect(status().isNotImplemented());
+        }
+    }
+
+    /**
+     * 국세청 대조 자료 조회 API 의 HTTP 계약 확인.
+     *
+     * <p>AI 쪽에서 이 응답을 그대로 읽어 조사 대상을 고르므로, 필드 이름과 필터 값이
+     * 백엔드 사정으로 조용히 바뀌지 않도록 여기서 고정한다.
+     */
+    @Nested
+    @DisplayName("국세청 대조 자료 조회")
+    class NtsChecks {
+
+        private static final String NTS_CHECK_PATH = "/api/stores/nts-checks";
+
+        private PageResponse<StoreCheckResponse> onePage() {
+            StoreCheckResponse response = new StoreCheckResponse(
+                    1L, "예시분식", "예시분식",
+                    "가상특별시 예시구 샘플로 123", "가상특별시예시구샘플로123",
+                    12.3456, 123.4567, "000-1234-5678", "1234567890",
+                    StoreStatus.OPEN, NtsLookupResult.CONFIRMED, BusinessState.CLOSED,
+                    LocalDate.of(2026, 3, 1), StatusComparison.OPEN_BUT_CLOSED, true, false,
+                    LocalDateTime.of(2026, 9, 22, 3, 0));
+            return new PageResponse<>(List.of(response), 0, 20, 1, 1, false);
+        }
+
+        @Test
+        @DisplayName("가게 정보와 국세청 확인 결과를 함께 반환한다")
+        void returnsStoreWithNtsCheck() throws Exception {
+            when(storeService.getNtsChecks(isNull(), anyInt(), anyInt())).thenReturn(onePage());
+
+            mockMvc.perform(get(NTS_CHECK_PATH))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].storeId").value(1))
+                    .andExpect(jsonPath("$.content[0].nameNormalized").value("예시분식"))
+                    .andExpect(jsonPath("$.content[0].internalStatus").value("OPEN"))
+                    .andExpect(jsonPath("$.content[0].ntsLookup").value("CONFIRMED"))
+                    .andExpect(jsonPath("$.content[0].ntsStatus").value("CLOSED"))
+                    .andExpect(jsonPath("$.content[0].ntsClosedAt").value("2026-03-01"))
+                    .andExpect(jsonPath("$.content[0].statusComparison").value("OPEN_BUT_CLOSED"))
+                    .andExpect(jsonPath("$.content[0].statusMismatch").value(true))
+                    .andExpect(jsonPath("$.content[0].dataProblem").value(false))
+                    .andExpect(jsonPath("$.totalElements").value(1));
+        }
+
+        @Test
+        @DisplayName("필터를 주지 않으면 전체를 조회한다")
+        void defaultsToNoFilter() throws Exception {
+            when(storeService.getNtsChecks(isNull(), anyInt(), anyInt())).thenReturn(onePage());
+
+            mockMvc.perform(get(NTS_CHECK_PATH)).andExpect(status().isOk());
+
+            verify(storeService).getNtsChecks(isNull(), eq(0), eq(20));
+        }
+
+        @Test
+        @DisplayName("filter 값을 서비스에 그대로 넘긴다")
+        void passesFilter() throws Exception {
+            when(storeService.getNtsChecks(eq(NtsCheckFilter.STATUS_MISMATCH), anyInt(), anyInt()))
+                    .thenReturn(onePage());
+
+            mockMvc.perform(get(NTS_CHECK_PATH).param("filter", "STATUS_MISMATCH").param("page", "2")
+                            .param("limit", "50"))
+                    .andExpect(status().isOk());
+
+            verify(storeService).getNtsChecks(NtsCheckFilter.STATUS_MISMATCH, 2, 50);
+        }
+
+        @Test
+        @DisplayName("없는 filter 값이면 400을 반환한다")
+        void rejectsUnknownFilter() throws Exception {
+            mockMvc.perform(get(NTS_CHECK_PATH).param("filter", "SOMETHING_ELSE"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+
+        @Test
+        @DisplayName("limit 이 100을 넘으면 400을 반환한다 — 대량 조회 방지")
+        void rejectsTooLargeLimit() throws Exception {
+            mockMvc.perform(get(NTS_CHECK_PATH).param("limit", "101"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("page 가 음수면 400을 반환한다")
+        void rejectsNegativePage() throws Exception {
+            mockMvc.perform(get(NTS_CHECK_PATH).param("page", "-1"))
+                    .andExpect(status().isBadRequest());
         }
     }
 }
