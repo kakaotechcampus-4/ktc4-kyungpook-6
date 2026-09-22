@@ -1,7 +1,9 @@
 package com.ktc4.backend.domain.store.controller;
 
+import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
+import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.ErrorResponse;
@@ -51,6 +53,40 @@ public class StoreController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
 
         return storeService.getStores(page, limit);
+    }
+
+    @Operation(
+            summary = "국세청 대조 자료 조회",
+            description = """
+                    가게 정보와 국세청 사업자 상태를 나란히 담아 내려줍니다. AI 1차 조사와 담당자 데이터 정리에 씁니다.
+
+                    국세청은 이 API 가 직접 호출하지 않고, 매일 새벽 배치가 확인해 저장해 둔 값을 읽습니다.
+                    그 값이 언제 기준인지는 `ntsCheckedAt`(마지막으로 확인에 성공한 시각)으로 알 수 있고,
+                    아직 확인되지 않은 가게는 `ntsLookup` 이 `UNCONFIRMED` 로 내려갑니다.
+
+                    대응이 다른 두 가지를 나눠 담습니다.
+                    - `statusMismatch`: 우리 상태와 국세청 상태가 다름 → **AI 조사 대상**
+                    - `dataProblem`: 사업자번호가 없거나 국세청에 없는 번호 → **담당자가 데이터를 고칠 대상**
+
+                    `filter` 로 둘 중 하나만 받아볼 수 있고, 주지 않으면 전체가 내려갑니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "400",
+                    description = "filter 값이 잘못됐거나, page 가 음수이거나 limit 이 1~100 범위를 벗어난 경우",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/nts-checks")
+    public PageResponse<StoreCheckResponse> getNtsChecks(
+            @Parameter(description = "STATUS_MISMATCH(상태 불일치) 또는 DATA_PROBLEM(번호 없음·틀림). 없으면 전체",
+                    example = "STATUS_MISMATCH")
+            @RequestParam(required = false) NtsCheckFilter filter,
+            @Parameter(description = "페이지 번호(0부터 시작)", example = "0")
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @Parameter(description = "한 페이지당 건수 (1~100)", example = "20")
+            @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
+
+        return storeService.getNtsChecks(filter, page, limit);
     }
 
     @Operation(
