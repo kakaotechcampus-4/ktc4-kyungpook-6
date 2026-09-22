@@ -20,11 +20,15 @@ class InvestigationTarget(BaseModel):
     들고 있는 값이고, 왕복을 한 번 더 하면 그 사이에 값이 바뀔 수 있다.
     """
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     store_id: int = Field(alias="storeId")
     name: str
-    address: str | None = None
+    #: 백엔드가 `/investigation-targets` 로 돌려준 `addressRoad` 를 그대로 받는다.
+    #: 이름을 `address` 로만 두면 백엔드가 그 응답을 되돌려줄 때 `extra="ignore"` 에
+    #: 먹혀 **조용히 None 이 된다** — 주소 없이 상호명만으로 검색하면 동명의 엉뚱한
+    #: 가게를 찾는다. 422 도 안 나서 알아채기 어렵다.
+    address: str | None = Field(default=None, alias="addressRoad")
     biz_no: str | None = Field(default=None, alias="bizNo")
 
 

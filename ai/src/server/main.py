@@ -159,8 +159,19 @@ def investigate(
         try:
             results.append(investigator.investigate(target))
         except InvestigatorUnavailable as e:
-            logger.warning("조사 구현 미연결: %s", e)
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)) from e
+            # 첫 건에서 났으면 요청 전체가 못 도는 것이라 503 이 맞다. 그런데 100건 중
+            # 99건을 처리한 뒤 자격증명이 만료돼 났다면, 503 을 던지는 순간 이미 끝낸
+            # 99건이 통째로 버려진다 — "한 건이 실패해도 빼지 않는다"는 이 API 의 약속과
+            # 어긋난다. 그래서 이미 쌓인 결과가 있으면 남은 건만 실패로 적고 돌려준다.
+            logger.warning("조사 구현을 쓸 수 없습니다 (처리 완료 %s건): %s", len(results), e)
+            if not results:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
+                ) from e
+            results.extend(
+                StoreFinding(storeId=t.store_id, failure=str(e)) for t in targets[len(results):]
+            )
+            break
         except Exception as e:  # noqa: BLE001 - 한 건의 예외로 배치 전체를 죽이지 않는다
             logger.warning("조사 실패 (storeId=%s): %s", target.store_id, e)
             results.append(StoreFinding(storeId=target.store_id, failure=str(e)))
