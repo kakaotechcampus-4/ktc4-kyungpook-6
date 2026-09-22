@@ -29,8 +29,13 @@ uv run pytest tests/          # ai/ 에서 실행
 **각 모듈 독스트링**에 적는다 — 개인 GCP 계정에 묶인다든가, 백엔드 구현으로 갈아 끼울
 임시 코드라든가. 파일이 뭘 하는지도 마찬가지다. 여기에 옮겨 적지 않는다.
 
-`src/` 아래는 기능 단위로 묶는다. 지금은 `src/biz_number/`(사업자등록번호, PROMPT-49) 하나다.
+`src/` 아래는 기능 단위로 묶는다.
+
+- `src/biz_number/` — 사업자등록번호 (PROMPT-49)
+- `src/backend_client/` — 백엔드를 **호출하는** 쪽 (httpx)
+- `src/server/` — 백엔드가 AI를 **호출하는** 쪽 (FastAPI). 실행: `uv run uvicorn src.server.main:app --reload --port 8000`
 
 ## 배경과 수치
 
-[`docs/웹검색_폴백.md`](docs/웹검색_폴백.md) — 문제 정의, 설계, 측정 수치, 남은 결정 사항.
+- [`docs/웹검색_폴백.md`](docs/웹검색_폴백.md) — 문제 정의, 설계, 측정 수치, 남은 결정 사항.
+- [`docs/백엔드_연동.md`](docs/백엔드_연동.md) — AI ↔ 백엔드 HTTP 구간. 방향을 나눈 이유, 계약이 어긋나는 걸 막는 테스트.
