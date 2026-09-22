@@ -42,8 +42,23 @@ public enum StatusComparison {
         };
     }
 
-    // 불일치한 가게만 AI 조사에 넘기는 등 걸러낼 때 쓴다.
+    /**
+     * 두 상태가 서로 다른가 — AI 조사(가게가 정말 폐업했는지 확인)로 넘길 대상을 고를 때 쓴다.
+     *
+     * <p>{@link #NTS_NOT_REGISTERED} 는 제외한다. 그건 상태가 다른 게 아니라 우리 DB 의 번호가
+     * 틀렸다는 뜻이라, 조사가 아니라 데이터 수정이 필요하다({@link #isDataProblem()}).
+     * 번호가 틀린 가게를 AI 에 넘기면 엉뚱한 가게를 조사하게 된다.
+     */
     public boolean isMismatch() {
-        return this != MATCH && this != NOT_COMPARABLE;
+        return this != MATCH && this != NOT_COMPARABLE && this != NTS_NOT_REGISTERED;
+    }
+
+    /**
+     * 우리 DB 의 사업자등록번호가 잘못됐다고 볼 수 있는가 — 사람이 데이터를 고쳐야 하는 건이다.
+     *
+     * <p>번호가 아예 없는 경우는 조회 자체를 못 하므로 {@code NtsLookupResult.NO_BIZ_NO} 가 맡는다.
+     */
+    public boolean isDataProblem() {
+        return this == NTS_NOT_REGISTERED;
     }
 }

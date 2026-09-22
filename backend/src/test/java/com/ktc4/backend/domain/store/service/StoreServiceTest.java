@@ -103,6 +103,7 @@ class StoreServiceTest {
         assertThat(response.ntsClosedAt()).isEqualTo(LocalDate.of(2026, 3, 1));
         assertThat(response.statusComparison()).isEqualTo(StatusComparison.OPEN_BUT_CLOSED);
         assertThat(response.statusMismatch()).isTrue();
+        assertThat(response.dataProblem()).isFalse();
         assertThat(response.bizNo()).isEqualTo("123-45-67890");
     }
 
@@ -121,6 +122,8 @@ class StoreServiceTest {
             assertThat(response.ntsStatus()).isNull();
             assertThat(response.statusComparison()).isEqualTo(StatusComparison.NOT_COMPARABLE);
             assertThat(response.statusMismatch()).isFalse();
+            // 번호가 없는 건 조사 대상이 아니라 데이터를 고쳐야 하는 건이다
+            assertThat(response.dataProblem()).isTrue();
         });
         verify(businessLookupService, never()).getNtsStatuses(anyList());
     }
@@ -170,6 +173,23 @@ class StoreServiceTest {
         assertThat(responses.get(1).ntsLookup()).isEqualTo(NtsLookupResult.CONFIRMED);
         assertThat(responses.get(1).statusComparison()).isEqualTo(StatusComparison.MATCH);
         assertThat(responses.get(1).statusMismatch()).isFalse();
+    }
+
+    @Test
+    @DisplayName("국세청 미등록 번호는 상태 불일치가 아니라 데이터 문제로 표시한다")
+    void marksNotRegisteredAsDataProblem() {
+        List<Long> ids = List.of(1L);
+        when(storeRepository.findAllById(ids)).thenReturn(List.of(store(1L, StoreStatus.OPEN, "0000000000")));
+        when(businessLookupService.getNtsStatuses(anyList()))
+                .thenReturn(List.of(raw("0000000000", "", "")));
+
+        StoreCheckResponse response = storeService.checkWithNts(ids).get(0);
+
+        assertThat(response.ntsLookup()).isEqualTo(NtsLookupResult.CONFIRMED);
+        assertThat(response.ntsStatus()).isEqualTo(BusinessState.NOT_REGISTERED);
+        assertThat(response.statusComparison()).isEqualTo(StatusComparison.NTS_NOT_REGISTERED);
+        assertThat(response.statusMismatch()).isFalse();
+        assertThat(response.dataProblem()).isTrue();
     }
 
     @Test
