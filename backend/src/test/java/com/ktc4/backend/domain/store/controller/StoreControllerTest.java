@@ -280,9 +280,12 @@ class StoreControllerTest {
         @Test
         @DisplayName("없는 filter 값이면 400을 반환한다")
         void rejectsUnknownFilter() throws Exception {
+            // 에러 응답 규격(type 이 식별자, code 없음)은 GlobalExceptionHandlerTest 가 전담한다.
+            // 여기서는 이 경로가 400 으로 막히는지만 확인한다.
             mockMvc.perform(get(NTS_CHECK_PATH).param("filter", "SOMETHING_ELSE"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                    .andExpect(jsonPath("$.type").value(
+                            "https://kakaotechcampus-4.github.io/ktc4-kyungpook-6/errors/invalid-request"));
         }
 
         @Test
