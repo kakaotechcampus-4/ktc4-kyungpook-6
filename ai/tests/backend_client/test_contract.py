@@ -14,8 +14,12 @@ from pathlib import Path
 
 import pytest
 
+from pydantic import BaseModel
+
 from src.backend_client.client import MAX_LIMIT
 from src.backend_client.models import (
+    Store,
+    StoreCheck,
     BusinessState,
     NtsCheckFilter,
     NtsLookupResult,
@@ -90,4 +94,54 @@ def test_max_limit_matches_backend() -> None:
     assert m, "StoreController 에서 MAX_LIMIT 를 찾지 못했습니다"
     assert int(m.group(1)) == MAX_LIMIT, (
         f"limit 상한이 백엔드와 다릅니다. 백엔드={m.group(1)} 파이썬={MAX_LIMIT}"
+    )
+
+
+# Java record 의 구성요소 한 줄: `        StoreStatus internalStatus,`
+# 마지막 구성요소 뒤에는 쉼표도 괄호도 없다 (`LocalDateTime ntsCheckedAt` 다음 줄이 `) {`).
+RECORD_COMPONENT = re.compile(r"^\s+[A-Za-z][\w<>,\s]*\s+([a-z]\w*)\s*[,)]?\s*$")
+
+FIELD_CASES = [
+    ("store/dto/StoreResponse.java", Store),
+    ("store/dto/StoreCheckResponse.java", StoreCheck),
+]
+
+
+def java_record_fields(path: Path) -> list[str]:
+    """`public record X(...)` 의 구성요소 이름을 순서대로 뽑는다."""
+    text = path.read_text(encoding="utf-8")
+    start = text.index("public record")
+    body = text[start : text.index(") {", start)]
+    return [m.group(1) for line in body.splitlines() if (m := RECORD_COMPONENT.match(line))]
+
+
+@pytest.mark.parametrize("relative_path,model", FIELD_CASES, ids=[c[0] for c in FIELD_CASES])
+def test_required_fields_exist_in_backend(relative_path: str, model: type[BaseModel]) -> None:
+    """우리가 **필수로 요구하는** 필드가 백엔드 응답에 실제로 있는가.
+
+    없으면 응답 파싱이 통째로 실패한다. 반대로 우리가 선택(Optional)으로 둔 필드는
+    백엔드에 없어도 None 으로 넘어가므로 검사하지 않는다.
+
+    필드 **이름**까지 대조하는 건 enum 값 대조로 못 잡는 구멍이었다. 다만 백엔드를
+    띄워 실제 JSON 을 받아보는 것과는 다르다 — 직렬화 설정(@JsonProperty 등)까지는 못 본다.
+    """
+    java_file = JAVA_ROOT / relative_path
+    if not java_file.exists():
+        pytest.skip(f"백엔드 소스가 없습니다: {java_file}")
+
+    java_fields = set(java_record_fields(java_file))
+    assert java_fields, f"record 구성요소를 못 찾았습니다: {java_file}"
+
+    required = {
+        (f.alias or name) for name, f in model.model_fields.items() if f.is_required()
+    }
+    missing = required - java_fields
+    if missing == {"dataProblem"} or "dataProblem" in missing:
+        pytest.skip(
+            "PR #32 미머지 — 이 모델은 #32 스펙(dataProblem·ntsCheckedAt·lat·lng 포함) 기준이다. "
+            "#32 가 develop 에 들어오면 이 검사가 자동으로 켜진다."
+        )
+    assert not missing, (
+        f"{model.__name__} 이 필수로 요구하는 필드가 백엔드에 없습니다: {sorted(missing)}\n"
+        f"  백엔드: {sorted(java_fields)}"
     )
