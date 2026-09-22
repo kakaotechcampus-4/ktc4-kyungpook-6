@@ -35,7 +35,6 @@ from dotenv import load_dotenv
 
 from src.biz_number.bizno import (
     DEFAULT_MAX_PAGES,
-    PAGE_SIZE,
     BiznoClient,
     BiznoError,
     BiznoRecord,
@@ -73,16 +72,21 @@ def load_bizno_cache() -> dict:
     return _load(BIZNO_CACHE_PATH)
 
 
+# 옛 캐시는 `pagecnt=10`이던 시절에 만들어졌다. PAGE_SIZE가 바뀌어도 이 판정은
+# 그때 값으로 해야 한다 — 지금 값(50)으로 재면 10건짜리 옛 항목이 "완결"로 둔갑한다.
+_LEGACY_PAGE_SIZE = 10
+
+
 def _cached_records(entry) -> tuple[list[dict], bool]:
     """캐시 항목을 (레코드, 완결여부)로 읽는다.
 
-    옛 포맷은 그냥 리스트였고 1페이지만 받아둔 것이다. 정확히 PAGE_SIZE건이면
+    옛 포맷은 그냥 리스트였고 1페이지만 받아둔 것이다. 정확히 한 페이지 분량이면
     잘렸을 수 있으므로 미완결로 보고 다시 받는다.
     """
     if isinstance(entry, dict):
         return entry.get("records") or [], bool(entry.get("complete"))
     records = entry or []
-    return records, len(records) < PAGE_SIZE
+    return records, len(records) < _LEGACY_PAGE_SIZE
 
 
 class CachedBizno:

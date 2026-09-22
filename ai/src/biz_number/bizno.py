@@ -10,6 +10,12 @@
 
 **응답에 주소도 업종도 없다.** 상호명 검색이 동명 업체를 여러 건 돌려줄 때
 어느 것이 우리 가게인지 이 API만으로는 가릴 수 없다.
+
+**전체 결과가 300건에서 잘린다** — `maxpage × pagecnt`가 항상 300이다(실측 30×10,
+6×50, 3×100). 흔한 이름은 끝까지 넘겨도 전부 볼 수 없다.
+
+**응답에 잔여 쿼터가 없다.** 1일 200건을 호출 수로 세는지 응답 건수로 세는지 API로는
+확인 못 한다(bizno.net 마이페이지 필요). 호출 수 기준으로 보고 `pagecnt`를 올려 뒀다.
 """
 
 import json
@@ -60,13 +66,17 @@ _GB_BY_BIZNO = "1"  # 사업자등록번호 → 1건
 _GB_BY_CORP_NO = "2"  # 법인등록번호 → 그 법인의 사업장들
 _GB_BY_NAME = "3"  # 상호명 → 이름이 겹치는 사업자들
 
-# 한 페이지에 오는 건수(응답의 pagecnt). items 배열은 항상 이 길이로 오고
-# 모자라는 자리는 null로 채워진다 — gb=1은 1건 + null 9개로 온다.
-PAGE_SIZE = 10
+# 한 페이지에 몇 건을 받을지(`pagecnt`). items 배열은 항상 이 길이로 오고 모자라는
+# 자리는 null로 채워진다 — gb=1은 1건 + null 나머지로 온다.
+# 실측(2026-09-23): 100까지 정상, 150부터 `resultCode: -2`. 값은 백엔드
+# (`application.yml`)와 맞춘다 — 갈아끼울 때 결과가 달라지면 안 된다.
+PAGE_SIZE = 50
 
-# 페이지를 끝까지 넘기지 않는 기본 상한. 무료 티어가 1일 200건이라
-# 흔한 이름(예: `주식회사 궁`) 하나에 수십 회를 쓰면 금방 소진된다.
-DEFAULT_MAX_PAGES = 3
+# 페이지를 끝까지 넘기지 않는 기본 상한. 무료 티어가 1일 200건이라 흔한 이름
+# (예: `주식회사 궁`) 하나에 수십 회를 쓰면 금방 소진된다.
+# `pagecnt=50` × 1회 = 50건으로, 예전(10 × 3회 = 30건)보다 호출은 1/3이고 넓다.
+# 더 넓히려면 이 값을 올린다 — 호출 수가 그대로 늘어난다.
+DEFAULT_MAX_PAGES = 1
 
 
 @dataclass(frozen=True)
@@ -93,7 +103,14 @@ class BiznoClient:
 
     def _get_page(self, gb: str, q: str, page: int = 1) -> "BiznoPage":
         url = f"{BASE_URL}?" + urllib.parse.urlencode(
-            {"key": self._key, "type": "json", "gb": gb, "q": q, "page": str(page)}
+            {
+                "key": self._key,
+                "type": "json",
+                "gb": gb,
+                "q": q,
+                "page": str(page),
+                "pagecnt": str(PAGE_SIZE),
+            }
         )
         request = urllib.request.Request(url, headers={"User-Agent": "store-info-agent"})
         try:

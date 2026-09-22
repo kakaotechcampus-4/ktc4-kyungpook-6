@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.biz_number.bizno import BiznoClient, BiznoError, BiznoRecord, digits_only
+from src.biz_number.bizno import PAGE_SIZE, BiznoClient, BiznoError, BiznoRecord, digits_only
 
 
 @pytest.mark.parametrize(
@@ -197,3 +197,21 @@ def test_lookup_by_bizno_ignores_null_padding():
 
     assert record is not None
     assert record.company == "(주)제너시스비비큐"
+
+
+def test_요청에_pagecnt를_보낸다():
+    """안 보내면 비즈노가 기본 10건만 준다 — 같은 커버리지에 호출이 몇 배로 는다.
+
+    실측(2026-09-23): 50·100은 정상, 150부터 `resultCode: -2`. 상한은 100이다.
+    """
+    seen = {}
+
+    def _capture(request, timeout=None):
+        seen["url"] = request.full_url
+        return _fake_response(_page([], 1, 1, 0))
+
+    with patch("src.biz_number.bizno.urllib.request.urlopen", new=_capture):
+        _client().search_by_name("가게")
+
+    assert f"pagecnt={PAGE_SIZE}" in seen["url"]
+    assert PAGE_SIZE <= 100, "비즈노가 pagecnt 100 초과를 거부한다"
