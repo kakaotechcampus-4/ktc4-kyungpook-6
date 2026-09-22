@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from pydantic import ValidationError
 
 from src.backend_client import (
     MAX_LIMIT,
@@ -104,6 +105,14 @@ def investigation_targets(
     """
     try:
         return client.get_nts_checks(NtsCheckFilter.STATUS_MISMATCH, page=page, limit=limit)
+    except ValidationError as e:
+        # 백엔드가 200 으로 답했는데 모양이 우리 모델과 다른 경우. 이 모듈이 막으려던 바로
+        # 그 드리프트인데, 안 잡으면 FastAPI 기본 500 으로 빠져 로그조차 남지 않는다.
+        logger.warning("백엔드 응답이 모델과 맞지 않습니다: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"백엔드 응답을 해석하지 못했습니다 (계약 불일치): {e}",
+        ) from e
     except BackendError as e:
         # 백엔드 쪽 문제를 우리 500으로 감추지 않는다. 502로 올려 원인을 드러낸다.
         # 배치로 돌릴 때는 응답을 아무도 안 보므로 로그에도 남긴다.
