@@ -5,7 +5,10 @@ import type { ComponentPropsWithoutRef } from "react";
 import { getStores } from "../services/store";
 import type { StoreResponse } from "../services/store";
 import { useStoreListPage } from "../hooks/store";
+import { useStoreEditModal } from "../hooks/storeEdit";
+import type { StoreEditTarget } from "../hooks/storeEdit";
 import Sidebar from "../components/sidebar/Sidebar";
+import StoreEditModal from "../components/store/StoreEditModal";
 import TableRow from "../components/TableRow";
 import AgentSurveyTrigger from "../components/AgentSurveyTrigger";
 import AgentSurveyModal from "../components/AgentSurveyModal";
@@ -19,6 +22,11 @@ export interface Store {
   status?: BusinessStatus;
   address: string;
   lastChecked: string;
+  /**
+   * 수정 모달에 넘길 원본 값. 표기용으로 "-" 를 채운 위 필드들과 달리
+   * 서버가 준 값 그대로다. 목업 행에는 없어서 그 행의 연필은 눌리지 않는다.
+   */
+  editTarget?: StoreEditTarget;
 }
 
 function toStore(store: StoreResponse): Store {
@@ -31,6 +39,14 @@ function toStore(store: StoreResponse): Store {
     status: status === "open" || status === "closed" ? status : undefined,
     address: store.addressRoad ?? "-",
     lastChecked: store.lastCheckedAt?.replace("T", " ") ?? "-",
+    editTarget: {
+      storeId: store.storeId,
+      name: store.name,
+      addressRoad: store.addressRoad,
+      phone: store.phone,
+      status: store.status,
+      lastCheckedAt: store.lastCheckedAt,
+    },
   };
 }
 
@@ -81,6 +97,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     closeSurveyModal,
     startSurvey,
   } = useStoreListPage();
+  const storeEdit = useStoreEditModal();
   const { data, isPending, isError } = useQuery({
     queryKey: ["stores", { page, limit: 20 }],
     queryFn: () => getStores({ page, limit: 20 }),
@@ -222,18 +239,26 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
                 표시할 가게가 없습니다.
               </p>
             )}
-            {stores.map((store) => (
-              <TableRow
-                key={store.id}
-                name={store.name}
-                phone={store.phone}
-                status={store.status}
-                address={store.address}
-                lastCheckedAt={store.lastChecked}
-                checked={isSelected(store.id)}
-                onCheckedChange={(checked) => toggleSelect(store.id, checked)}
-              />
-            ))}
+            {stores.map((store) => {
+              /* 목업 행은 서버에 없는 가게라 수정할 대상이 없다. */
+              const { editTarget } = store;
+
+              return (
+                <TableRow
+                  key={store.id}
+                  name={store.name}
+                  phone={store.phone}
+                  status={store.status}
+                  address={store.address}
+                  lastCheckedAt={store.lastChecked}
+                  checked={isSelected(store.id)}
+                  onCheckedChange={(checked) => toggleSelect(store.id, checked)}
+                  onEdit={
+                    editTarget ? () => storeEdit.open(editTarget) : undefined
+                  }
+                />
+              );
+            })}
           </div>
           {!isError && data && data.totalPages > 0 && (
             <nav
@@ -282,6 +307,20 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
         estimatedMinutes={estimatedMinutes}
         onStart={startSurvey}
         onCancel={closeSurveyModal}
+      />
+
+      {/* 가게 정보 수정 모달. Figma Modal(102:4996) */}
+      <StoreEditModal
+        open={storeEdit.isOpen}
+        values={storeEdit.values}
+        onChange={storeEdit.setValue}
+        lastCheckedAtLabel={storeEdit.lastCheckedAtLabel}
+        onSave={storeEdit.save}
+        onConfirm={storeEdit.confirm}
+        onClose={storeEdit.close}
+        isSaving={storeEdit.isSaving}
+        isConfirming={storeEdit.isConfirming}
+        errorMessage={storeEdit.errorMessage}
       />
     </div>
   );
