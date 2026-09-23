@@ -270,8 +270,9 @@ class StoreControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isNotFound())
-                    .andExpect(jsonPath("$.code").value("STORE_NOT_FOUND"))
-                    .andExpect(jsonPath("$.message").exists());
+                    .andExpect(jsonPath("$.type").value(
+                            "https://kakaotechcampus-4.github.io/ktc4-kyungpook-6/errors/store-not-found"))
+                    .andExpect(jsonPath("$.title").value("요청한 가게를 찾을 수 없습니다"));
         }
 
         @Test
@@ -282,8 +283,9 @@ class StoreControllerTest {
 
             mockMvc.perform(post(STORE_PATH + "/confirm"))
                     .andExpect(status().isNotFound())
-                    .andExpect(jsonPath("$.code").value("STORE_NOT_FOUND"))
-                    .andExpect(jsonPath("$.message").exists());
+                    .andExpect(jsonPath("$.type").value(
+                            "https://kakaotechcampus-4.github.io/ktc4-kyungpook-6/errors/store-not-found"))
+                    .andExpect(jsonPath("$.title").value("요청한 가게를 찾을 수 없습니다"));
         }
     }
 
