@@ -23,7 +23,7 @@ def test_구현이_없으면_503(client):
     response = client.post("/investigations", json=[TARGET])
 
     assert response.status_code == 503
-    assert "PROMPT-69" in response.json()["detail"]
+    assert "연결되지 않았습니다" in response.json()["detail"]
 
 
 def test_알려진_케이스를_조사한다(client):
@@ -105,7 +105,7 @@ def test_백엔드가_준_addressRoad_를_그대로_받는다(client):
 
 
 def test_파이썬_필드명으로도_만들_수_있다():
-    """PROMPT-69 구현이 StoreCheck 를 받아 파이썬 필드명으로 조립할 수 있어야 한다."""
+    """조사 구현이 StoreCheck 를 받아 파이썬 필드명으로 조립할 수 있어야 한다."""
     target = InvestigationTarget(store_id=1, name="예시분식", address="대전 중구 은행동")
 
     assert target.store_id == 1

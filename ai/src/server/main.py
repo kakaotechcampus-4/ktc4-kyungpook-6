@@ -82,7 +82,7 @@ def get_client() -> BackendClient:
 def get_investigator() -> Investigator:
     """조사 구현이 꽂히는 자리.
 
-    PROMPT-69(사업자등록번호 반환 함수)가 나오면 여기 한 줄만 바꾸면 된다.
+에이전트 1차 조사 구현이 생기면 여기 한 줄만 바꾸면 된다.
     그전까지는 `UnavailableInvestigator` 가 503 을 만든다.
     """
     return UnavailableInvestigator()

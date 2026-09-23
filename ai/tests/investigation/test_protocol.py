@@ -17,7 +17,7 @@ TARGET = InvestigationTarget(store_id=1, name="성심당", address="대전 중�
 
 def test_기본_구현은_쓸_수_없다고_알린다():
     """구현이 없는 상태를 빈 결과로 감추지 않는다 — 서버가 이걸 503 으로 바꾼다."""
-    with pytest.raises(InvestigatorUnavailable, match="PROMPT-69"):
+    with pytest.raises(InvestigatorUnavailable, match="연결되지 않았습니다"):
         UnavailableInvestigator().investigate(TARGET)
 
 
@@ -25,7 +25,7 @@ def test_기본_구현은_쓸_수_없다고_알린다():
     "investigator", [UnavailableInvestigator(), MockInvestigator()], ids=["기본", "Mock"]
 )
 def test_구현체는_Investigator_를_만족한다(investigator):
-    """PROMPT-69 구현도 이 모양이면 그대로 꽂힌다."""
+    """앞으로 올 조사 구현도 이 모양이면 그대로 꽂힌다."""
     assert isinstance(investigator, Investigator)
 
 

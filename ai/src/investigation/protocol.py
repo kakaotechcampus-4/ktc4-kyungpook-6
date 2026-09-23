@@ -1,7 +1,13 @@
 """조사 로직이 꽂히는 자리.
 
-구현체는 PROMPT-69 에서 온다. 그전까지 서버는 `InvestigatorUnavailable` 을 받아
-503 으로 답한다 — **아직 못 한다는 사실을 200 으로 감추지 않는다.**
+여기서 말하는 조사는 **에이전트의 1차 조사**다. 아직 아무도 시작하지 않았고,
+이 티켓은 받는 자리만 고정한다. 구현이 생기면 `get_investigator()` 에 끼운다.
+
+사업자등록번호 채우기(PROMPT-69)는 **다른 흐름이다.** 그쪽은 백엔드가 만들 사전
+로직을 받아 별도 엔드포인트로 오게 될 예정이라, 이 자리에 꽂히는 것이 아니다.
+
+구현이 없는 동안 서버는 `InvestigatorUnavailable` 을 받아 503 으로 답한다 —
+**아직 못 한다는 사실을 200 으로 감추지 않는다.**
 """
 
 from __future__ import annotations
@@ -35,5 +41,5 @@ class UnavailableInvestigator:
 
     def investigate(self, target: InvestigationTarget) -> StoreFinding:
         raise InvestigatorUnavailable(
-            "조사 구현이 아직 연결되지 않았습니다 (PROMPT-69 사업자등록번호 반환 함수 대기 중)"
+            "조사 구현이 아직 연결되지 않았습니다 (에이전트 1차 조사 미구현)"
         )
