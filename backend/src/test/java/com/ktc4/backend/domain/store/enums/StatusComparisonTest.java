@@ -56,17 +56,8 @@ class StatusComparisonTest {
     }
 
     @Test
-    @DisplayName("국세청 미등록은 상태 불일치가 아니라 데이터 문제로 본다")
-    void notRegisteredIsDataProblemNotMismatch() {
+    @DisplayName("국세청 미등록은 상태 불일치로 보지 않는다")
+    void notRegisteredIsNotMismatch() {
         assertThat(StatusComparison.NTS_NOT_REGISTERED.isMismatch()).isFalse();
-        assertThat(StatusComparison.NTS_NOT_REGISTERED.isDataProblem()).isTrue();
-    }
-
-    @Test
-    @DisplayName("미등록 외에는 데이터 문제가 아니다")
-    void othersAreNotDataProblem() {
-        assertThat(StatusComparison.MATCH.isDataProblem()).isFalse();
-        assertThat(StatusComparison.OPEN_BUT_CLOSED.isDataProblem()).isFalse();
-        assertThat(StatusComparison.NOT_COMPARABLE.isDataProblem()).isFalse();
     }
 }

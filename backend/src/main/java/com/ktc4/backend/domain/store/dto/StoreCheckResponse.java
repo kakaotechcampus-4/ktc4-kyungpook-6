@@ -18,11 +18,11 @@ import java.time.LocalDateTime;
  * 로 계산해 두고, 그 불일치가 실제 폐업을 뜻하는지 같은 해석만 AI 에 맡긴다.
  *
  * <p>대응이 다른 두 가지를 따로 담는다 — {@code statusMismatch} 는 가게가 정말 폐업했는지
- * AI 가 조사할 대상이고, {@code dataProblem} 은 사업자등록번호가 없거나 틀려서 사람이 데이터를
- * 고쳐야 하는 대상이다. 번호가 틀린 가게를 조사에 넘기면 엉뚱한 가게를 보게 된다.
+ * AI 가 조사할 대상이고, {@code dataProblem} 은 사업자등록번호가 없거나 틀려서 번호부터
+ * 찾거나 바로잡아야 하는 대상이다. 번호가 틀린 가게를 조사에 넘기면 엉뚱한 가게를 보게 된다.
  *
- * <p>{@code ntsStatus} / {@code ntsClosedAt} 이 비어 있는 이유는 {@code ntsLookup} 으로 구분하고,
- * 그 값이 언제 기준인지는 {@code ntsCheckedAt}(마지막으로 국세청 확인에 성공한 시각)으로 알 수 있다.
+ * <p>{@code ntsStatus} / {@code ntsClosedAt} 은 마지막으로 확인된 국세청 값이라 이후 조회에 실패해도 남는다.
+ * 비어 있는 이유는 {@code ntsLookup} 으로 구분하고, 그 값이 언제 기준인지는 {@code ntsCheckedAt}(마지막으로 국세청 확인에 성공한 시각)으로 알 수 있다.
  */
 public record StoreCheckResponse(
         Long storeId,
@@ -59,8 +59,12 @@ public record StoreCheckResponse(
 
         NtsLookupResult ntsLookup = check == null ? NtsLookupResult.UNCONFIRMED : check.getCheckResult();
         BusinessState ntsStatus = check == null ? null : check.getNtsState();
-        // 두 값을 여기서 함께 계산해야 "다른가" 와 "어떻게" 가 서로 어긋나지 않는다
-        StatusComparison comparison = StatusComparison.of(store.getStatus(), ntsStatus);
+        // 두 값을 여기서 함께 계산해야 "다른가" 와 "어떻게" 가 서로 어긋나지 않는다.
+        // 번호가 지워진 가게의 ntsStatus 는 옛 번호 기준이라 비교하지 않는다 — 번호가 틀려서 지웠다면
+        // 다른 사업자의 상태일 수 있다. 번호를 다시 찾으면 다음 배치가 새 번호로 확인해 비교된다.
+        StatusComparison comparison = ntsLookup == NtsLookupResult.NO_BIZ_NO
+                ? StatusComparison.NOT_COMPARABLE
+                : StatusComparison.of(store.getStatus(), ntsStatus);
 
         return new StoreCheckResponse(
                 store.getStoreId(),
@@ -78,7 +82,9 @@ public record StoreCheckResponse(
                 check == null ? null : check.getNtsClosedAt(),
                 comparison,
                 comparison.isMismatch(),
-                ntsLookup.isDataProblem() || comparison.isDataProblem(),
+                // comparison 으로 판정하지 않는다 — 우리 상태가 UNKNOWN 이면 comparison 이
+                // NOT_COMPARABLE 로 먼저 떨어져, 국세청에 없는 번호인데도 데이터 문제로 안 잡힌다
+                ntsLookup.isDataProblem() || ntsStatus == BusinessState.NOT_REGISTERED,
                 check == null ? null : check.getLastSuccessAt()
         );
     }

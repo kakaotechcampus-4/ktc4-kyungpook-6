@@ -152,6 +152,23 @@ class StoreServiceTest {
     }
 
     @Test
+    @DisplayName("번호가 지워진 가게는 옛 국세청 상태가 남아 있어도 조사 대상이 아니라 데이터 문제다")
+    void treatsNoBizNoWithOldStateAsDataProblemOnly() {
+        Store store = store(1L, StoreStatus.OPEN, null);
+        when(storeRepository.findAllWithNtsCheck(any())).thenReturn(page(new StoreWithNtsCheck(
+                store, check(store, NtsLookupResult.NO_BIZ_NO, BusinessState.CLOSED, LocalDate.of(2026, 3, 1)))));
+
+        StoreCheckResponse response = storeService.getNtsChecks(null, 0, 20).content().get(0);
+
+        assertThat(response.statusComparison()).isEqualTo(StatusComparison.NOT_COMPARABLE);
+        assertThat(response.statusMismatch()).isFalse();
+        assertThat(response.dataProblem()).isTrue();
+        // 옛 상태는 참고용으로 그대로 내려간다
+        assertThat(response.ntsStatus()).isEqualTo(BusinessState.CLOSED);
+        assertThat(response.ntsClosedAt()).isEqualTo(LocalDate.of(2026, 3, 1));
+    }
+
+    @Test
     @DisplayName("필터가 없으면 전체를 조회한다")
     void usesFindAllWhenNoFilter() {
         when(storeRepository.findAllWithNtsCheck(any())).thenReturn(page());
