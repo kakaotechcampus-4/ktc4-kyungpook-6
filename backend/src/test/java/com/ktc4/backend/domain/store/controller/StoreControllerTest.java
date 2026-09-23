@@ -2,12 +2,16 @@ package com.ktc4.backend.domain.store.controller;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
+import com.ktc4.backend.domain.store.dto.StoreResponse;
+import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.dto.PageResponse;
+import com.ktc4.backend.global.error.CustomException;
+import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -21,7 +25,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -50,13 +56,21 @@ class StoreControllerTest {
     private StoreService storeService;
 
     /**
-     * 구현 이후에도 유지되는 요청 검증 계약.
-     *
-     * <p>검증을 통과하는 케이스는 지금 501 을 받는다. 구현 PR에서는 <b>어서션만</b> 200 으로 바꾸고
-     * 케이스 자체는 남겨야 한다 — 통째로 지우면 "이 입력은 유효하다"는 계약이 테스트에서 사라진다.
+     * 서비스가 반환했다고 가정하는 표본 응답. 이 계층은 서비스를 Mock 으로 대체하므로,
+     * 검증 통과 케이스에서 실제로 확인하는 건 "컨트롤러가 서비스 호출까지 연결되고, 그 반환값을
+     * 그대로 직렬화해 내려주는지"이지 서비스 내부 로직이 아니다 — 그건 {@code StoreServiceTest} 몫이다.
+     */
+    private static StoreResponse sampleResponse() {
+        return new StoreResponse(1L, "맛나 치킨", "대구광역시 북구 대학로 80",
+                12.3456, 123.4567, StoreStatus.OPEN, "치킨",
+                "010-1234-5678", "1234567890", LocalDateTime.of(2026, 9, 23, 10, 0));
+    }
+
+    /**
+     * 요청 검증 계약. 검증을 통과하는 케이스는 서비스 호출까지 이어져 200을 반환한다.
      */
     @Nested
-    @DisplayName("요청 검증 — 구현 이후에도 유지되는 계약")
+    @DisplayName("요청 검증")
     class RequestValidation {
 
         @Test
@@ -71,19 +85,25 @@ class StoreControllerTest {
         @Test
         @DisplayName("가게명이 정확히 200자면 통과한다 — 경계 바로 안쪽")
         void acceptsNameAtMaxLength() throws Exception {
+            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+
             mockMvc.perform(patch(STORE_PATH)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"" + "가".repeat(200) + "\"}"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1));
         }
 
         @Test
         @DisplayName("가게명이 한 글자여도 통과한다 — 최소 경계")
         void acceptsSingleCharacterName() throws Exception {
+            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+
             mockMvc.perform(patch(STORE_PATH)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"곰\"}"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1));
         }
 
         @Test
@@ -116,10 +136,13 @@ class StoreControllerTest {
         @Test
         @DisplayName("도로명 주소가 정확히 500자면 통과한다 — 경계 바로 안쪽")
         void acceptsAddressAtMaxLength() throws Exception {
+            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+
             mockMvc.perform(patch(STORE_PATH)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"addressRoad\":\"" + "가".repeat(500) + "\"}"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1));
         }
 
         @Test
@@ -143,19 +166,25 @@ class StoreControllerTest {
         @Test
         @DisplayName("전화번호가 정확히 20자면 통과한다 — 경계 바로 안쪽")
         void acceptsPhoneAtMaxLength() throws Exception {
+            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+
             mockMvc.perform(patch(STORE_PATH)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"phone\":\"01234567890123456789\"}"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1));
         }
 
         @Test
         @DisplayName("전화번호는 빈 문자열로 지울 수 있다 — 이름·주소와 다르다")
         void acceptsEmptyPhone() throws Exception {
+            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+
             mockMvc.perform(patch(STORE_PATH)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"phone\":\"\"}"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1));
         }
 
         @Test
@@ -170,10 +199,13 @@ class StoreControllerTest {
         @Test
         @DisplayName("모든 필드가 선택이므로 빈 본문도 검증을 통과한다")
         void acceptsEmptyBody() throws Exception {
+            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+
             mockMvc.perform(patch(STORE_PATH)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1));
         }
 
         @Test
@@ -191,24 +223,67 @@ class StoreControllerTest {
         }
     }
 
+    /**
+     * 가게 정보 수정·확인 API 의 정상 동작 계약.
+     */
     @Nested
-    @DisplayName("스펙 선공개 단계 — 구현 PR에서 삭제되는 케이스")
-    class StubBehavior {
+    @DisplayName("가게 정보 수정·확인")
+    class UpdateAndConfirm {
 
         @Test
-        @DisplayName("PATCH /api/stores/{storeId} 가 라우팅되고 아직 501을 반환한다")
-        void patchIsRoutedAndNotImplemented() throws Exception {
+        @DisplayName("PATCH /api/stores/{storeId} 는 요청 본문을 그대로 서비스에 넘기고, 서비스가 반환한 가게 정보를 그대로 내려준다")
+        void updateStoreReturnsServiceResult() throws Exception {
+            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+
             mockMvc.perform(patch(STORE_PATH)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"맛나 치킨\",\"status\":\"OPEN\"}"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1))
+                    .andExpect(jsonPath("$.name").value("맛나 치킨"))
+                    .andExpect(jsonPath("$.status").value("OPEN"));
+
+            // 응답값만 확인하면 컨트롤러가 요청 본문을 누락·훼손해 넘겨도 못 잡는다 —
+            // 실제로 파싱된 요청이 서비스까지 그대로 전달됐는지 인자 자체를 확인한다.
+            verify(storeService).updateStore(eq(1L),
+                    eq(new StoreUpdateRequest("맛나 치킨", null, null, StoreStatus.OPEN)));
         }
 
         @Test
-        @DisplayName("POST /api/stores/{storeId}/confirm 이 라우팅되고 아직 501을 반환한다")
-        void confirmIsRoutedAndNotImplemented() throws Exception {
+        @DisplayName("POST /api/stores/{storeId}/confirm 은 서비스가 반환한 가게 정보를 그대로 내려준다")
+        void confirmStoreReturnsServiceResult() throws Exception {
+            when(storeService.confirmStore(eq(1L))).thenReturn(sampleResponse());
+
             mockMvc.perform(post(STORE_PATH + "/confirm"))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1))
+                    .andExpect(jsonPath("$.lastCheckedAt").value("2026-09-23T10:00:00"));
+        }
+
+        @Test
+        @DisplayName("PATCH 대상 가게가 없으면 STORE_NOT_FOUND 로 404를 반환한다")
+        void updateStoreReturns404WhenNotFound() throws Exception {
+            when(storeService.updateStore(anyLong(), any()))
+                    .thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
+
+            mockMvc.perform(patch(STORE_PATH)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("STORE_NOT_FOUND"))
+                    .andExpect(jsonPath("$.message").exists());
+        }
+
+        @Test
+        @DisplayName("confirm 대상 가게가 없으면 STORE_NOT_FOUND 로 404를 반환한다")
+        void confirmStoreReturns404WhenNotFound() throws Exception {
+            when(storeService.confirmStore(anyLong()))
+                    .thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
+
+            mockMvc.perform(post(STORE_PATH + "/confirm"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("STORE_NOT_FOUND"))
+                    .andExpect(jsonPath("$.message").exists());
         }
     }
 

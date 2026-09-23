@@ -2,6 +2,8 @@ package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
+import com.ktc4.backend.domain.store.dto.StoreResponse;
+import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
@@ -11,7 +13,10 @@ import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.global.dto.PageResponse;
+import com.ktc4.backend.global.error.CustomException;
+import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -28,16 +33,19 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 // DB 조회를 가짜(Mockito)로 바꿔 조립·필터 선택 로직만 검증한다. 가게 정보는 모두 가짜 값이다.
 @ExtendWith(MockitoExtension.class)
-@DisplayName("StoreService.getNtsChecks")
+@DisplayName("StoreService")
 class StoreServiceTest {
 
     private static final LocalDateTime CHECKED_AT = LocalDateTime.of(2026, 9, 22, 3, 0);
@@ -201,5 +209,100 @@ class StoreServiceTest {
         assertThat(response.page()).isZero();
         assertThat(response.limit()).isEqualTo(20);
         assertThat(response.totalElements()).isEqualTo(1);
+    }
+
+    @Nested
+    @DisplayName("updateStore")
+    class UpdateStore {
+
+        @Test
+        @DisplayName("담아 보낸 필드를 재정규화해 반영하고, 반영된 값을 그대로 응답한다")
+        void updatesFieldsAndRenormalizes() {
+            // name/addressRoad 를 각각 그 필드 전용 정규화 규칙으로만 통과시켜야 알아챌 수 있는 값으로 고른다
+            // (법인 표기 제거는 normalizeName 만의 규칙, 하이픈 보존은 normalizeAddress 만의 규칙) —
+            // 두 정규화 호출이 서로 뒤바뀌어도 통과해버리는 값(단순 공백 제거만으로 갈리는 값)은 쓰지 않는다.
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            StoreUpdateRequest request = new StoreUpdateRequest(
+                    "새이름(주)", "대구광역시 북구 대학로 80-1", "010-9999-0000", StoreStatus.CLOSED);
+
+            StoreResponse response = storeService.updateStore(1L, request);
+
+            assertThat(store.getName()).isEqualTo("새이름(주)");
+            assertThat(store.getNameNormalized()).isEqualTo("새이름");
+            assertThat(store.getAddressRoad()).isEqualTo("대구광역시 북구 대학로 80-1");
+            assertThat(store.getAddressNormalized()).isEqualTo("대구광역시북구대학로80-1");
+            assertThat(store.getPhone()).isEqualTo("010-9999-0000");
+            assertThat(store.getStatus()).isEqualTo(StoreStatus.CLOSED);
+            assertThat(response.name()).isEqualTo("새이름(주)");
+            assertThat(response.status()).isEqualTo(StoreStatus.CLOSED);
+        }
+
+        @Test
+        @DisplayName("name 을 안 보내면 nameNormalized 도 그대로다 — 재정규화하지 않는다")
+        void keepsNameNormalizedWhenNameNotSent() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            StoreUpdateRequest request = new StoreUpdateRequest(null, null, "010-9999-0000", null);
+
+            storeService.updateStore(1L, request);
+
+            assertThat(store.getName()).isEqualTo("예시분식");
+            assertThat(store.getNameNormalized()).isEqualTo("예시분식");
+        }
+
+        @Test
+        @DisplayName("phone 을 빈 문자열로 보내면 실제로 지워진다")
+        void clearsPhoneWithEmptyString() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            StoreUpdateRequest request = new StoreUpdateRequest(null, null, "", null);
+
+            storeService.updateStore(1L, request);
+
+            assertThat(store.getPhone()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("storeId 에 해당하는 가게가 없으면 STORE_NOT_FOUND 를 던진다")
+        void throwsWhenStoreNotFound() {
+            when(storeRepository.findById(anyLong())).thenReturn(Optional.empty());
+            StoreUpdateRequest request = new StoreUpdateRequest("새이름", null, null, null);
+
+            assertThatThrownBy(() -> storeService.updateStore(999L, request))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.STORE_NOT_FOUND);
+        }
+    }
+
+    @Nested
+    @DisplayName("confirmStore")
+    class ConfirmStore {
+
+        @Test
+        @DisplayName("현재 시각으로 lastCheckedAt 을 갱신하고, 갱신된 값을 그대로 응답한다")
+        void setsLastCheckedAtToNow() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            LocalDateTime before = LocalDateTime.now();
+
+            StoreResponse response = storeService.confirmStore(1L);
+
+            LocalDateTime after = LocalDateTime.now();
+            assertThat(store.getLastCheckedAt()).isBetween(before, after);
+            assertThat(response.lastCheckedAt()).isEqualTo(store.getLastCheckedAt());
+        }
+
+        @Test
+        @DisplayName("storeId 에 해당하는 가게가 없으면 STORE_NOT_FOUND 를 던진다")
+        void throwsWhenStoreNotFound() {
+            when(storeRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> storeService.confirmStore(999L))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.STORE_NOT_FOUND);
+        }
     }
 }
