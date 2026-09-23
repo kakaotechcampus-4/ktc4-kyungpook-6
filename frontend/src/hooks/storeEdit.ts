@@ -53,7 +53,7 @@ function toFormValues(target: StoreEditTarget): StoreEditFormValues {
  * 화면이 값을 모르는 칸(전화번호처럼 빈 칸으로 열린 경우)을 담아 보내면
  * 서버는 "지워달라"로 읽는다. 담당자가 실제로 고친 칸만 보내야 하는 이유다.
  */
-function buildPatch(
+export function buildPatch(
   target: StoreEditTarget,
   values: StoreEditFormValues
 ): StoreUpdateRequest {
@@ -75,7 +75,7 @@ function buildPatch(
  * 400을 받고 나서 알려주는 것보다 입력 칸에서 바로 막는 편이 낫다.
  * 담아 보내지 않는 칸은 검사하지 않는다 — 비어 있어도 기존 값이 유지되기 때문이다.
  */
-function validate(patch: StoreUpdateRequest): string | undefined {
+export function validate(patch: StoreUpdateRequest): string | undefined {
   if (patch.name !== undefined) {
     if (!patch.name.trim()) return '상호명은 공백만으로 채울 수 없습니다.';
     if (patch.name.length > 200) return '상호명은 200자를 넘을 수 없습니다.';
@@ -103,7 +103,7 @@ function validate(patch: StoreUpdateRequest): string | undefined {
  * (에러 규격화 티켓에서 ErrorResponse로 통일된다). 그때까지 본문을 읽지 않고
  * 상태 코드만 보고 문구를 고른다.
  */
-function toErrorMessage(error: unknown): string {
+export function toErrorMessage(error: unknown): string {
   const status = isAxiosError(error) ? error.response?.status : undefined;
 
   switch (status) {
