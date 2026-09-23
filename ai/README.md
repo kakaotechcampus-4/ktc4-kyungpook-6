@@ -33,6 +33,7 @@ uv run pytest tests/          # ai/ 에서 실행
 
 - `src/biz_number/` — 사업자등록번호 (PROMPT-49)
 - `src/backend_client/` — 백엔드를 **호출하는** 쪽 (httpx)
+- `src/investigation/` — 조사 요청·결과 계약과 구현이 꽂히는 자리 (PROMPT-67)
 - `src/server/` — 백엔드가 AI를 **호출하는** 쪽 (FastAPI). 실행: `uv run uvicorn src.server.main:app --reload --port 8000`
 
 ## 배경과 수치

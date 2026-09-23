@@ -20,7 +20,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, status
 from pydantic import ValidationError
 
 from src.backend_client import (
@@ -31,6 +31,17 @@ from src.backend_client import (
     Page,
     StoreCheck,
 )
+from src.investigation import (
+    InvestigationResponse,
+    InvestigationTarget,
+    Investigator,
+    InvestigatorUnavailable,
+    StoreFinding,
+    UnavailableInvestigator,
+)
+
+#: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
+MAX_TARGETS = MAX_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +77,15 @@ def _close_client() -> None:
 def get_client() -> BackendClient:
     """테스트에서 `app.dependency_overrides`로 갈아 끼우는 지점."""
     return _client()
+
+
+def get_investigator() -> Investigator:
+    """조사 구현이 꽂히는 자리.
+
+에이전트 1차 조사 구현이 생기면 여기 한 줄만 바꾸면 된다.
+    그전까지는 `UnavailableInvestigator` 가 503 을 만든다.
+    """
+    return UnavailableInvestigator()
 
 
 @app.get("/health")
@@ -118,3 +138,46 @@ def investigation_targets(
         # 배치로 돌릴 때는 응답을 아무도 안 보므로 로그에도 남긴다.
         logger.warning("조사 대상 조회 실패 (page=%s, limit=%s): %s", page, limit, e)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@app.post("/investigations", response_model=InvestigationResponse)
+def investigate(
+    targets: list[InvestigationTarget] = Body(..., min_length=1, max_length=MAX_TARGETS),
+    investigator: Investigator = Depends(get_investigator),
+) -> InvestigationResponse:
+    """가게 목록을 받아 조사한다 — 백엔드가 AI를 부르는 자리.
+
+    `/investigation-targets`(우리가 백엔드에서 당겨오는 것)와 방향이 반대다.
+    담당자가 가게를 골라 조사를 시작하는 흐름은 이쪽을 쓴다.
+
+    **한 건이 실패해도 나머지는 계속 처리하고, 실패한 건도 결과에 남긴다.**
+    요청 수와 응답 수가 달라지면 부르는 쪽이 무엇이 빠졌는지 알 수 없다.
+    조사 구현 자체가 없으면 그건 건별 실패가 아니라 요청 전체의 실패라 503 으로 답한다.
+    """
+    results: list[StoreFinding] = []
+    for target in targets:
+        try:
+            results.append(investigator.investigate(target))
+        except InvestigatorUnavailable as e:
+            # 첫 건에서 났으면 요청 전체가 못 도는 것이라 503 이 맞다. 그런데 100건 중
+            # 99건을 처리한 뒤 자격증명이 만료돼 났다면, 503 을 던지는 순간 이미 끝낸
+            # 99건이 통째로 버려진다 — "한 건이 실패해도 빼지 않는다"는 이 API 의 약속과
+            # 어긋난다. 그래서 이미 쌓인 결과가 있으면 남은 건만 실패로 적고 돌려준다.
+            logger.warning("조사 구현을 쓸 수 없습니다 (처리 완료 %s건): %s", len(results), e)
+            if not results:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
+                ) from e
+            results.extend(
+                StoreFinding(storeId=t.store_id, failure=str(e)) for t in targets[len(results):]
+            )
+            break
+        except Exception as e:  # noqa: BLE001 - 한 건의 예외로 배치 전체를 죽이지 않는다
+            logger.warning("조사 실패 (storeId=%s): %s", target.store_id, e)
+            results.append(StoreFinding(storeId=target.store_id, failure=str(e)))
+
+    return InvestigationResponse(
+        results=results,
+        requested=len(targets),
+        succeeded=sum(1 for r in results if r.failure is None),
+    )
