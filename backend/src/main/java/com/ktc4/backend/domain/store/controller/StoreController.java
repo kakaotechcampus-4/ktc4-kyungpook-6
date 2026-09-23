@@ -6,7 +6,7 @@ import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.dto.PageResponse;
-import com.ktc4.backend.global.error.ErrorResponse;
+import com.ktc4.backend.global.error.ApiProblemDetail;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -43,7 +43,8 @@ public class StoreController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "page 가 음수이거나 limit 이 1~100 범위를 벗어난 경우",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
     })
     @GetMapping
     public PageResponse<StoreResponse> getStores(
@@ -74,7 +75,8 @@ public class StoreController {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400",
                     description = "filter 값이 잘못됐거나, page 가 음수이거나 limit 이 1~100 범위를 벗어난 경우",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
     })
     @GetMapping("/nts-checks")
     public PageResponse<StoreCheckResponse> getNtsChecks(
@@ -104,11 +106,12 @@ public class StoreController {
             @ApiResponse(responseCode = "200", description = "[구현 예정] 수정 성공 — 수정된 가게 정보를 반환합니다"),
             @ApiResponse(responseCode = "400",
                     description = "필드 길이가 허용 범위를 벗어나거나 status 값이 잘못된 경우. "
-                            + "지금은 본문이 스프링 기본 검증 오류 형태로 나가며, 에러 규격화 티켓에서 ErrorResponse 로 통일됩니다 "
-                            + "— 그때까지 이 응답 본문에 의존하지 마세요",
-                    content = @Content),
+                            + "어느 필드가 왜 틀렸는지는 errors 배열에 담깁니다",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "[구현 예정] storeId 에 해당하는 가게가 없는 경우",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "501", description = "현재 이 응답만 실제로 나옵니다 — 아직 구현되지 않음",
                     content = @Content)
     })
@@ -137,7 +140,8 @@ public class StoreController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "[구현 예정] 기록 성공 — 확인 시각이 갱신된 가게 정보를 반환합니다"),
             @ApiResponse(responseCode = "404", description = "[구현 예정] storeId 에 해당하는 가게가 없는 경우",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "501", description = "현재 이 응답만 실제로 나옵니다 — 아직 구현되지 않음",
                     content = @Content)
     })
