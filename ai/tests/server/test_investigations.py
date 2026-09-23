@@ -34,8 +34,7 @@ def test_알려진_케이스를_조사한다(client):
     assert body["requested"] == 1 and body["succeeded"] == 1
     found = body["results"][0]
     assert found["storeId"] == 1
-    assert found["officialName"] == "로쏘"
-    assert found["unambiguous"] is True
+    assert found["failure"] is None
     assert found["evidences"][0]["source"] == "mock"
 
 
@@ -50,7 +49,7 @@ def test_실패한_건도_결과에_남는다(client):
     # 요청 수와 응답 수가 같아야 부르는 쪽이 무엇이 빠졌는지 알 수 있다.
     assert body["requested"] == 2 and len(body["results"]) == 2
     assert body["succeeded"] == 1
-    assert body["results"][1]["failure"] == "후보를 찾지 못했습니다"
+    assert body["results"][1]["failure"] == "근거를 찾지 못했습니다"
 
 
 def test_한_건의_예외가_배치를_죽이지_않는다(client):
@@ -58,7 +57,7 @@ def test_한_건의_예외가_배치를_죽이지_않는다(client):
         def investigate(self, target: InvestigationTarget) -> StoreFinding:
             if target.store_id == 1:
                 raise ValueError("비즈노 응답이 깨졌습니다")
-            return StoreFinding(storeId=target.store_id, officialName="정상가게")
+            return StoreFinding(storeId=target.store_id)
 
     app.dependency_overrides[get_investigator] = Exploding
 
@@ -68,7 +67,7 @@ def test_한_건의_예외가_배치를_죽이지_않는다(client):
     ).json()
 
     assert body["results"][0]["failure"] == "비즈노 응답이 깨졌습니다"
-    assert body["results"][1]["officialName"] == "정상가게"
+    assert body["results"][1]["failure"] is None
     assert body["succeeded"] == 1
 
 
@@ -122,7 +121,7 @@ def test_중간에_구현이_끊겨도_이미_끝낸_결과는_돌려준다(clie
             self.calls += 1
             if self.calls > 1:
                 raise InvestigatorUnavailable("자격증명이 만료됐습니다")
-            return StoreFinding(storeId=target.store_id, officialName="첫번째")
+            return StoreFinding(storeId=target.store_id, evidences=[])
 
     app.dependency_overrides[get_investigator] = DiesAfterFirst
 
@@ -134,6 +133,6 @@ def test_중간에_구현이_끊겨도_이미_끝낸_결과는_돌려준다(clie
     assert response.status_code == 200
     body = response.json()
     assert body["requested"] == 3 and len(body["results"]) == 3
-    assert body["results"][0]["officialName"] == "첫번째"
+    assert body["results"][0]["failure"] is None
     assert body["results"][1]["failure"] == "자격증명이 만료됐습니다"
     assert body["results"][2]["failure"] == "자격증명이 만료됐습니다"

@@ -8,28 +8,19 @@ from __future__ import annotations
 
 from src.investigation.models import Evidence, InvestigationTarget, StoreFinding
 
-#: 상호명이 정식 등록 상호명과 다른, 실제로 확인된 사례.
+#: 조사하면 근거가 나오는, 실제로 확인된 사례.
 _KNOWN = {
-    "성심당": ("로쏘", "3058148738"),
+    "성심당": "정식 등록 상호명이 '로쏘' 로 확인된다",
 }
 
 
 class MockInvestigator:
     def investigate(self, target: InvestigationTarget) -> StoreFinding:
-        found = _KNOWN.get(target.name)
-        if not found:
-            return StoreFinding(storeId=target.store_id, failure="후보를 찾지 못했습니다")
+        detail = _KNOWN.get(target.name)
+        if not detail:
+            return StoreFinding(storeId=target.store_id, failure="근거를 찾지 못했습니다")
 
-        official_name, biz_no = found
         return StoreFinding(
             storeId=target.store_id,
-            officialName=official_name,
-            bizNo=biz_no,
-            unambiguous=True,
-            evidences=[
-                Evidence(
-                    source="mock",
-                    detail=f"'{target.name}' 의 정식 등록 상호명은 '{official_name}' 로 알려져 있다",
-                )
-            ],
+            evidences=[Evidence(source="mock", detail=detail)],
         )

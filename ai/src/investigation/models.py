@@ -48,15 +48,18 @@ class StoreFinding(BaseModel):
     조사가 실패해도 **결과를 빼지 않고 `failure`를 채워 돌려준다.** 요청한 건수와
     받은 건수가 달라지면 부르는 쪽이 무엇이 빠졌는지 알 수 없다 —
     국세청 배치에서 같은 문제로 멘토 지적을 받았다.
+
+    **판정 결과를 담을 필드는 아직 없다.** 회의에서 조사 흐름이 정리되는 중이라
+    (1차 조사는 백엔드 배치, 2차 조사는 웹서치, 사업자번호 채우기는 별도 흐름),
+    무엇을 돌려줄지 확정되면 그때 더한다. 지금 추측해서 넣으면 백엔드가 저장하는
+    `Task`(분류·수정안)·`Signal`(근거·신뢰도)과 어긋난 채로 굳는다.
+
+    빼는 것보다 더하는 것이 안전해서, 어떤 조사든 공통인 것만 남겼다.
     """
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     store_id: int = Field(alias="storeId")
-    official_name: str | None = Field(default=None, alias="officialName")
-    biz_no: str | None = Field(default=None, alias="bizNo")
-    #: 후보를 하나로 좁혔는가. 거짓이면 사람이 골라야 한다.
-    unambiguous: bool = False
     evidences: list[Evidence] = Field(default_factory=list)
     #: 실패 사유. 성공이면 None.
     failure: str | None = None

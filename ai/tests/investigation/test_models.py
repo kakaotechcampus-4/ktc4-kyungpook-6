@@ -66,28 +66,22 @@ class TestInvestigationTarget:
 class TestStoreFinding:
     def test_실패_결과는_storeId_만으로_만든다(self):
         """조사가 실패해도 결과에서 빼지 않는다 — 최소한의 형태가 성립해야 한다."""
-        found = StoreFinding(storeId=1, failure="후보를 찾지 못했습니다")
+        found = StoreFinding(storeId=1, failure="근거를 찾지 못했습니다")
 
-        assert found.official_name is None
-        assert found.unambiguous is False
         assert found.evidences == []
 
     def test_성공_결과는_alias_로_직렬화된다(self):
         """응답 필드명이 백엔드와 같은 캐멀케이스로 나가야 한다."""
         found = StoreFinding(
             storeId=1,
-            officialName="로쏘",
-            bizNo="3058148738",
-            unambiguous=True,
             evidences=[Evidence(source="비즈노", detail="상호명 검색 결과 1건")],
         )
 
         dumped = found.model_dump(by_alias=True)
 
         assert dumped["storeId"] == 1
-        assert dumped["officialName"] == "로쏘"
-        assert dumped["bizNo"] == "3058148738"
         assert dumped["failure"] is None
+        assert dumped["evidences"][0]["source"] == "비즈노"
 
     def test_근거는_여러_건_담긴다(self):
         found = StoreFinding(
