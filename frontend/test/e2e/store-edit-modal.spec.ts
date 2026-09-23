@@ -65,6 +65,28 @@ test.describe("모달 열기", () => {
   });
 });
 
+test.describe("조회 중", () => {
+  test("조사 결과를 불러오는 동안에는 직접 수정하기를 누를 수 없다", async ({
+    page,
+  }) => {
+    /* 응답을 붙잡아 두어 Skeleton 카드가 깔린 상태를 유지한다. */
+    await page.route(/\/api\/jobs\//, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await route.fulfill({ status: 404 });
+    });
+
+    await page.goto("/analysis");
+
+    /*
+      어느 가게인지 모르는 자리라 핸들러가 없다. 열어두면 눌러도 아무 일이
+      일어나지 않아 먹통처럼 보이므로 막혀 있어야 한다.
+    */
+    await expect(
+      page.getByRole("button", { name: "직접 수정하기" }).first()
+    ).toBeDisabled();
+  });
+});
+
 test.describe("닫기", () => {
   test("X 버튼을 누르면 닫힌다", async ({ page }) => {
     const modal = await openModalFromAnalysis(page);
