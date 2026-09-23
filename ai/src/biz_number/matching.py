@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from enum import IntEnum
 
-from src.biz_number.bizno import ACTIVE_STATUS_CODE, BiznoRecord
+from src.biz_number.lookup import ACTIVE_STATUS_CODE, BiznoRecord
 
 
 class Grade(IntEnum):

@@ -4,7 +4,7 @@
 (`docs/웹검색_폴백.md` 참고).
 """
 
-from src.biz_number.bizno import BiznoRecord
+from src.biz_number.lookup import BiznoRecord
 from src.biz_number.matching import Grade, grade_candidate, suggest
 
 
