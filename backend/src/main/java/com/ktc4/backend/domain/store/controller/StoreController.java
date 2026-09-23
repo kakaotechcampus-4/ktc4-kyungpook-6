@@ -18,8 +18,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -92,66 +90,52 @@ public class StoreController {
     }
 
     @Operation(
-            summary = "가게 정보 수정 (스펙 선공개 — 아직 동작하지 않음)",
+            summary = "가게 정보 수정",
             description = """
                     담당자가 가게 기본 정보를 직접 고칩니다. 담아 보낸 필드만 바뀌고, 빠뜨린 필드는 기존 값을 유지합니다.
-
-                    **현재는 스펙만 공개된 단계라 실제 수정은 일어나지 않고 501 을 반환합니다.**
-                    프론트가 이 스펙으로 타입을 생성해 화면을 먼저 만들 수 있도록 먼저 올립니다.
-                    아래 200 / 400 / 404 는 다음 PR에서 구현될 응답 계약입니다.
 
                     확인일 갱신은 이 API가 아니라 `POST /api/stores/{storeId}/confirm` 입니다.
                     """)
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "[구현 예정] 수정 성공 — 수정된 가게 정보를 반환합니다"),
+            @ApiResponse(responseCode = "200", description = "수정 성공 — 수정된 가게 정보를 반환합니다"),
             @ApiResponse(responseCode = "400",
                     description = "필드 길이가 허용 범위를 벗어나거나 status 값이 잘못된 경우. "
                             + "어느 필드가 왜 틀렸는지는 errors 배열에 담깁니다",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "404", description = "[구현 예정] storeId 에 해당하는 가게가 없는 경우",
+            @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우",
                     content = @Content(mediaType = "application/problem+json",
-                            schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "501", description = "현재 이 응답만 실제로 나옵니다 — 아직 구현되지 않음",
-                    content = @Content)
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
     })
     @PatchMapping("/{storeId}")
-    public ResponseEntity<StoreResponse> updateStore(
+    public StoreResponse updateStore(
             @Parameter(description = "수정할 가게 ID", example = "1")
             @PathVariable Long storeId,
             @Valid @RequestBody StoreUpdateRequest request) {
 
-        // 스펙 선공개용 스텁. 파라미터를 쓰지 않는 것이 의도이며, 구현 PR에서 이 줄이
-        // storeService 호출로 교체되면서 이 주석과 함께 사라진다.
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+        return storeService.updateStore(storeId, request);
     }
 
     @Operation(
-            summary = "가게 자체 확인 완료 (스펙 선공개 — 아직 동작하지 않음)",
+            summary = "가게 자체 확인 완료",
             description = """
                     담당자가 가게 정보를 직접 확인했음을 기록합니다. 요청 본문은 없고, 확인 시각은 서버가 현재 시각으로 찍습니다.
 
                     수정 API와 나눈 이유는 두 가지입니다.
                     1. PATCH 는 같은 요청을 여러 번 보내도 결과가 같아야 하는데, 확인 기록은 호출할 때마다 시각이 바뀝니다.
                     2. 이 시각은 이후 "확인한 지 오래된 가게 재조사" 기준이 되므로 클라이언트가 값을 정하면 안 됩니다.
-
-                    **현재는 스펙만 공개된 단계라 실제 기록은 일어나지 않고 501 을 반환합니다.**
                     """)
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "[구현 예정] 기록 성공 — 확인 시각이 갱신된 가게 정보를 반환합니다"),
-            @ApiResponse(responseCode = "404", description = "[구현 예정] storeId 에 해당하는 가게가 없는 경우",
+            @ApiResponse(responseCode = "200", description = "기록 성공 — 확인 시각이 갱신된 가게 정보를 반환합니다"),
+            @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우",
                     content = @Content(mediaType = "application/problem+json",
-                            schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "501", description = "현재 이 응답만 실제로 나옵니다 — 아직 구현되지 않음",
-                    content = @Content)
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
     })
     @PostMapping("/{storeId}/confirm")
-    public ResponseEntity<StoreResponse> confirmStore(
+    public StoreResponse confirmStore(
             @Parameter(description = "확인 완료 처리할 가게 ID", example = "1")
             @PathVariable Long storeId) {
 
-        // 스펙 선공개용 스텁. storeId 를 쓰지 않는 것이 의도이며(죽은 코드가 아니다),
-        // 구현 PR에서 이 줄이 storeService 호출로 교체되면서 이 주석과 함께 사라진다.
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+        return storeService.confirmStore(storeId);
     }
 }

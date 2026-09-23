@@ -27,6 +27,7 @@ public enum ErrorCode {
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다"),
     BIZNO_API_ERROR(HttpStatus.BAD_GATEWAY, "비즈노 API 호출에 실패했습니다"),
     NTS_API_ERROR(HttpStatus.BAD_GATEWAY, "국세청 API 호출에 실패했습니다"),
+    STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 가게를 찾을 수 없습니다"),
 
     // 아래 넷은 GlobalExceptionHandler.errorCodeFor 가 프레임워크 예외의 상태코드를 매핑할 때 쓴다.
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 경로를 찾을 수 없습니다"),
