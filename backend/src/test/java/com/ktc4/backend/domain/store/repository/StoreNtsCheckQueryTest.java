@@ -1,10 +1,10 @@
 package com.ktc4.backend.domain.store.repository;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
-import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.support.PostgresContainerTest;
@@ -15,15 +15,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * AI 조사 자료 목록 질의 통합 테스트.
  *
- * <p>가게 상태와 국세청 상태를 비교해 거르는 조건은 자바(StatusComparison)에도, 질의(JPQL)에도
+ * <p>가게 상태와 국세청 상태를 비교해 거르는 조건은 자바(StoreCheckResponse)에도, 질의(JPQL)에도
  * 있다. 두 곳이 어긋나면 "목록에는 있는데 불일치가 아닌" 행이 생기므로, 마지막 테스트에서
- * 질의 결과와 자바 계산 결과가 같은지 확인한다.
+ * 질의 결과와 응답 필드(statusMismatch·dataProblem)가 같은지 확인한다.
  */
 class StoreNtsCheckQueryTest extends PostgresContainerTest {
 
@@ -137,28 +138,39 @@ class StoreNtsCheckQueryTest extends PostgresContainerTest {
     }
 
     @Test
-    void 질의로_거른_결과가_자바로_계산한_결과와_같다() {
+    void 질의로_거른_결과가_응답_필드와_같다() {
+        // 조회 실패(UNCONFIRMED)·번호 없음(NO_BIZ_NO)이어도 예전에 확인한 국세청 상태는 남아 있을 수 있다
+        // (StoreNtsCheck.applyUnconfirmed/applyNoBizNo 가 ntsState 를 지우지 않는다). 그 조합까지 넣는다.
         StoreStatus[] statuses = {StoreStatus.OPEN, StoreStatus.SUSPENDED, StoreStatus.CLOSED, StoreStatus.UNKNOWN};
-        BusinessState[] states = {BusinessState.ACTIVE, BusinessState.SUSPENDED, BusinessState.CLOSED,
+        BusinessState[] states = {null, BusinessState.ACTIVE, BusinessState.SUSPENDED, BusinessState.CLOSED,
                 BusinessState.NOT_REGISTERED};
         int bizNo = 0;
-        for (StoreStatus status : statuses) {
-            for (BusinessState state : states) {
-                Store store = persistStore("예시분식", status, String.format("%010d", ++bizNo));
-                persistCheck(store, NtsLookupResult.CONFIRMED, state);
+        for (NtsLookupResult checkResult : NtsLookupResult.values()) {
+            for (StoreStatus status : statuses) {
+                for (BusinessState state : states) {
+                    if (checkResult == NtsLookupResult.CONFIRMED && state == null) {
+                        continue;   // 확인에 성공했는데 상태가 없는 기록은 만들어지지 않는다
+                    }
+                    Store store = persistStore("예시분식", status, String.format("%010d", ++bizNo));
+                    persistCheck(store, checkResult, state);
+                }
             }
         }
         entityManager.clear();
 
-        Page<StoreWithNtsCheck> mismatches = storeRepository.findStatusMismatch(PageRequest.of(0, 100));
-        Page<StoreWithNtsCheck> all = storeRepository.findAllWithNtsCheck(PageRequest.of(0, 100));
+        List<StoreCheckResponse> all = storeRepository.findAllWithNtsCheck(PageRequest.of(0, 100)).getContent()
+                .stream().map(StoreCheckResponse::from).toList();
 
-        assertThat(mismatches.getContent()).allSatisfy(row ->
-                assertThat(StatusComparison.of(row.store().getStatus(), row.check().getNtsState()).isMismatch())
-                        .isTrue());
-        long expected = all.getContent().stream()
-                .filter(row -> StatusComparison.of(row.store().getStatus(), row.check().getNtsState()).isMismatch())
-                .count();
-        assertThat(mismatches.getTotalElements()).isEqualTo(expected);
+        // 필터 결과 = 응답에서 해당 플래그가 true 인 가게. 어긋나면 "목록엔 불일치로 나오는데 필터엔 없는" 가게가 생긴다
+        assertThat(storeIds(storeRepository.findStatusMismatch(PageRequest.of(0, 100))))
+                .containsExactlyElementsOf(all.stream()
+                        .filter(StoreCheckResponse::statusMismatch).map(StoreCheckResponse::storeId).toList());
+        assertThat(storeIds(storeRepository.findDataProblem(PageRequest.of(0, 100))))
+                .containsExactlyElementsOf(all.stream()
+                        .filter(StoreCheckResponse::dataProblem).map(StoreCheckResponse::storeId).toList());
+    }
+
+    private static List<Long> storeIds(Page<StoreWithNtsCheck> page) {
+        return page.getContent().stream().map(row -> row.store().getStoreId()).toList();
     }
 }
