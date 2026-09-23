@@ -19,7 +19,7 @@ jobs:
           clean: false
 
       - name: Rebuild and restart containers
-        run: docker compose up -d --build --remove-orphans
+        run: ./scripts/deploy.sh dev up -d --build --remove-orphans
 
       - name: Remove dangling images
         run: docker image prune -f
