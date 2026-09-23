@@ -1,0 +1,74 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Run backend tests
+        run: ./scripts/test.sh
+        working-directory: backend
+
+  ai-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ai/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run AI tests
+        run: ./scripts/test.sh
+        working-directory: ai
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend lint
+        run: ./scripts/test.sh
+        working-directory: frontend
+
+  all-tests-passed:
+    name: All tests passed
+    needs: [backend-test, ai-test, frontend-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "하나 이상의 테스트가 실패했습니다."
+            exit 1
+          fi

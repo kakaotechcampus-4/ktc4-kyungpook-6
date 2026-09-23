@@ -47,11 +47,26 @@ class StatusComparisonTest {
     }
 
     @Test
-    @DisplayName("MATCH 와 NOT_COMPARABLE 만 불일치가 아니다")
+    @DisplayName("상태가 서로 다른 경우만 불일치로 본다")
     void isMismatch() {
+        assertThat(StatusComparison.OPEN_BUT_CLOSED.isMismatch()).isTrue();
+        assertThat(StatusComparison.CLOSED_BUT_ACTIVE.isMismatch()).isTrue();
         assertThat(StatusComparison.MATCH.isMismatch()).isFalse();
         assertThat(StatusComparison.NOT_COMPARABLE.isMismatch()).isFalse();
-        assertThat(StatusComparison.OPEN_BUT_CLOSED.isMismatch()).isTrue();
-        assertThat(StatusComparison.NTS_NOT_REGISTERED.isMismatch()).isTrue();
+    }
+
+    @Test
+    @DisplayName("국세청 미등록은 상태 불일치가 아니라 데이터 문제로 본다")
+    void notRegisteredIsDataProblemNotMismatch() {
+        assertThat(StatusComparison.NTS_NOT_REGISTERED.isMismatch()).isFalse();
+        assertThat(StatusComparison.NTS_NOT_REGISTERED.isDataProblem()).isTrue();
+    }
+
+    @Test
+    @DisplayName("미등록 외에는 데이터 문제가 아니다")
+    void othersAreNotDataProblem() {
+        assertThat(StatusComparison.MATCH.isDataProblem()).isFalse();
+        assertThat(StatusComparison.OPEN_BUT_CLOSED.isDataProblem()).isFalse();
+        assertThat(StatusComparison.NOT_COMPARABLE.isDataProblem()).isFalse();
     }
 }
