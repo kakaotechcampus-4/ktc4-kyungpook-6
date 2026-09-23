@@ -2,11 +2,15 @@ package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
+import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
+import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
+import com.ktc4.backend.global.error.CustomException;
+import com.ktc4.backend.global.error.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -14,6 +18,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -68,5 +74,49 @@ public class StoreService {
             case STATUS_MISMATCH -> storeRepository.findStatusMismatch(pageable);
             case DATA_PROBLEM -> storeRepository.findDataProblem(pageable);
         };
+    }
+
+    /**
+     * 담당자가 수정한 가게 기본 정보를 반영한다. 담아 보낸 필드만 바뀐다.
+     *
+     * <p>name/addressRoad 가 바뀌면 정규화 값도 함께 다시 계산해 저장한다 — 정규화 책임은
+     * 엔티티가 아니라 서비스 계층에 있다({@code 데이터_정규화_가이드.md}).
+     *
+     * @param storeId 수정할 가게 ID
+     * @param request 담아 보낸 필드만 채워진 부분 수정 요청
+     * @return 수정된 가게 정보
+     * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    @Transactional
+    public StoreResponse updateStore(Long storeId, StoreUpdateRequest request) {
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+
+        String nameNormalized = request.name() == null ? null : StoreNormalizer.normalizeName(request.name());
+        String addressNormalized = request.addressRoad() == null ? null
+                : StoreNormalizer.normalizeAddress(request.addressRoad());
+
+        store.updateBasicInfo(request.name(), nameNormalized,
+                request.addressRoad(), addressNormalized,
+                request.phone(), request.status());
+
+        return StoreResponse.from(store);
+    }
+
+    /**
+     * 담당자가 가게 정보를 직접 확인했음을 현재 시각으로 기록한다.
+     *
+     * @param storeId 확인 완료 처리할 가게 ID
+     * @return 확인 시각이 갱신된 가게 정보
+     * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    @Transactional
+    public StoreResponse confirmStore(Long storeId) {
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+
+        store.confirm(LocalDateTime.now());
+
+        return StoreResponse.from(store);
     }
 }
