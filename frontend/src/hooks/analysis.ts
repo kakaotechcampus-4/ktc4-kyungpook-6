@@ -11,6 +11,7 @@ import type {
   SurveyEvidence,
   TaskClassification,
 } from '../components/AgentSurveyResultCard';
+import { formatDateTime } from '../utils/date';
 
 /** 백엔드 enum을 카드가 쓰는 소문자 값으로 옮긴다. */
 const CLASSIFICATION_MAP: Record<TaskClassificationResponse, TaskClassification> =
@@ -23,8 +24,16 @@ const CLASSIFICATION_MAP: Record<TaskClassificationResponse, TaskClassification>
 /** 분석 결과 화면이 카드 하나에 넘기는 값. */
 export type AnalysisTask = {
   id: string;
+  /** 수정 API를 부를 때 쓰는 가게 식별자. */
+  storeId: number;
   storeName: string;
+  /** 카드에 찍는 주소. 값이 없으면 "-"다. */
   address: string;
+  /**
+   * 수정 모달에 넘길 주소 원본. 값이 없으면 null 그대로 둔다.
+   * 표기용 "-"를 그대로 넘기면 담당자가 저장할 때 주소가 "-"로 덮인다.
+   */
+  addressRoad: string | null;
   classification: TaskClassification;
   evidences: SurveyEvidence[];
   changes: SurveyChange[];
@@ -36,8 +45,10 @@ export type AnalysisTaskGroups = Record<TaskClassification, AnalysisTask[]>;
 function toAnalysisTask(task: TaskResponse): AnalysisTask {
   return {
     id: String(task.taskId),
+    storeId: task.storeId,
     storeName: task.storeName,
     address: task.storeAddress ?? '-',
+    addressRoad: task.storeAddress,
     classification: CLASSIFICATION_MAP[task.classification] ?? 'unchanged',
     evidences:
       task.evidences?.map((evidence) => ({
@@ -61,30 +72,6 @@ function groupByClassification(tasks: AnalysisTask[]): AnalysisTaskGroups {
   }
 
   return groups;
-}
-
-/**
- * 조사 완료 시각을 브레드크럼 표기로 바꾼다. Figma 112:5450 "2026. 08. 20. 18:00"
- * ko-KR 포맷이 이미 "2026. 08. 20." 모양이라 시각만 이어 붙인다.
- */
-function formatFinishedAt(finishedAt: string | null): string | undefined {
-  if (!finishedAt) return undefined;
-
-  const date = new Date(finishedAt);
-  if (Number.isNaN(date.getTime())) return undefined;
-
-  const day = new Intl.DateTimeFormat('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
-  const time = new Intl.DateTimeFormat('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
-
-  return `${day} ${time}`;
 }
 
 /**
@@ -200,7 +187,8 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   const result = isError ? FALLBACK_RESULT : data;
 
   return {
-    finishedAtLabel: formatFinishedAt(result?.finishedAt ?? null),
+    /* 브레드크럼 표기. Figma 112:5450 "2026. 08. 20. 18:00" */
+    finishedAtLabel: formatDateTime(result?.finishedAt),
     groups: groupByClassification(result?.tasks.map(toAnalysisTask) ?? []),
     isPending,
     isError,

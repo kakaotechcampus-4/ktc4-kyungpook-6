@@ -243,15 +243,22 @@ function AgentSurveyResultCard({
           <button
             type="button"
             onClick={onPrimaryAction}
-            className={`${ACTION_BUTTON} bg-[#eab308] text-white focus-visible:outline-[#eab308]`}
+            disabled={isLoading}
+            className={`${ACTION_BUTTON} bg-[#eab308] text-white focus-visible:outline-[#eab308] disabled:opacity-60`}
           >
             {primaryActionLabel}
           </button>
         ) : null}
+        {/*
+          조회 중에는 누를 수 없게 막는다.
+          어느 가게인지 아직 모르는 자리라 핸들러가 없어서, 열어두면 눌러도
+          아무 일이 일어나지 않아 먹통처럼 보인다.
+        */}
         <button
           type="button"
           onClick={onEdit}
-          className={`${ACTION_BUTTON} border border-solid border-[#e2e8f0] text-[#1e293b] focus-visible:outline-[#64748b]`}
+          disabled={isLoading}
+          className={`${ACTION_BUTTON} border border-solid border-[#e2e8f0] text-[#1e293b] focus-visible:outline-[#64748b] disabled:opacity-60`}
         >
           직접 수정하기
         </button>

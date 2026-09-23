@@ -1,6 +1,11 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 
-const baseURL = import.meta.env.VITE_BACKEND_URL ?? "localhost:3000";
+/*
+  개발 중에는 빈 값을 써서 /api/... 로 그냥 보낸다. 그러면 vite 개발 서버가 받아
+  vite.config.ts 의 프록시로 백엔드에 넘겨준다 — 브라우저 입장에서는 같은 주소라 CORS 가 없다.
+  배포 빌드에는 프록시가 없으므로 VITE_BACKEND_URL 에 백엔드 주소를 넣어야 한다.
+*/
+const baseURL = import.meta.env.DEV ? "" : import.meta.env.VITE_BACKEND_URL ?? "";
 
 const axiosApiInstance = axios.create({
   baseURL,
