@@ -20,8 +20,25 @@ export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   selectedIds: Set<string>;
   isSelected: (id: string) => boolean;
   toggleSelect: (id: string, checked: boolean) => void;
+  /** 현재 페이지 ids만 선택·해제한다. 다른 페이지 선택은 유지된다. */
   toggleSelectAll: (ids: string[], checked: boolean) => void;
 };
+
+/**
+ * 선택 집합에서 ids만 넣거나 뺀 새 집합을 돌려준다. ids 밖의 선택은 그대로 둔다.
+ *
+ * 헤더 체크박스(전체 선택)는 현재 페이지에만 적용된다. 지메일과 같은 동작이다.
+ * 다른 페이지에서 고른 가게까지 지우거나 덮어쓰면 안 된다.
+ */
+export function applySelection(
+  prev: Set<string>,
+  ids: string[],
+  checked: boolean,
+): Set<string> {
+  const next = new Set(prev);
+  ids.forEach((id) => (checked ? next.add(id) : next.delete(id)));
+  return next;
+}
 
 /**
  * 가게 목록 페이지(MockupDataPage)의 화면 상태를 모은다.
@@ -50,7 +67,7 @@ export function useStoreListPage(): UseStoreListPageResult {
   };
 
   const toggleSelectAll = (ids: string[], checked: boolean) => {
-    setSelectedIds(checked ? new Set(ids) : new Set());
+    setSelectedIds((prev) => applySelection(prev, ids, checked));
   };
 
   /* 트리거 노출은 현재 페이지가 아니라 전체 선택 수로 판단한다. */

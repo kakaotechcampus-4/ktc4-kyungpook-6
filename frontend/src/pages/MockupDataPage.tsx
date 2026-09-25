@@ -104,13 +104,23 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     retry: false,
   });
   const stores = isError ? FALLBACK_STORES : data?.content.map(toStore) ?? [];
+  /*
+    헤더 체크박스 UI 시나리오 (지메일 방식)
+    - 범위: 현재 페이지의 가게만 선택·해제한다. 다른 페이지 선택은 건드리지 않는다.
+    - 표시: 현재 페이지 기준으로 계산한다.
+        현재 페이지 전부 선택 → 체크 / 일부 선택 → 일부 선택 / 하나도 없음 → 빈 칸
+      다른 페이지에만 선택이 있으면 이 페이지 헤더는 빈 칸이다.
+    - 클릭: 현재 페이지에 선택이 하나라도 있으면(전체·일부) 현재 페이지 해제,
+      하나도 없으면 현재 페이지 전체 선택.
+    - 조사 대상 수(모달·트리거)는 페이지와 무관하게 전체 선택 수로 센다.
+  */
   const selectedCount = stores.filter((store) =>
     selectedIds.has(store.id)
   ).length;
-  const allSelected = stores.length > 0 && selectedCount === stores.length; // page를 넘기더라도 allSelected는 해당 페이지의 store에 대해서만 계산하도록.
+  const allSelected = stores.length > 0 && selectedCount === stores.length;
   /** 일부만 선택된 상태. Figma 111:3911 (파란 배경 + 흰 가로줄) */
   const someSelected = selectedCount > 0 && !allSelected;
-  /** 선택된 게 하나라도 있으면 헤더 클릭은 전체 해제로 동작한다. */
+  /** 현재 페이지에 선택이 하나라도 있으면 헤더 클릭은 현재 페이지 해제로 동작한다. */
   const hasSelection = allSelected || someSelected;
 
   return (
