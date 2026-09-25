@@ -26,7 +26,7 @@ function openedWith(target: StoreEditTarget): StoreEditFormValues {
     name: target.name ?? '',
     addressRoad: target.addressRoad ?? '',
     phone: target.phone ?? '',
-    status: target.status ?? 'UNKNOWN',
+    status: target.status ?? '',
   };
 }
 
@@ -84,8 +84,18 @@ describe('buildPatch — 바뀐 칸만 골라낸다', () => {
     expect(patch).not.toHaveProperty('status');
   });
 
-  it('운영 상태를 모르는 채로 미확인을 그대로 두면 담지 않는다 — UNKNOWN 으로 덮어쓰면 안 된다', () => {
+  it('운영 상태를 모르는 채로 열면 빈 값이다 — 미확인(UNKNOWN)으로 채우지 않는다', () => {
+    expect(openedWith(PARTIAL_TARGET).status).toBe('');
+  });
+
+  it('운영 상태를 모르는 채로 두면 담지 않는다 — 서버 값을 덮어쓰면 안 된다', () => {
     expect(buildPatch(PARTIAL_TARGET, openedWith(PARTIAL_TARGET))).toEqual({});
+  });
+
+  it('운영 상태를 모르는 채로 열고 미확인을 고르면 담는다 — 모름과 미확인은 다른 값이다', () => {
+    const values = { ...openedWith(PARTIAL_TARGET), status: 'UNKNOWN' as const };
+
+    expect(buildPatch(PARTIAL_TARGET, values)).toEqual({ status: 'UNKNOWN' });
   });
 
   it('전화번호를 비우면 빈 문자열을 담는다 — 전화번호는 지울 수 있는 값이다', () => {

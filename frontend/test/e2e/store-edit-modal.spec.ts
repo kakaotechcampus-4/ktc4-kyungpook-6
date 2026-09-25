@@ -53,7 +53,10 @@ test.describe("모달 열기", () => {
     const modal = await openModalFromAnalysis(page);
 
     await expect(modal.getByLabel("전화번호")).toHaveValue("");
-    await expect(modal.getByLabel("운영 상태")).toHaveValue("UNKNOWN");
+    await expect(modal.getByLabel("운영 상태")).toHaveValue("");
+    await expect(modal.getByLabel("운영 상태")).toContainText(
+      "이 화면에서는 불러오지 못했습니다"
+    );
     await expect(modal.getByText("-", { exact: true })).toBeVisible();
   });
 

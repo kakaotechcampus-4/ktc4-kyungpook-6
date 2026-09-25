@@ -261,6 +261,16 @@ function StoreEditModal({
                 }
                 className={`${FIELD_INPUT} w-full appearance-none pr-9`}
               >
+                {/*
+                  조사 결과 화면처럼 운영 상태를 받지 못하고 연 경우.
+                  "미확인"으로 채우면 가게가 미확인인 것처럼 보이므로 모른다고 그대로 보여준다.
+                  고를 수는 없어서, 다른 값을 고르면 선택지에서 빠진다.
+                */}
+                {values.status === '' && (
+                  <option value="" disabled>
+                    이 화면에서는 불러오지 못했습니다
+                  </option>
+                )}
                 {STATUS_OPTIONS.map(({ value, label }) => (
                   <option key={value} value={value}>
                     {label}
