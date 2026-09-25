@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ComponentPropsWithoutRef } from "react";
 import { getStores } from "../services/store";
-import type { StoreResponse } from "../services/store";
+import type { StoreResponse, StoreStatus } from "../services/store";
 import { useStoreListPage } from "../hooks/store";
 import { useStoreEditModal } from "../hooks/storeEdit";
 import type { StoreEditTarget } from "../hooks/storeEdit";
@@ -29,14 +29,23 @@ export interface Store {
   editTarget?: StoreEditTarget;
 }
 
-function toStore(store: StoreResponse): Store {
-  const status = store.status?.toLowerCase();
+/**
+ * 백엔드 StoreStatus → 화면 뱃지 값.
+ * Record로 두어 StoreStatus에 값이 추가되면 여기서 타입 에러가 나게 한다.
+ */
+const TO_BUSINESS_STATUS: Record<StoreStatus, BusinessStatus> = {
+  OPEN: "open",
+  SUSPENDED: "suspended",
+  CLOSED: "closed",
+  UNKNOWN: "unknown",
+};
 
+function toStore(store: StoreResponse): Store {
   return {
     id: String(store.storeId),
     name: store.name,
     phone: store.phone ?? "-",
-    status: status === "open" || status === "closed" ? status : undefined,
+    status: TO_BUSINESS_STATUS[store.status],
     address: store.addressRoad ?? "-",
     lastChecked: store.lastCheckedAt?.replace("T", " ") ?? "-",
     editTarget: {
