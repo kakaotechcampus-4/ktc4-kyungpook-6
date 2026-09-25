@@ -47,11 +47,17 @@ class StatusComparisonTest {
     }
 
     @Test
-    @DisplayName("MATCH 와 NOT_COMPARABLE 만 불일치가 아니다")
+    @DisplayName("상태가 서로 다른 경우만 불일치로 본다")
     void isMismatch() {
+        assertThat(StatusComparison.OPEN_BUT_CLOSED.isMismatch()).isTrue();
+        assertThat(StatusComparison.CLOSED_BUT_ACTIVE.isMismatch()).isTrue();
         assertThat(StatusComparison.MATCH.isMismatch()).isFalse();
         assertThat(StatusComparison.NOT_COMPARABLE.isMismatch()).isFalse();
-        assertThat(StatusComparison.OPEN_BUT_CLOSED.isMismatch()).isTrue();
-        assertThat(StatusComparison.NTS_NOT_REGISTERED.isMismatch()).isTrue();
+    }
+
+    @Test
+    @DisplayName("국세청 미등록은 상태 불일치로 보지 않는다")
+    void notRegisteredIsNotMismatch() {
+        assertThat(StatusComparison.NTS_NOT_REGISTERED.isMismatch()).isFalse();
     }
 }

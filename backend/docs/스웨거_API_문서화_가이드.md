@@ -88,6 +88,22 @@ public class OrderRequest {
 
 ---
 
+### 에러 응답은 스키마를 붙여야 합니다
+
+위 예시들은 `@ApiResponse(responseCode = "400", description = ...)` 처럼 설명만 답니다.
+그러면 **springdoc 이 메서드 반환 타입을 400 스키마로 채워 넣어** 프론트가 "400인데 성공 응답이 온다"고
+타입을 생성합니다. 에러 응답에는 반드시 스키마를 명시하세요.
+
+```java
+@ApiResponse(responseCode = "400", description = "요청 값이 올바르지 않은 경우",
+        content = @Content(mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetail.class)))
+```
+
+자세한 내용은 [에러_처리_가이드.md](../../docs/에러_처리_가이드.md) 참고.
+
+---
+
 ### 참고사항
 
 - Controller 메서드 → 스웨거만 (Javadoc 생략)

@@ -33,6 +33,10 @@ import java.util.stream.Collectors;
  *
  * <p>가게 상태({@code Store.status})는 이 배치가 바꾸지 않는다 — 국세청의 폐업은 사업자 기준이라
  * 실제 매장 운영과 다를 수 있어서, 판단은 사람이나 AI 조사에 맡긴다.
+ *
+ * <p>{@link #checkAllStores()} 는 {@code storeRepository.findAll()} 로 가게를 한 번에 전부
+ * 메모리에 올린다. 가게 수가 수만 건을 넘으면 페이징으로 나눠 처리하도록 바꿔야 한다 — 지금
+ * 당장 바꿀 필요는 없다.
  */
 @Slf4j
 @Component

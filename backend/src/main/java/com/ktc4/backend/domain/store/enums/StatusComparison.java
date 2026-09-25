@@ -13,7 +13,7 @@ public enum StatusComparison {
     CLOSED_BUT_ACTIVE,    // 우리: 폐업 / 국세청: 계속
     CLOSED_BUT_SUSPENDED, // 우리: 폐업 / 국세청: 휴업
     NTS_NOT_REGISTERED,   // 국세청에 없는 번호 — 번호가 잘못 적혔을 수 있음
-    NOT_COMPARABLE;       // 우리 상태가 UNKNOWN 이거나 국세청 상태를 확인하지 못함
+    NOT_COMPARABLE;       // 우리 상태가 UNKNOWN 이거나 국세청 상태를 확인하지 못함 (번호가 지워진 가게도 응답에서 이 값)
 
     public static StatusComparison of(StoreStatus internal, BusinessState nts) {
         if (internal == StoreStatus.UNKNOWN || nts == null) {
@@ -42,8 +42,14 @@ public enum StatusComparison {
         };
     }
 
-    // 불일치한 가게만 AI 조사에 넘기는 등 걸러낼 때 쓴다.
+    /**
+     * 두 상태가 서로 다른가 — AI 조사(가게가 정말 폐업했는지 확인)로 넘길 대상을 고를 때 쓴다.
+     *
+     * <p>{@link #NTS_NOT_REGISTERED} 는 제외한다. 그건 상태가 다른 게 아니라 우리 DB 의 번호가
+     * 틀렸다는 뜻이라, 조사가 아니라 번호를 바로잡는 일이 필요하다.
+     * 번호가 틀린 가게를 AI 에 넘기면 엉뚱한 가게를 조사하게 된다.
+     */
     public boolean isMismatch() {
-        return this != MATCH && this != NOT_COMPARABLE;
+        return this != MATCH && this != NOT_COMPARABLE && this != NTS_NOT_REGISTERED;
     }
 }
