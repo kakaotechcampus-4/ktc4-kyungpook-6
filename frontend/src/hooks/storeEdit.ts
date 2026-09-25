@@ -27,15 +27,20 @@ export type StoreEditFormValues = {
   name: string;
   addressRoad: string;
   phone: string;
-  status: StoreStatus;
+  /**
+   * ''는 "이 화면이 운영 상태를 모른다"는 뜻이다.
+   * UNKNOWN(가게가 미확인 상태)과 섞으면, 모르는 채로 연 모달에서 미확인을 골라도
+   * 처음 값과 같다고 보고 보내지 않는다. 그래서 둘을 다른 값으로 둔다.
+   */
+  status: StoreStatus | '';
 };
 
-/** 모르는 값은 빈 칸으로 둔다. 운영 상태의 "모름"은 UNKNOWN(미확인)이다. */
+/** 모르는 값은 빈 칸으로 둔다. 운영 상태도 모르면 ''이다(UNKNOWN 아님). */
 const EMPTY_VALUES: StoreEditFormValues = {
   name: '',
   addressRoad: '',
   phone: '',
-  status: 'UNKNOWN',
+  status: '',
 };
 
 function toFormValues(target: StoreEditTarget): StoreEditFormValues {
@@ -43,7 +48,7 @@ function toFormValues(target: StoreEditTarget): StoreEditFormValues {
     name: target.name ?? '',
     addressRoad: target.addressRoad ?? '',
     phone: target.phone ?? '',
-    status: target.status ?? 'UNKNOWN',
+    status: target.status ?? '',
   };
 }
 
@@ -65,7 +70,10 @@ export function buildPatch(
     patch.addressRoad = values.addressRoad;
   }
   if (values.phone !== initial.phone) patch.phone = values.phone;
-  if (values.status !== initial.status) patch.status = values.status;
+  /* ''(모름)는 서버에 보낼 값이 아니다. 담당자가 상태를 골랐을 때만 담는다. */
+  if (values.status && values.status !== initial.status) {
+    patch.status = values.status;
+  }
 
   return patch;
 }
