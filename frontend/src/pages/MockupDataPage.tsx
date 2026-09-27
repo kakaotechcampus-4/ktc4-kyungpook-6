@@ -3,9 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ComponentPropsWithoutRef } from "react";
 import { getStores } from "../services/store";
-import type { StoreResponse } from "../services/store";
+import type { StoreResponse, StoreStatus } from "../services/store";
 import { useStoreListPage } from "../hooks/store";
+import { useStoreEditModal } from "../hooks/storeEdit";
+import type { StoreEditTarget } from "../hooks/storeEdit";
 import Sidebar from "../components/sidebar/Sidebar";
+import StoreEditModal from "../components/store/StoreEditModal";
 import TableRow from "../components/TableRow";
 import AgentSurveyTrigger from "../components/AgentSurveyTrigger";
 import AgentSurveyModal from "../components/AgentSurveyModal";
@@ -19,18 +22,40 @@ export interface Store {
   status?: BusinessStatus;
   address: string;
   lastChecked: string;
+  /**
+   * 수정 모달에 넘길 원본 값. 표기용으로 "-" 를 채운 위 필드들과 달리
+   * 서버가 준 값 그대로다. 목업 행에는 없어서 그 행의 연필은 눌리지 않는다.
+   */
+  editTarget?: StoreEditTarget;
 }
 
-function toStore(store: StoreResponse): Store {
-  const status = store.status?.toLowerCase();
+/**
+ * 백엔드 StoreStatus → 화면 뱃지 값.
+ * Record로 두어 StoreStatus에 값이 추가되면 여기서 타입 에러가 나게 한다.
+ */
+const TO_BUSINESS_STATUS: Record<StoreStatus, BusinessStatus> = {
+  OPEN: "open",
+  SUSPENDED: "suspended",
+  CLOSED: "closed",
+  UNKNOWN: "unknown",
+};
 
+function toStore(store: StoreResponse): Store {
   return {
     id: String(store.storeId),
     name: store.name,
     phone: store.phone ?? "-",
-    status: status === "open" || status === "closed" ? status : undefined,
+    status: TO_BUSINESS_STATUS[store.status],
     address: store.addressRoad ?? "-",
     lastChecked: store.lastCheckedAt?.replace("T", " ") ?? "-",
+    editTarget: {
+      storeId: store.storeId,
+      name: store.name,
+      addressRoad: store.addressRoad,
+      phone: store.phone,
+      status: store.status,
+      lastCheckedAt: store.lastCheckedAt,
+    },
   };
 }
 
@@ -81,19 +106,30 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     closeSurveyModal,
     startSurvey,
   } = useStoreListPage();
+  const storeEdit = useStoreEditModal();
   const { data, isPending, isError } = useQuery({
     queryKey: ["stores", { page, limit: 20 }],
     queryFn: () => getStores({ page, limit: 20 }),
     retry: false,
   });
   const stores = isError ? FALLBACK_STORES : data?.content.map(toStore) ?? [];
+  /*
+    헤더 체크박스 UI 시나리오 (지메일 방식)
+    - 범위: 현재 페이지의 가게만 선택·해제한다. 다른 페이지 선택은 건드리지 않는다.
+    - 표시: 현재 페이지 기준으로 계산한다.
+        현재 페이지 전부 선택 → 체크 / 일부 선택 → 일부 선택 / 하나도 없음 → 빈 칸
+      다른 페이지에만 선택이 있으면 이 페이지 헤더는 빈 칸이다.
+    - 클릭: 현재 페이지에 선택이 하나라도 있으면(전체·일부) 현재 페이지 해제,
+      하나도 없으면 현재 페이지 전체 선택.
+    - 조사 대상 수(모달·트리거)는 페이지와 무관하게 전체 선택 수로 센다.
+  */
   const selectedCount = stores.filter((store) =>
     selectedIds.has(store.id)
   ).length;
-  const allSelected = stores.length > 0 && selectedCount === stores.length; // page를 넘기더라도 allSelected는 해당 페이지의 store에 대해서만 계산하도록.
+  const allSelected = stores.length > 0 && selectedCount === stores.length;
   /** 일부만 선택된 상태. Figma 111:3911 (파란 배경 + 흰 가로줄) */
   const someSelected = selectedCount > 0 && !allSelected;
-  /** 선택된 게 하나라도 있으면 헤더 클릭은 전체 해제로 동작한다. */
+  /** 현재 페이지에 선택이 하나라도 있으면 헤더 클릭은 현재 페이지 해제로 동작한다. */
   const hasSelection = allSelected || someSelected;
 
   return (
@@ -222,18 +258,26 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
                 표시할 가게가 없습니다.
               </p>
             )}
-            {stores.map((store) => (
-              <TableRow
-                key={store.id}
-                name={store.name}
-                phone={store.phone}
-                status={store.status}
-                address={store.address}
-                lastCheckedAt={store.lastChecked}
-                checked={isSelected(store.id)}
-                onCheckedChange={(checked) => toggleSelect(store.id, checked)}
-              />
-            ))}
+            {stores.map((store) => {
+              /* 목업 행은 서버에 없는 가게라 수정할 대상이 없다. */
+              const { editTarget } = store;
+
+              return (
+                <TableRow
+                  key={store.id}
+                  name={store.name}
+                  phone={store.phone}
+                  status={store.status}
+                  address={store.address}
+                  lastCheckedAt={store.lastChecked}
+                  checked={isSelected(store.id)}
+                  onCheckedChange={(checked) => toggleSelect(store.id, checked)}
+                  onEdit={
+                    editTarget ? () => storeEdit.open(editTarget) : undefined
+                  }
+                />
+              );
+            })}
           </div>
           {!isError && data && data.totalPages > 0 && (
             <nav
@@ -282,6 +326,20 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
         estimatedMinutes={estimatedMinutes}
         onStart={startSurvey}
         onCancel={closeSurveyModal}
+      />
+
+      {/* 가게 정보 수정 모달. Figma Modal(102:4996) */}
+      <StoreEditModal
+        open={storeEdit.isOpen}
+        values={storeEdit.values}
+        onChange={storeEdit.setValue}
+        lastCheckedAtLabel={storeEdit.lastCheckedAtLabel}
+        onSave={storeEdit.save}
+        onConfirm={storeEdit.confirm}
+        onClose={storeEdit.close}
+        isSaving={storeEdit.isSaving}
+        isConfirming={storeEdit.isConfirming}
+        errorMessage={storeEdit.errorMessage}
       />
     </div>
   );

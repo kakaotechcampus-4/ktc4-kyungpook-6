@@ -99,4 +99,55 @@ public class Store extends BaseTimeEntity {
         this.bizNo = bizNo;
         this.lastCheckedAt = lastCheckedAt;
     }
+
+    /**
+     * 담당자가 수정한 기본 정보를 반영한다. 각 필드는 {@code null} 이면 바뀌지 않는다 — 부분 수정이다.
+     *
+     * <p>{@code name}/{@code addressRoad} 가 바뀌면 정규화 값도 함께 갱신해야 하는데, 정규화는
+     * 이 엔티티가 아니라 서비스 계층의 책임이라({@code backend/docs/데이터_정규화_가이드.md})
+     * 이미 정규화된 값을 호출자가 넘긴다. 원본이 {@code null} 이 아닌데 정규화 값만 {@code null} 로
+     * 넘기면 안 된다 — 호출자(서비스)가 항상 짝으로 넘겨야 하는 내부 계약이다.
+     *
+     * <p>{@code phone} 은 다른 필드와 규칙이 다르다. 빈 문자열로 지우는 것을 허용하는 필드라
+     * {@code null} 체크만 하고 빈 문자열은 그대로 통과시킨다 — "안 보냄"과 "지움"을 구분해야 한다.
+     *
+     * @param name              바꿀 가게명. {@code null} 이면 유지
+     * @param nameNormalized    {@code name} 과 짝을 이루는 정규화 값. {@code name} 이 {@code null} 이 아니면
+     *                          같이 넘겨야 한다
+     * @param addressRoad       바꿀 도로명 주소. {@code null} 이면 유지
+     * @param addressNormalized {@code addressRoad} 와 짝을 이루는 정규화 값. {@code addressRoad} 가
+     *                          {@code null} 이 아니면 같이 넘겨야 한다
+     * @param phone             바꿀 전화번호. {@code null} 이면 유지, 빈 문자열이면 지움
+     * @param status            바꿀 영업 상태. {@code null} 이면 유지
+     */
+    public void updateBasicInfo(String name, String nameNormalized,
+                                 String addressRoad, String addressNormalized,
+                                 String phone, StoreStatus status) {
+        if (name != null) {
+            this.name = name;
+            this.nameNormalized = nameNormalized;
+        }
+        if (addressRoad != null) {
+            this.addressRoad = addressRoad;
+            this.addressNormalized = addressNormalized;
+        }
+        if (phone != null) {
+            this.phone = phone;
+        }
+        if (status != null) {
+            this.status = status;
+        }
+    }
+
+    /**
+     * 담당자가 가게 정보를 직접 확인했음을 기록한다.
+     *
+     * <p>시각은 이 메서드가 스스로 만들지 않고 호출자(서비스)가 넘긴다 — 엔티티가 직접
+     * {@code LocalDateTime.now()} 를 부르면 테스트에서 시각을 통제할 수 없다.
+     *
+     * @param confirmedAt 확인 완료로 기록할 시각
+     */
+    public void confirm(LocalDateTime confirmedAt) {
+        this.lastCheckedAt = confirmedAt;
+    }
 }

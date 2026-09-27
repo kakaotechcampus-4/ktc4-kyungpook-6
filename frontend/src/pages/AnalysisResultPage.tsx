@@ -4,8 +4,10 @@ import Sidebar from '../components/sidebar/Sidebar';
 import Skeleton from '../components/ui/Skeleton';
 import AgentSurveyResultCard from '../components/AgentSurveyResultCard';
 import AnalysisResultSection from '../components/analysis/AnalysisResultSection';
+import StoreEditModal from '../components/store/StoreEditModal';
 import type { TaskClassification } from '../components/AgentSurveyResultCard';
 import { useAnalysisResultPage } from '../hooks/analysis';
+import { useStoreEditModal } from '../hooks/storeEdit';
 
 /** 섹션 순서와 제목. Figma 112:5453 / 112:5500 / 112:5526 */
 const SECTIONS: { classification: TaskClassification; title: string }[] = [
@@ -31,6 +33,7 @@ type AnalysisResultPageProps = Omit<
 function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
   const { finishedAtLabel, groups, isPending, isError } =
     useAnalysisResultPage();
+  const storeEdit = useStoreEditModal();
 
   return (
     <div
@@ -108,7 +111,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                     ))
                   : tasks.map((task) => (
                       /*
-                        onPrimaryAction·onEdit는 아직 연결하지 않았다.
+                        onPrimaryAction은 아직 연결하지 않았다.
                         수정 반영·메세지 발송 API가 나오면 훅에 핸들러를 추가한다.
                       */
                       <AgentSurveyResultCard
@@ -118,6 +121,13 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                         address={task.address}
                         evidences={task.evidences}
                         changes={task.changes}
+                        onEdit={() =>
+                          storeEdit.open({
+                            storeId: task.storeId,
+                            name: task.storeName,
+                            addressRoad: task.addressRoad,
+                          })
+                        }
                       />
                     ))}
               </AnalysisResultSection>
@@ -125,6 +135,25 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
           })}
         </div>
       </main>
+
+      {/*
+        가게 정보 수정 모달. Figma 102:4996
+        조사 결과 응답에는 전화번호·운영 상태·확인일이 없어 빈 칸으로 열린다.
+        부분 수정이라 담당자가 건드리지 않은 칸은 보내지 않으므로 기존 값이 지워지지 않는다.
+        Task 응답에 가게 스냅샷이 실리면 open()에 그 값을 함께 넘기면 된다.
+      */}
+      <StoreEditModal
+        open={storeEdit.isOpen}
+        values={storeEdit.values}
+        onChange={storeEdit.setValue}
+        lastCheckedAtLabel={storeEdit.lastCheckedAtLabel}
+        onSave={storeEdit.save}
+        onConfirm={storeEdit.confirm}
+        onClose={storeEdit.close}
+        isSaving={storeEdit.isSaving}
+        isConfirming={storeEdit.isConfirming}
+        errorMessage={storeEdit.errorMessage}
+      />
     </div>
   );
 }

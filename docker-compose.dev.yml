@@ -1,0 +1,8 @@
+# dev 환경 오버라이드 파일입니다.
+# docker-compose.yml(base) 위에 병합해서 사용합니다 — 직접 쓰지 말고 scripts/deploy.sh 를 사용하세요.
+#   예) scripts/deploy.sh dev up -d --build
+#
+# 현재는 base와 dev 사이에 차이가 없어 비어 있습니다.
+# dev 전용 설정(환경변수, 포트 등)이 필요해지면 이 파일에 추가하세요.
+
+services: {}
