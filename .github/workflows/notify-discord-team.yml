@@ -6,6 +6,13 @@
 # ⚠️ 운영진 소유 3개 파일(assign-mentor / notify-discord / convention-check)은 건드리지 않는다.
 #    CODEOWNERS 가 "workflows 에 팀 자체 워크플로 새로 추가"는 명시적으로 허용한다.
 #
+# 🚨 시크릿을 운영진 것과 **일부러 분리했다** — `DISCORD_WEBHOOK` 이 아니라 `DISCORD_WEBHOOK_TEAM`.
+#    운영진 `DISCORD_WEBHOOK` 이 어느 채널을 가리키는지 우리는 알 수 없다(시크릿 값은 읽을 수 없다).
+#    CODEOWNERS 메모에 "Discord 채널 구조(학교별 5채널 vs 팀별)가 미확정" 이라 적혀 있어,
+#    그게 학교 공용 채널이면 우리 develop PR 알림이 다른 팀에까지 쏟아진다.
+#    운영진 알림은 주 1회라 티가 안 나지만 우리 건 주당 10건이 넘는다.
+#    그래서 **우리 채널 전용 웹훅을 따로 받아 새 시크릿으로 등록한다.**
+#
 # 🔒 PR 제목·브랜치명은 외부 입력이다. 절대 run: 안에 ${{ }} 로 펼치지 않는다
 #    (제목에 따옴표나 $(...) 가 들어오면 셸에서 실행된다). env: 로 넘기고 jq 로 JSON 을 만든다.
 name: Notify Discord (team PR)
@@ -28,7 +35,7 @@ jobs:
     steps:
       - name: Send Discord message
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
           ACTION: ${{ github.event.action }}
           MERGED: ${{ github.event.pull_request.merged }}
           PR_NUM: ${{ github.event.pull_request.number }}
@@ -41,6 +48,13 @@ jobs:
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
+
+          # 🚨 시크릿이 없으면 **아무것도 보내지 않고 끝낸다.** 운영진 공용 웹훅으로 흘러가는
+          #    사고를 막기 위해, 기본값으로 다른 웹훅을 대신 쓰지 않는다.
+          if [ -z "${DISCORD_WEBHOOK_TEAM:-}" ]; then
+            echo "::notice::DISCORD_WEBHOOK_TEAM 시크릿이 없어 알림을 건너뜁니다. 팀 채널 웹훅을 등록하세요."
+            exit 0
+          fi
 
           if [ "$ACTION" = "closed" ]; then
             HEADLINE="✅ develop 에 머지됐습니다"
@@ -75,7 +89,7 @@ jobs:
 
           code=$(curl -sS -o /tmp/discord_resp -w '%{http_code}' \
             -X POST -H 'Content-Type: application/json' \
-            -d "$PAYLOAD" "$DISCORD_WEBHOOK")
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_TEAM")
 
           echo "Discord 응답 코드: $code"
           if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
