@@ -1,0 +1,20 @@
+name = "ktc4-kyungpook-6-bot"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# 예약 발송. 1분이 Cron Trigger 의 최소 간격이다.
+[triggers]
+crons = ["* * * * *"]
+
+# 예약 저장소. 아래 database_id 는 `wrangler d1 create` 가 출력한 값으로 바꿔야 한다.
+[[d1_databases]]
+binding = "DB"
+database_name = "ktc4-kyungpook-6-bot"
+database_id = "PUT-YOUR-D1-DATABASE-ID-HERE"
+
+[vars]
+# 비밀이 아닌 값만 여기 둔다. PUBLIC KEY 는 공개 값이지만 계정마다 달라 배포 때 넣는다.
+GITHUB_REPO = "kakaotechcampus-4/ktc4-kyungpook-6"
+
+# 시크릿은 이 파일에 적지 않는다. `wrangler secret put` 으로 넣는다:
+#   DISCORD_PUBLIC_KEY  DISCORD_BOT_TOKEN  GITHUB_TOKEN

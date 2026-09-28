@@ -1,0 +1,15 @@
+{
+  "name": "ktc4-kyungpook-6-discord-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "register": "node scripts/register-commands.mjs",
+    "db:init": "wrangler d1 execute ktc4-kyungpook-6-bot --remote --file schema.sql",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.85.0"
+  }
+}
