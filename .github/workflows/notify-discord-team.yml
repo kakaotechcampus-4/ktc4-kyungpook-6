@@ -1,0 +1,85 @@
+# 팀 내부 PR(base=develop) 디스코드 알림
+#
+# 운영진 워크플로 notify-discord.yml 은 base=main 인 PR 만 알린다(리뷰 요청·리뷰 제출).
+# 그래서 팀원끼리 주고받는 develop PR 은 아무 알림이 없었다. 이 파일이 그 빈틈만 메운다.
+#
+# ⚠️ 운영진 소유 3개 파일(assign-mentor / notify-discord / convention-check)은 건드리지 않는다.
+#    CODEOWNERS 가 "workflows 에 팀 자체 워크플로 새로 추가"는 명시적으로 허용한다.
+#
+# 🔒 PR 제목·브랜치명은 외부 입력이다. 절대 run: 안에 ${{ }} 로 펼치지 않는다
+#    (제목에 따옴표나 $(...) 가 들어오면 셸에서 실행된다). env: 로 넘기고 jq 로 JSON 을 만든다.
+name: Notify Discord (team PR)
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, closed]
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # 초안은 알리지 않는다. 닫힌 경우는 머지된 것만 알린다(그냥 닫은 PR 은 소음).
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.action != 'closed' || github.event.pull_request.merged == true)
+    steps:
+      - name: Send Discord message
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          ACTION: ${{ github.event.action }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+
+          if [ "$ACTION" = "closed" ]; then
+            HEADLINE="✅ develop 에 머지됐습니다"
+            COLOR=5763719   # 초록
+          else
+            HEADLINE="🔵 새 PR 이 올라왔습니다 (→ develop)"
+            COLOR=3447003   # 파랑
+          fi
+
+          # 제목/브랜치는 전부 jq --arg 로만 넘긴다. 문자열 보간을 쓰지 않는다.
+          PAYLOAD=$(jq -n \
+            --arg headline "$HEADLINE" \
+            --arg title "#${PR_NUM} ${PR_TITLE}" \
+            --arg url "$PR_URL" \
+            --arg author "$PR_AUTHOR" \
+            --arg branch "$HEAD_REF" \
+            --arg diff "+${ADDITIONS} −${DELETIONS} · ${CHANGED_FILES}개 파일" \
+            --argjson color "$COLOR" \
+            '{
+              content: $headline,
+              embeds: [{
+                title: $title,
+                url: $url,
+                color: $color,
+                fields: [
+                  { name: "작성자", value: $author,  inline: true },
+                  { name: "브랜치", value: $branch,  inline: true },
+                  { name: "변경",   value: $diff,    inline: false }
+                ]
+              }]
+            }')
+
+          code=$(curl -sS -o /tmp/discord_resp -w '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK")
+
+          echo "Discord 응답 코드: $code"
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "::error::디스코드 전송 실패 ($code)"
+            cat /tmp/discord_resp
+            exit 1
+          fi
