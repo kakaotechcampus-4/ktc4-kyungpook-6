@@ -1,0 +1,32 @@
+# 매 시간 돌면서 사람이 손써야 하는 PR 만 알린다.
+#
+# 봇이 아니라 schedule(cron) + 웹훅이다. 알림만 보내면 되니 24시간 켜둘 서버가 필요 없다.
+# 판단 로직은 .github/scripts/remind_discord.py 에 있다 (로컬에서 --dry-run 으로 돌려볼 수 있다).
+#
+# ⚠️ 운영진 소유 3개 파일은 건드리지 않는다. 시크릿도 공용 DISCORD_WEBHOOK 이 아니라
+#    팀 전용 DISCORD_WEBHOOK_TEAM 을 쓴다. 없으면 아무것도 보내지 않는다.
+name: Remind Discord (stale PR)
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # 매시 정각 (UTC). 판단은 스크립트가 KST 로 환산해서 한다
+  workflow_dispatch:      # 수동 확인용
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Check and notify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
+        run: python3 .github/scripts/remind_discord.py
