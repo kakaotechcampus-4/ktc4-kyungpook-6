@@ -29,6 +29,14 @@ public enum ErrorCode {
     NTS_API_ERROR(HttpStatus.BAD_GATEWAY, "국세청 API 호출에 실패했습니다"),
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 가게를 찾을 수 없습니다"),
 
+    // 인증·권한. 앞의 둘(UNAUTHORIZED, FORBIDDEN)은 컨트롤러에 닿기 전 보안 필터가 직접 응답한다.
+    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다"),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다"),
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다"),
+    OWNER_PENDING_APPROVAL(HttpStatus.FORBIDDEN, "관리자 승인을 기다리는 계정입니다"),
+    OWNER_REJECTED(HttpStatus.FORBIDDEN, "가입이 거절된 계정입니다"),
+    MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다"),
+
     // 아래 넷은 GlobalExceptionHandler.errorCodeFor 가 프레임워크 예외의 상태코드를 매핑할 때 쓴다.
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 경로를 찾을 수 없습니다"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식입니다"),

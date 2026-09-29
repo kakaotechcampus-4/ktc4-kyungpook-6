@@ -16,7 +16,10 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.ktc4.backend.global.security.SecurityConfig;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -46,6 +49,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * WARN 로그가 사라지는 것을 실측으로 확인했다. 그 회귀를 테스트로 고정한다.
  */
 @WebMvcTest(StoreController.class)
+@Import(SecurityConfig.class)
+@WithMockUser(roles = "ADMIN")
 class GlobalExceptionHandlerTest {
 
     private static final String STORE_PATH = "/api/stores/1";
