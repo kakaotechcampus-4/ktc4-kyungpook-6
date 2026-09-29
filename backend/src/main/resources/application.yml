@@ -18,6 +18,23 @@ spring:
 server:
   port: 8080
 
+auth:
+  # 권한 검사 스위치. false 면 지금처럼 로그인 없이 모든 API 를 통과시킨다(로그인 API 는 동작).
+  # 프론트 로그인 화면·AI 서버 키가 준비되면 true 로 바꾸고, 이후 이 설정을 지운다. (SecurityConfig 참고)
+  enforce: ${AUTH_ENFORCE:false}
+  jwt:
+    # 시크릿 기본값은 두지 않음(public repo). 비워 두면 기동할 때마다 임의 키를 만들어 앱은 뜨지만,
+    # 재시작하면 발급한 토큰이 모두 무효가 된다 — 배포 환경에는 32바이트 이상 값을 반드시 주입한다.
+    secret: ${JWT_SECRET:}
+    # 앱이라 매번 다시 로그인하지 않도록 길게 둔다. 갱신 토큰(refresh)을 도입하면 짧게 줄인다.
+    validity-days: 7
+  admin:
+    # 관리자는 가입 없이 기동 시 이 값으로 한 번 만든다. 비워 두면 만들지 않는다.
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
+  # AI 서버처럼 로그인하지 않는 서버가 X-API-KEY 헤더로 보내는 키. 비워 두면 키 인증을 끈다.
+  internal-api-key: ${INTERNAL_API_KEY:}
+
 external:
   # 외부 API 장애 시 무한 대기 방지 (기본값은 무제한 대기)
   connect-timeout-ms: 3000

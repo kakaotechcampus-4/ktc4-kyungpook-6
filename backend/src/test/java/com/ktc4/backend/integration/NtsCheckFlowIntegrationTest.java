@@ -9,6 +9,7 @@ import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.ntscheck.scheduler.NtsCheckScheduler;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
+import com.ktc4.backend.global.security.ApiKeyAuthenticationFilter;
 import com.ktc4.backend.support.PostgresContainerTest;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -69,6 +70,8 @@ class NtsCheckFlowIntegrationTest {
     static final PostgreSQLContainer<?> POSTGRES = PostgresContainerTest.POSTGRES;
 
     private static final String SERVICE_KEY = "integration-test-key";
+    // AI 서버가 조회 API 를 부를 때 싣는 키. 실제 AI 서버와 같은 경로(X-API-KEY)로 부른다.
+    private static final String INTERNAL_API_KEY = "integration-test-api-key";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     // 가짜 국세청이 받은 요청과, 번호별로 돌려줄 상태. 테스트마다 초기화한다.
@@ -84,6 +87,8 @@ class NtsCheckFlowIntegrationTest {
         registry.add("external.nts.base-url",
                 () -> "http://localhost:" + NTS_STUB.getAddress().getPort() + "/status");
         registry.add("external.nts.service-key", () -> SERVICE_KEY);
+        registry.add("auth.internal-api-key", () -> INTERNAL_API_KEY);
+        registry.add("auth.enforce", () -> "true");
     }
 
     @AfterAll
@@ -227,7 +232,8 @@ class NtsCheckFlowIntegrationTest {
 
     // 조회 API 응답의 content 를 storeId 순서 그대로 담는다 (API 가 storeId 오름차순을 보장한다)
     private Map<Long, JsonNode> fetchNtsChecks(String filter) throws Exception {
-        var request = get("/api/stores/nts-checks").param("limit", "100");
+        var request = get("/api/stores/nts-checks").param("limit", "100")
+                .header(ApiKeyAuthenticationFilter.HEADER, INTERNAL_API_KEY);
         if (filter != null) {
             request = request.param("filter", filter);
         }

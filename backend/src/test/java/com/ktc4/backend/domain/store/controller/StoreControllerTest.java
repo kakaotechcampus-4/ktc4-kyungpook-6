@@ -16,7 +16,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.ktc4.backend.global.security.SecurityConfig;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -45,6 +48,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 백엔드 사정으로 조용히 바뀌지 않도록 여기서 고정한다.
  */
 @WebMvcTest(StoreController.class)
+@Import(SecurityConfig.class)
+@WithMockUser(roles = "ADMIN")
 class StoreControllerTest {
 
     private static final String STORE_PATH = "/api/stores/1";
