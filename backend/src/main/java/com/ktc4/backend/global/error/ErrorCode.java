@@ -37,6 +37,10 @@ public enum ErrorCode {
     OWNER_PENDING_APPROVAL(HttpStatus.FORBIDDEN, "관리자 승인을 기다리는 계정입니다"),
     OWNER_REJECTED(HttpStatus.FORBIDDEN, "가입이 거절된 계정입니다"),
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다"),
+    DUPLICATE_EMAIL(HttpStatus.CONFLICT, "이미 가입된 이메일입니다"),
+    INVALID_BIZ_NO(HttpStatus.BAD_REQUEST, "사업자등록번호 형식이 올바르지 않습니다"),
+    PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호가 너무 깁니다"),
+    OWNER_ALREADY_REVIEWED(HttpStatus.CONFLICT, "이미 처리된 가입 신청입니다"),
 
     // 아래 넷은 GlobalExceptionHandler.errorCodeFor 가 프레임워크 예외의 상태코드를 매핑할 때 쓴다.
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 경로를 찾을 수 없습니다"),
