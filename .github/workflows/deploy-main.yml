@@ -45,7 +45,7 @@ jobs:
             --instance-ids "${{ steps.ec2.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ github.sha }} to prod" \
-            --parameters '{"commands":["set -euo pipefail","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin main","git reset --hard ${{ github.sha }}","./scripts/deploy.sh prod up -d --build --remove-orphans","docker image prune -f"]}' \
+            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin main","git reset --hard ${{ github.sha }}","./scripts/deploy.sh prod up -d --build --remove-orphans","docker image prune -f"]}' \
             --query "Command.CommandId" \
             --output text)
 
