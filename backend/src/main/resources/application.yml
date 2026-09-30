@@ -8,6 +8,13 @@ spring:
     username: ${DB_USERNAME:ktc4}
     password: ${DB_PASSWORD:ktc4local}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      data-source-properties:
+        # Postgres 드라이버가 DB 의 상세 메시지(Key (email)=(...), Failing row contains (...))를 예외 메시지에
+        # 넣지 않게 한다. Hibernate 가 제약 위반을 ERROR 로그로 남길 때 이메일·대표자 이름·비밀번호 해시 같은
+        # 입력값이 함께 남지 않게 하기 위해서다. URL 파라미터로 두지 않는 이유: 배포 환경은 DB_URL 로
+        # URL 을 통째로 덮어써서 URL 에 붙인 설정이 사라진다.
+        logServerErrorDetail: false
 
   jpa:
     hibernate:
