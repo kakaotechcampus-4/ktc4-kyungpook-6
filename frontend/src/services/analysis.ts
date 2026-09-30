@@ -18,7 +18,7 @@ export type TaskClassificationResponse =
  */
 export type TaskEvidenceResponse = {
   description: string;
-  /** 출처 표기. 예: "근거 링크 - 국세청", "자체 확인일: 6개월 전" */
+  /** 출처 표기. 예: "근거 링크 - 국세청", "자체 확인일: 120일 전" */
   sourceLabel: string | null;
   /** 외부 링크가 있을 때만 채워진다. 자체 데이터로 판단한 근거는 null이다. */
   sourceUrl: string | null;

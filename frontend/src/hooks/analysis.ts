@@ -129,8 +129,8 @@ const FALLBACK_RESULT: JobResultResponse = {
       classification: 'ADDITIONAL_CHECK',
       evidences: [
         {
-          description: '마지막 자체 확인 이후 장기간이 지남',
-          sourceLabel: '자체 확인일: 6개월 전',
+          description: '마지막 자체 확인 후 90일이 지남',
+          sourceLabel: '자체 확인일: 120일 전',
           sourceUrl: null,
         },
       ],
