@@ -2,6 +2,8 @@ package com.ktc4.backend.global.security;
 
 import com.ktc4.backend.domain.auth.controller.AuthController;
 import com.ktc4.backend.domain.auth.service.AuthService;
+import com.ktc4.backend.domain.member.controller.OwnerAdminController;
+import com.ktc4.backend.domain.member.service.OwnerApprovalService;
 import com.ktc4.backend.domain.store.controller.StoreController;
 import com.ktc4.backend.domain.store.service.StoreService;
 import org.junit.jupiter.api.DisplayName;
@@ -23,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 권한 검사 스위치를 끈 상태(auth.enforce=false) 확인 — 프론트·AI 가 준비되기 전 개발 서버의 동작이다.
  * 켠 상태의 규칙은 {@link SecurityConfigTest} 가 맡는다.
  */
-@WebMvcTest({StoreController.class, AuthController.class})
+@WebMvcTest({StoreController.class, AuthController.class, OwnerAdminController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = "auth.enforce=false")
 @DisplayName("API 접근 권한 — 검사 꺼짐")
@@ -37,6 +39,9 @@ class SecurityConfigNotEnforcedTest {
 
     @MockitoBean
     private AuthService authService;
+
+    @MockitoBean
+    private OwnerApprovalService ownerApprovalService;
 
     @Test
     @DisplayName("토큰 없이도 기존 API 를 지금처럼 부를 수 있다")
@@ -53,6 +58,13 @@ class SecurityConfigNotEnforcedTest {
         mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\"}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("점주 승인 API 는 꺼져 있어도 관리자만 — 아무나 점주를 승인할 수 없게")
+    void ownerAdminApiAlwaysRequiresAdmin() throws Exception {
+        mockMvc.perform(get("/api/admin/owners")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/admin/owners/3/approve")).andExpect(status().isUnauthorized());
     }
 
     @Test

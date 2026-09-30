@@ -31,6 +31,9 @@ import java.time.Duration;
  * <p>목록에 없는 경로는 관리자만 부를 수 있다. 새 API 를 추가하고 권한 설정을 잊어도 열리는 게 아니라
  * 막히게 하기 위해서다. 점주 API 가 생기면 여기에 경로를 추가한다.
  *
+ * <p>{@code /api/admin/**} 는 스위치와 무관하게 항상 관리자만 부를 수 있다. 스위치는 이미 쓰이던 API 를
+ * 깨지 않으려고 둔 것인데, 이 경로는 새로 만든 것이라 처음부터 막아도 깨지는 곳이 없다.
+ *
  * <p>컨트롤러 테스트({@code @WebMvcTest})는 이 설정을 자동으로 불러오지 않는다 —
  * {@code @Import(SecurityConfig.class)} 로 가져와야 실제 규칙으로 검증된다.
  *
@@ -82,14 +85,19 @@ public class SecurityConfig {
                             .requestMatchers("/error").permitAll()
                             .requestMatchers(HttpMethod.GET, "/ping").permitAll()
                             .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                            .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                            .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
                             // 토큰 주인을 알려주는 API 라 토큰 없이는 의미가 없다 — 스위치와 무관하게 막는다.
-                            .requestMatchers(HttpMethod.GET, "/api/auth/me").hasAnyRole("ADMIN", "OWNER");
+                            .requestMatchers(HttpMethod.GET, "/api/auth/me").hasAnyRole("ADMIN", "OWNER")
+                            // 점주 승인처럼 새로 만든 관리자 API — 스위치와 무관하게 막는다.
+                            .requestMatchers("/api/admin/**").hasRole("ADMIN");
                     if (!enforce) {
                         auth.anyRequest().permitAll();
                         return;
                     }
-                    auth.requestMatchers(HttpMethod.GET, "/api/stores/nts-checks")
+                    // 점주가 아동 QR 을 찍어 방문을 기록한다(PR #50). 아래 /api/stores/** 관리자 규칙보다 먼저 와야 한다 —
+                    // 규칙은 위에서부터 처음 맞는 것이 적용된다. "자기 가게인지" 검사는 점주↔가게 연결(다음 단계) 이후.
+                    auth.requestMatchers(HttpMethod.POST, "/api/stores/*/check-ins").hasAnyRole("OWNER", "ADMIN")
+                            .requestMatchers(HttpMethod.GET, "/api/stores/nts-checks")
                             .hasAnyRole("ADMIN", ApiKeyAuthenticationFilter.AI_SERVER_ROLE)
                             .requestMatchers("/api/stores/**", "/internal/**", "/test/**").hasRole("ADMIN")
                             .anyRequest().hasRole("ADMIN");
