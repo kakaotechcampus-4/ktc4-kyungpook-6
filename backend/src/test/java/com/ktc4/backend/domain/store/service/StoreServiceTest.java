@@ -322,4 +322,29 @@ class StoreServiceTest {
                     .isEqualTo(ErrorCode.STORE_NOT_FOUND);
         }
     }
+
+    @Nested
+    @DisplayName("findStore")
+    class FindStore {
+
+        @Test
+        @DisplayName("storeId 에 해당하는 가게 엔티티를 돌려준다")
+        void returnsStore() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+
+            assertThat(storeService.findStore(1L)).isSameAs(store);
+        }
+
+        @Test
+        @DisplayName("storeId 에 해당하는 가게가 없으면 STORE_NOT_FOUND 를 던진다")
+        void throwsWhenStoreNotFound() {
+            when(storeRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> storeService.findStore(999L))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.STORE_NOT_FOUND);
+        }
+    }
 }
