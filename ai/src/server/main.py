@@ -6,7 +6,7 @@
 
 `GET /investigation-targets`는 **백엔드를 대신 불러 주는 얇은 층**이다. 값을 가공하지
 않는다 — 지금 이 단계에서 확인할 것은 "AI 프로세스가 백엔드에 닿고 응답을 우리 모델로
-파싱할 수 있는가"이기 때문이다. 조사 로직(`src/biz_number/`)을 붙이는 건 다음 작업이다.
+파싱할 수 있는가"이기 때문이다.
 
 실행:
     uv run uvicorn src.server.main:app --reload --port 8000
@@ -17,6 +17,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -39,6 +40,9 @@ from src.investigation import (
     StoreFinding,
     UnavailableInvestigator,
 )
+from src.investigation.kakao_map import KakaoPlaceChecker
+from src.investigation.web import WebInvestigator
+from src.investigation.web_research import VertexResearchProvider
 
 #: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
 MAX_TARGETS = MAX_LIMIT
@@ -79,13 +83,22 @@ def get_client() -> BackendClient:
     return _client()
 
 
-def get_investigator() -> Investigator:
-    """조사 구현이 꽂히는 자리.
+@lru_cache(maxsize=1)
+def _web_investigator() -> Investigator:
+    """Vertex 클라이언트를 프로세스당 하나만 만든다. 카카오 키가 있으면 지도 확인도 붙인다."""
+    checker = KakaoPlaceChecker() if os.environ.get("KAKAO_REST_API_KEY") else None
+    return WebInvestigator(VertexResearchProvider(), place_checker=checker)
 
-에이전트 1차 조사 구현이 생기면 여기 한 줄만 바꾸면 된다.
-    그전까지는 `UnavailableInvestigator` 가 503 을 만든다.
+
+def get_investigator() -> Investigator:
+    """조사 구현이 꽂히는 자리 — 웹검색 2차 조사.
+
+    Vertex 를 쓸 GCP 프로젝트(`GOOGLE_CLOUD_PROJECT`)가 없으면 `UnavailableInvestigator` 가
+    503 을 만든다. 자격증명이 없다는 사실을 건별 실패 100개로 흩뿌리지 않는다.
     """
-    return UnavailableInvestigator()
+    if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return UnavailableInvestigator()
+    return _web_investigator()
 
 
 @app.get("/health")

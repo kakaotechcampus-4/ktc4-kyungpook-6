@@ -26,6 +26,7 @@ from src.backend_client.models import (
     StatusComparison,
     StoreStatus,
 )
+from src.investigation.models import SignalType, TaskClassification
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 JAVA_ROOT = REPO_ROOT / "backend/src/main/java/com/ktc4/backend/domain"
@@ -42,6 +43,9 @@ CASES = [
     ("business/enums/BusinessState.java", BusinessState),
     # PR #32 가 머지되어야 생기는 파일이다. 그전까지는 skip 된다.
     ("store/enums/NtsCheckFilter.java", NtsCheckFilter),
+    # 2차 조사 결과가 백엔드 Task·Signal 로 저장되는 값이다.
+    ("task/enums/TaskClassification.java", TaskClassification),
+    ("signal/enums/SignalType.java", SignalType),
 ]
 
 # 백엔드 컨트롤러가 받아 주는 limit 상한. 우리가 이 값을 복제해 들고 있다.
