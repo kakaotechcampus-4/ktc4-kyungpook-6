@@ -81,7 +81,7 @@ def test_잘못된_요청은_422(client, payload, expected):
 
 
 def test_백엔드가_준_addressRoad_를_그대로_받는다(client):
-    """`/investigation-targets` 응답을 그대로 되돌려줘도 주소가 살아 있어야 한다.
+    """백엔드 `nts-checks` 응답 행을 그대로 보내도 주소가 살아 있어야 한다.
 
     `address` 로만 받으면 `extra="ignore"` 에 먹혀 조용히 None 이 되고,
     주소 없이 상호명만으로 검색하게 된다.

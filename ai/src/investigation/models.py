@@ -24,7 +24,7 @@ class InvestigationTarget(BaseModel):
 
     store_id: int = Field(alias="storeId")
     name: str
-    #: 백엔드가 `/investigation-targets` 로 돌려준 `addressRoad` 를 그대로 받는다.
+    #: 백엔드 `nts-checks` 응답의 `addressRoad` 를 그대로 받는다.
     #: 이름을 `address` 로만 두면 백엔드가 그 응답을 되돌려줄 때 `extra="ignore"` 에
     #: 먹혀 **조용히 None 이 된다** — 주소 없이 상호명만으로 검색하면 동명의 엉뚱한
     #: 가게를 찾는다. 422 도 안 나서 알아채기 어렵다.
