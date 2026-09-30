@@ -56,6 +56,11 @@ NOTHING_FOUND = "없음"
 # 그라운딩 리다이렉트 주소를 원래 URL 로 풀 때. 못 풀면 리다이렉트 주소를 그대로 쓴다.
 REDIRECT_TIMEOUT_SECONDS = 5.0
 
+# LLM 호출 한 번의 상한. 평소 5~40초라 60초로 둔다. 걸지 않으면 한 건이 응답을 안 줄 때
+# POST /investigations 요청이 통째로 매달린다(동기 엔드포인트라 워커도 묶인다). SDK 는
+# retry_options 를 주지 않으면 재시도하지 않으므로 이 값이 곧 호출 한 번의 최대 시간이다.
+LLM_TIMEOUT_SECONDS = 60.0
+
 logger = logging.getLogger(__name__)
 
 
@@ -151,6 +156,11 @@ class ResearchUngrounded(ResearchParseError):
     이대로 분류하면 관측 전부가 "출처 없음"으로 빠져 **변화없음으로 조용히 나간다** —
     바뀐 가게를 놓치는 쪽으로 틀리므로 실패로 올린다.
     """
+
+
+class ResearchTimeout(Exception):
+    """LLM 호출이 `LLM_TIMEOUT_SECONDS` 안에 끝나지 않았을 때. **재시도하지 않는다** — 한 번 더 기다리면
+    한 건이 두 배로 늘어난다. 그 가게만 실패로 남기고 나머지를 계속 조사한다."""
 
 
 class ResearchProvider(Protocol):
@@ -309,11 +319,17 @@ class VertexResearchProvider:
     def research(self, target: InvestigationTarget) -> ResearchResult:
         from google.genai import types
 
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=build_research_prompt(target),
-            config=types.GenerateContentConfig(tools=[{"google_search": {}}]),
-        )
+        try:
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=build_research_prompt(target),
+                config=types.GenerateContentConfig(
+                    tools=[{"google_search": {}}],
+                    http_options=types.HttpOptions(timeout=int(LLM_TIMEOUT_SECONDS * 1000)),
+                ),
+            )
+        except httpx.TimeoutException as e:
+            raise ResearchTimeout(f"LLM 응답이 {LLM_TIMEOUT_SECONDS:.0f}초 안에 오지 않았습니다: {e}") from e
         chunks, supports = grounding_of(response)
         observations = parse_observations(response.text or "", chunks, supports)
         if observations and not chunks:

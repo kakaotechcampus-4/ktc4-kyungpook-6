@@ -15,9 +15,11 @@ from src.investigation.models import (
 )
 from src.investigation.web import WebInvestigator
 from src.investigation.web_research import (
+    LLM_TIMEOUT_SECONDS,
     MockResearchProvider,
     ResearchParseError,
     ResearchResult,
+    ResearchTimeout,
     ResearchUngrounded,
     Source,
     Support,
@@ -276,6 +278,22 @@ class TestVertexResearchProvider:
         with pytest.raises(ResearchUngrounded):
             VertexResearchProvider(client=client, http=_redirects({})).research(TARGET)
 
+    def test_LLM_호출에_타임아웃을_건다(self):
+        client, calls = _fake_client(_grounded_response("없음", []))
+
+        VertexResearchProvider(client=client, http=_redirects({})).research(TARGET)
+
+        assert calls[0]["config"].http_options.timeout == int(LLM_TIMEOUT_SECONDS * 1000)
+
+    def test_시간이_넘으면_ResearchTimeout_으로_올린다(self):
+        def timing_out(**kwargs):
+            raise httpx.ReadTimeout("응답 없음")
+
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=timing_out))
+
+        with pytest.raises(ResearchTimeout):
+            VertexResearchProvider(client=client, http=_redirects({})).research(TARGET)
+
     def test_찾은_것이_없으면_그라운딩_없이도_정상이다(self):
         client, _ = _fake_client(_grounded_response("없음", []))
 
@@ -317,6 +335,22 @@ def test_같은_리다이렉트_주소는_한_번만_푼다():
 
 
 class TestWebInvestigator:
+    def test_타임아웃은_재시도하지_않고_그_가게만_실패로_올린다(self):
+        """한 번 더 기다리면 한 건이 두 배로 늘어난다. 예외를 올리면 POST /investigations 가 건별 실패로 적는다."""
+
+        class Slow:
+            calls = 0
+
+            def research(self, target):
+                self.calls += 1
+                raise ResearchTimeout("60초 초과")
+
+        provider = Slow()
+        with pytest.raises(ResearchTimeout):
+            WebInvestigator(provider).investigate(TARGET)
+
+        assert provider.calls == 1
+
     def test_한_번_깨져도_재시도해서_판정한다(self):
         class Flaky:
             calls = 0
