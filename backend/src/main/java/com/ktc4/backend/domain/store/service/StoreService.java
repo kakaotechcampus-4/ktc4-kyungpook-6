@@ -89,8 +89,7 @@ public class StoreService {
      */
     @Transactional
     public StoreResponse updateStore(Long storeId, StoreUpdateRequest request) {
-        Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+        Store store = findStore(storeId);
 
         String nameNormalized = request.name() == null ? null : StoreNormalizer.normalizeName(request.name());
         String addressNormalized = request.addressRoad() == null ? null
@@ -104,6 +103,18 @@ public class StoreService {
     }
 
     /**
+     * 가게 엔티티를 찾는다. 다른 도메인(체크인 등)이 가게를 확인할 때 이 메서드를 거친다.
+     *
+     * @param storeId 찾을 가게 ID
+     * @return 가게 엔티티
+     * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    public Store findStore(Long storeId) {
+        return storeRepository.findById(storeId)
+                .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+    }
+
+    /**
      * 담당자가 가게 정보를 직접 확인했음을 현재 시각으로 기록한다.
      *
      * @param storeId 확인 완료 처리할 가게 ID
@@ -112,8 +123,7 @@ public class StoreService {
      */
     @Transactional
     public StoreResponse confirmStore(Long storeId) {
-        Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+        Store store = findStore(storeId);
 
         store.confirm(LocalDateTime.now());
 
