@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# 루트 .gitignore 의 *.jar 규칙이 Android Gradle 래퍼까지 막아서 다시 허용한다.
+!android/gradle/wrapper/gradle-wrapper.jar
