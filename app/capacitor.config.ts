@@ -8,8 +8,8 @@ import type { CapacitorConfig } from "@capacitor/cli";
   그래서 웹 코드를 고친 뒤에는 항상 build → sync 순서로 돌려야 앱에 반영됩니다.
 */
 const config: CapacitorConfig = {
-  appId: "com.ktc4.app",
-  appName: "KTC4 App",
+  appId: "com.ktc4kyungpook6.goodradar",
+  appName: "Good radar",
   webDir: "dist",
 };
 

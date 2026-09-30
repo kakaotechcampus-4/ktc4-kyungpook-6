@@ -1,4 +1,4 @@
-package com.ktc4.app;
+package com.ktc4kyungpook6.goodradar;
 
 import com.getcapacitor.BridgeActivity;
 
