@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.auth.controller;
 import com.ktc4.backend.domain.auth.dto.LoginRequest;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.global.error.ApiProblemDetail;
 import com.ktc4.backend.global.security.AuthMember;
@@ -15,14 +16,16 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "인증", description = "관리자·점주 로그인 API")
+@Tag(name = "인증", description = "관리자·점주 로그인과 점주 가입 신청 API")
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -54,6 +57,31 @@ public class AuthController {
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @Operation(
+            summary = "점주 가입 신청",
+            description = """
+                    점주 계정을 신청합니다. 관리자가 승인하기 전까지는 로그인할 수 없습니다
+                    (로그인하면 403 `owner-pending-approval`).
+
+                    사업자등록번호는 하이픈이 있어도 되고, 서버가 숫자 10자리로 맞춰 저장합니다.
+                    """)
+    @SecurityRequirements
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "신청 완료 — 상태는 PENDING(승인 대기)"),
+            @ApiResponse(responseCode = "400",
+                    description = "입력값이 비었거나 형식이 틀린 경우(errors 에 필드 표시), 사업자등록번호가 10자리가 아닌 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "이미 가입된 이메일",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @PostMapping("/owners/signup")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MemberResponse signupOwner(@Valid @RequestBody OwnerSignupRequest request) {
+        return authService.signupOwner(request);
     }
 
     @Operation(summary = "내 정보 조회", description = "토큰의 주인이 누구인지 확인합니다. 앱을 다시 열었을 때 토큰이 아직 유효한지 확인하는 데도 씁니다.")

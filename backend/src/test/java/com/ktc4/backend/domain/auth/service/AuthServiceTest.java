@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.auth.service;
 import com.ktc4.backend.domain.auth.dto.LoginRequest;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
@@ -15,7 +16,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,6 +33,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -166,5 +171,103 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.getMe(1L))
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
+    }
+
+    // ── 점주 가입 신청 ─────────────────────────────────────────────
+
+    private static OwnerSignupRequest signup(String email, String password, String bizNo) {
+        return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ");
+    }
+
+    @Test
+    @DisplayName("가입 신청은 승인 대기 점주로 저장하고, 비밀번호는 암호화·사업자번호는 10자리로 맞춘다")
+    void signsUpPendingOwner() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MemberResponse response = authService.signupOwner(signup(" Owner@Example.com ", PASSWORD, "123-45-67890"));
+
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(saved.capture());
+        Member member = saved.getValue();
+        assertThat(member.getEmail()).isEqualTo(EMAIL);
+        assertThat(member.getRole()).isEqualTo(MemberRole.OWNER);
+        assertThat(member.getStatus()).isEqualTo(MemberStatus.PENDING);
+        assertThat(ENCODER.matches(PASSWORD, member.getPasswordHash())).isTrue();
+        assertThat(member.getOwnerInfo().getBizNo()).isEqualTo("1234567890");
+        assertThat(member.getOwnerInfo().getStoreName()).isEqualTo("예시분식");
+        assertThat(member.getOwnerInfo().getRepresentativeName()).isEqualTo("홍길동");
+        assertThat(member.getOwnerInfo().getReviewedAt()).isNull();
+        assertThat(response.status()).isEqualTo(MemberStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("가입 신청한 점주는 승인 전까지 로그인할 수 없다")
+    void appliedOwnerCannotLoginUntilApproved() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"));
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(saved.capture());
+        givenMember(saved.getValue());
+
+        assertThat(errorCodeOf(() -> authService.login(new LoginRequest(EMAIL, PASSWORD))))
+                .isEqualTo(ErrorCode.OWNER_PENDING_APPROVAL);
+    }
+
+    @Test
+    @DisplayName("이미 가입된 이메일이면 DUPLICATE_EMAIL")
+    void rejectsDuplicateEmail() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(true);
+
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+                .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
+        verify(memberRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("확인 뒤 동시에 같은 이메일이 저장돼 이메일 제약에 걸려도 DUPLICATE_EMAIL")
+    void mapsUniqueViolationToDuplicateEmail() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenThrow(violationOf(Member.EMAIL_UNIQUE_CONSTRAINT));
+
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+                .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
+    }
+
+    @Test
+    @DisplayName("이메일이 아닌 다른 제약 위반은 그대로 던진다 — 원인을 잃지 않게")
+    void rethrowsOtherConstraintViolations() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        DataIntegrityViolationException other = violationOf("some_other_constraint");
+        when(memberRepository.saveAndFlush(any())).thenThrow(other);
+
+        assertThat(catchThrowable(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+                .isSameAs(other);
+    }
+
+    // Spring 이 Hibernate 의 제약 위반을 감싸 던지는 모양을 그대로 만든다.
+    private static DataIntegrityViolationException violationOf(String constraintName) {
+        return new DataIntegrityViolationException("constraint violation",
+                new org.hibernate.exception.ConstraintViolationException(
+                        "duplicate", new java.sql.SQLException("duplicate", "23505"), constraintName));
+    }
+
+    @Test
+    @DisplayName("사업자등록번호가 숫자 10자리가 아니면 INVALID_BIZ_NO")
+    void rejectsInvalidBizNo() {
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "123-45-678"))))
+                .isEqualTo(ErrorCode.INVALID_BIZ_NO);
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    @DisplayName("글자 수는 72 이하여도 72바이트를 넘는 비밀번호(한글 등)는 PASSWORD_TOO_LONG")
+    void rejectsPasswordOver72Bytes() {
+        String koreanPassword = "가".repeat(25);   // 25자, 75바이트
+
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, koreanPassword, "1234567890"))))
+                .isEqualTo(ErrorCode.PASSWORD_TOO_LONG);
+        verifyNoInteractions(memberRepository);
     }
 }
