@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:init": "wrangler d1 execute ktc4-bot --file=./schema.sql --remote",
     "db:init:local": "wrangler d1 execute ktc4-bot --file=./schema.sql --local",
-    "register": "node --experimental-strip-types scripts/register.ts"
+    "register": "node --experimental-strip-types scripts/register.ts",
+    "setup:token": "node --experimental-strip-types scripts/setup-token.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261001.1",

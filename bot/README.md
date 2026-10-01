@@ -51,11 +51,15 @@ Discord ◀──(예약 시각에 발송)──── Worker.scheduled ◀─�
 
 ```bash
 cd bot
-npx wrangler secret put DISCORD_BOT_TOKEN   # 포털 → 봇 → 토큰 초기화 로 받은 값을 붙여넣는다
-npm run register                            # 토큰을 물어본다. 서버에 바로 넣으려면 DISCORD_GUILD_ID=... 를 앞에 붙인다
+npm run setup:token
 ```
 
-둘 다 토큰을 **입력받는다** — 명령줄 인자로 주면 셸 기록에 남아서다.
+토큰을 한 번 물어보고, Cloudflare 시크릿 등록과 슬래시 명령어 등록을 이어서 한다.
+특정 서버에 즉시 반영하려면 `DISCORD_GUILD_ID=... npm run setup:token` 으로 준다
+(없으면 전역 등록이라 Discord 반영에 최대 1시간 걸린다).
+
+토큰을 명령줄 인자가 아니라 **입력으로** 받는다 — 인자로 주면 셸 기록(`~/.zsh_history`)과
+프로세스 목록(`ps`)에 그대로 보인다. 받은 값은 자식 프로세스의 stdin 으로만 흘려보낸다.
 
 그리고 **운영진에게 서버 추가를 요청**해야 봇이 채널에 들어간다.
 
