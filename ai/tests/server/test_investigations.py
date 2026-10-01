@@ -18,8 +18,10 @@ def client():
     app.dependency_overrides.clear()
 
 
-def test_구현이_없으면_503(client):
-    # 기본 구현은 UnavailableInvestigator — 아직 못 한다는 걸 200으로 감추지 않는다.
+def test_GCP_프로젝트가_없으면_503(client, monkeypatch):
+    # 자격증명이 없으면 UnavailableInvestigator — 못 한다는 걸 200으로 감추지 않는다.
+    # 로컬 .env 에 값이 있으면 실제 Vertex 를 부르게 되므로 테스트에서 지운다.
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     response = client.post("/investigations", json=[TARGET])
 
     assert response.status_code == 503

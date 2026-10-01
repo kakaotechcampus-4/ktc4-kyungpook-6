@@ -1,10 +1,14 @@
 """조사 — 요청·결과 계약과 구현이 꽂히는 자리."""
 
 from src.investigation.models import (
+    ChangeField,
     Evidence,
     InvestigationResponse,
     InvestigationTarget,
+    Signal,
+    SignalType,
     StoreFinding,
+    TaskClassification,
 )
 from src.investigation.protocol import (
     Investigator,
@@ -13,11 +17,15 @@ from src.investigation.protocol import (
 )
 
 __all__ = [
+    "ChangeField",
     "Evidence",
     "InvestigationResponse",
     "InvestigationTarget",
     "Investigator",
     "InvestigatorUnavailable",
+    "Signal",
+    "SignalType",
     "StoreFinding",
+    "TaskClassification",
     "UnavailableInvestigator",
 ]

@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@theme {
+  /* Tailwind가 --default-font-family로 연결해 html 기본 폰트가 된다. */
+  --font-sans:
+    "Pretendard Variable", Pretendard, system-ui, -apple-system,
+    "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;
+}
