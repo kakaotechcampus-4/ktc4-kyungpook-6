@@ -1,12 +1,9 @@
 """AI 서비스 HTTP 표면 (FastAPI).
 
-**왜 서버가 필요한가.** 지금 당장은 아니다. 지금 필요한 건 백엔드를 부르는 쪽뿐이고
-그건 `src/backend_client/`가 한다. 다만 조사를 실제로 돌릴 때가 되면 백엔드가 AI를
-불러야 하므로, 그 자리를 미리 만들어 둔다. 엔드포인트는 하나씩 붙인다.
-
-`GET /investigation-targets`는 **백엔드를 대신 불러 주는 얇은 층**이다. 값을 가공하지
-않는다 — 지금 이 단계에서 확인할 것은 "AI 프로세스가 백엔드에 닿고 응답을 우리 모델로
-파싱할 수 있는가"이기 때문이다.
+**백엔드가 AI 를 부르는 자리다.** 백엔드가 담당자가 고른 가게를 1차 결과로 나눠 한 곳씩
+`POST /investigations` 로 맡기고, AI 는 조사해 돌려준다(`docs/백엔드_연동.md`). AI 가 조사 대상을
+백엔드에서 가져가지는 않는다 — 예전에 있던 `GET /investigation-targets`(국세청 불일치 목록을 대신
+불러 주던 것)는 그 방향이라 뺐다. 백엔드에 닿는지는 `GET /backend-health` 로 본다.
 
 실행:
     uv run uvicorn src.server.main:app --reload --port 8000
@@ -17,20 +14,15 @@ from __future__ import annotations
 from functools import lru_cache
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, status
-from pydantic import ValidationError
+from fastapi import Body, Depends, FastAPI, HTTPException, Response, status
 
 from src.backend_client import (
     MAX_LIMIT,
     BackendClient,
     BackendError,
-    NtsCheckFilter,
-    Page,
-    StoreCheck,
 )
 from src.investigation import (
     InvestigationResponse,
@@ -40,9 +32,6 @@ from src.investigation import (
     StoreFinding,
     UnavailableInvestigator,
 )
-from src.investigation.kakao_map import KakaoPlaceChecker
-from src.investigation.web import WebInvestigator
-from src.investigation.web_research import VertexResearchProvider
 
 #: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
 MAX_TARGETS = MAX_LIMIT
@@ -83,22 +72,13 @@ def get_client() -> BackendClient:
     return _client()
 
 
-@lru_cache(maxsize=1)
-def _web_investigator() -> Investigator:
-    """Vertex 클라이언트를 프로세스당 하나만 만든다. 카카오 키가 있으면 지도 확인도 붙인다."""
-    checker = KakaoPlaceChecker() if os.environ.get("KAKAO_REST_API_KEY") else None
-    return WebInvestigator(VertexResearchProvider(), place_checker=checker)
-
-
 def get_investigator() -> Investigator:
-    """조사 구현이 꽂히는 자리 — 웹검색 2차 조사.
+    """조사 구현이 꽂히는 자리.
 
-    Vertex 를 쓸 GCP 프로젝트(`GOOGLE_CLOUD_PROJECT`)가 없으면 `UnavailableInvestigator` 가
-    503 을 만든다. 자격증명이 없다는 사실을 건별 실패 100개로 흩뿌리지 않는다.
+에이전트 1차 조사 구현이 생기면 여기 한 줄만 바꾸면 된다.
+    그전까지는 `UnavailableInvestigator` 가 503 을 만든다.
     """
-    if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
-        return UnavailableInvestigator()
-    return _web_investigator()
+    return UnavailableInvestigator()
 
 
 @app.get("/health")
@@ -126,33 +106,6 @@ def backend_health(
     return {"status": "ok"}
 
 
-@app.get("/investigation-targets", response_model=Page[StoreCheck])
-def investigation_targets(
-    page: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=MAX_LIMIT),
-    client: BackendClient = Depends(get_client),
-) -> Page[StoreCheck]:
-    """AI가 조사할 가게 목록.
-
-    `DATA_PROBLEM`(사업자번호가 없거나 틀린 건)은 사람이 고칠 몫이라 여기서 제외한다.
-    """
-    try:
-        return client.get_nts_checks(NtsCheckFilter.STATUS_MISMATCH, page=page, limit=limit)
-    except ValidationError as e:
-        # 백엔드가 200 으로 답했는데 모양이 우리 모델과 다른 경우. 이 모듈이 막으려던 바로
-        # 그 드리프트인데, 안 잡으면 FastAPI 기본 500 으로 빠져 로그조차 남지 않는다.
-        logger.warning("백엔드 응답이 모델과 맞지 않습니다: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"백엔드 응답을 해석하지 못했습니다 (계약 불일치): {e}",
-        ) from e
-    except BackendError as e:
-        # 백엔드 쪽 문제를 우리 500으로 감추지 않는다. 502로 올려 원인을 드러낸다.
-        # 배치로 돌릴 때는 응답을 아무도 안 보므로 로그에도 남긴다.
-        logger.warning("조사 대상 조회 실패 (page=%s, limit=%s): %s", page, limit, e)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
-
-
 @app.post("/investigations", response_model=InvestigationResponse)
 def investigate(
     targets: list[InvestigationTarget] = Body(..., min_length=1, max_length=MAX_TARGETS),
@@ -160,7 +113,7 @@ def investigate(
 ) -> InvestigationResponse:
     """가게 목록을 받아 조사한다 — 백엔드가 AI를 부르는 자리.
 
-    `/investigation-targets`(우리가 백엔드에서 당겨오는 것)와 방향이 반대다.
+    요청은 백엔드 `GET /api/stores/nts-checks` 응답 행을 그대로 담으면 된다.
     담당자가 가게를 골라 조사를 시작하는 흐름은 이쪽을 쓴다.
 
     **한 건이 실패해도 나머지는 계속 처리하고, 실패한 건도 결과에 남긴다.**

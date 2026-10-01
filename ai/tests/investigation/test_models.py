@@ -19,7 +19,7 @@ from src.investigation import (
 
 class TestInvestigationTarget:
     def test_백엔드_응답_필드명으로_만든다(self):
-        """`/investigation-targets` 가 돌려준 값을 그대로 넣을 수 있어야 한다."""
+        """백엔드 `nts-checks` 응답 행을 그대로 넣을 수 있어야 한다."""
         target = InvestigationTarget.model_validate(
             {
                 "storeId": 1,
