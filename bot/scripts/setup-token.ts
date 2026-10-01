@@ -10,7 +10,6 @@
  * 셸 기록(`~/.zsh_history`)과 프로세스 목록(`ps`)에 그대로 보인다.
  */
 
-import { createInterface } from "node:readline/promises";
 import { spawn } from "node:child_process";
 
 import { COMMANDS } from "../src/commands.ts";
@@ -42,45 +41,36 @@ function mask(v: string): string {
 }
 
 /**
- * **클립보드에서 먼저 읽는다.** 터미널에 붙여넣다가 명령어 위에 떨어뜨리면 그 토큰은
- * 셸 기록에 남아 쓸 수 없게 된다 — 실제로 겪은 일이다. 포털에서 복사한 직후 이 명령만
- * 치면 붙여넣을 일이 없다.
+ * **클립보드에서 읽는다.** 터미널에 붙여넣다가 명령어 위에 떨어뜨리면 그 토큰은 셸 기록에
+ * 남아 쓸 수 없게 된다 — 실제로 겪은 일이다. 포털에서 복사한 직후 이 명령만 치면 된다.
+ *
+ * 묻지 않는다. 이 스크립트는 비대화형 셸(`!` 실행, CI)에서도 돌아야 하는데, 거기서는
+ * stdin 이 닫혀 있어 질문하는 순간 `ERR_USE_AFTER_CLOSE` 로 죽는다.
  */
-async function readToken(rl: ReturnType<typeof createInterface>): Promise<string> {
-    const fromEnv = process.env.DISCORD_BOT_TOKEN?.trim();
-    if (fromEnv) return fromEnv;
-
-    const clip = await new Promise<string>((resolve) => {
+function readClipboard(): Promise<string> {
+    return new Promise((resolve) => {
         const child = spawn("pbpaste", [], { stdio: ["ignore", "pipe", "ignore"] });
         let out = "";
         child.stdout?.on("data", (c) => (out += c));
         child.on("close", () => resolve(out.trim()));
         child.on("error", () => resolve(""));
     });
-
-    if (looksLikeToken(clip)) {
-        const ok = await rl.question(`클립보드에서 토큰을 찾았습니다: ${mask(clip)}\n이걸로 진행할까요? [Y/n] `);
-        if (ok.trim().toLowerCase() !== "n") return clip;
-    } else if (clip) {
-        console.log("클립보드 내용이 토큰 형식이 아닙니다.");
-    }
-
-    console.log("포털에서 토큰을 복사한 뒤 이 명령을 다시 실행하면 자동으로 읽습니다.");
-    return (await rl.question("또는 지금 붙여넣고 엔터: ")).trim();
 }
 
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-const token = await readToken(rl);
-rl.close();
+const token = process.env.DISCORD_BOT_TOKEN?.trim() || (await readClipboard());
 
-if (!token) {
-    console.error("토큰이 비어 있습니다.");
-    process.exit(1);
-}
 if (!looksLikeToken(token)) {
-    console.error("토큰 형식이 아닙니다. 포털 → 봇 → 토큰 초기화 로 받은 값을 복사해 주세요.");
+    console.error(
+        token
+            ? "클립보드에 토큰이 없습니다 (복사된 건 토큰 형식이 아닙니다)."
+            : "클립보드가 비어 있습니다.",
+    );
+    console.error("포털 → 봇 → 토큰 초기화 로 받은 값을 복사한 뒤 다시 실행해 주세요.");
+    console.error("또는: DISCORD_BOT_TOKEN=... npm run setup:token");
     process.exit(1);
 }
+
+console.log(`클립보드에서 토큰을 읽었습니다: ${mask(token)}`);
 
 console.log("\n[1/2] Cloudflare 에 시크릿 등록 중...");
 const secretCode = await run("npx", ["wrangler", "secret", "put", "DISCORD_BOT_TOKEN"], token);
