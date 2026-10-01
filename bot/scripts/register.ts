@@ -9,14 +9,32 @@
  *   DISCORD_GUILD_ID=... npm run register
  */
 
+import { createInterface } from "node:readline/promises";
+
 import { COMMANDS } from "../src/commands.ts";
 
-const appId = process.env.DISCORD_APP_ID;
-const botToken = process.env.DISCORD_BOT_TOKEN;
+const appId = process.env.DISCORD_APP_ID ?? "1555129530186731520";
 const guildId = process.env.DISCORD_GUILD_ID;
 
+/**
+ * 토큰은 **물어봐서 받는다**. 환경변수로 넘기면 셸 기록(`~/.zsh_history`)에 그대로 남고,
+ * 화면에도 찍힌다. 봇 토큰은 그 봇의 비밀번호라 둘 다 피하는 게 낫다.
+ * 자동화가 필요하면 `DISCORD_BOT_TOKEN` 을 주는 쪽도 그대로 동작한다.
+ */
+async function readToken(): Promise<string> {
+    const fromEnv = process.env.DISCORD_BOT_TOKEN;
+    if (fromEnv) return fromEnv;
+
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await rl.question("봇 토큰을 붙여넣고 엔터: ");
+    rl.close();
+    return answer.trim();
+}
+
+const botToken = await readToken();
+
 if (!appId || !botToken) {
-    console.error("DISCORD_APP_ID 와 DISCORD_BOT_TOKEN 이 필요합니다.");
+    console.error("DISCORD_APP_ID 와 봇 토큰이 필요합니다.");
     process.exit(1);
 }
 

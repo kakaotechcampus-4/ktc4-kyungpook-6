@@ -51,9 +51,11 @@ Discord ◀──(예약 시각에 발송)──── Worker.scheduled ◀─�
 
 ```bash
 cd bot
-npx wrangler secret put DISCORD_BOT_TOKEN   # 포털 → 봇 → Reset Token 으로 받은 값
-DISCORD_APP_ID=1555129530186731520 DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=... npm run register
+npx wrangler secret put DISCORD_BOT_TOKEN   # 포털 → 봇 → 토큰 초기화 로 받은 값을 붙여넣는다
+npm run register                            # 토큰을 물어본다. 서버에 바로 넣으려면 DISCORD_GUILD_ID=... 를 앞에 붙인다
 ```
+
+둘 다 토큰을 **입력받는다** — 명령줄 인자로 주면 셸 기록에 남아서다.
 
 그리고 **운영진에게 서버 추가를 요청**해야 봇이 채널에 들어간다.
 
