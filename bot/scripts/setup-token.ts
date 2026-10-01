@@ -31,12 +31,54 @@ function run(cmd: string, args: string[], stdinValue?: string): Promise<number> 
     });
 }
 
+/** 토큰처럼 생겼는지 본다. Discord 봇 토큰은 `.` 로 나뉜 세 토막이다. */
+function looksLikeToken(v: string): boolean {
+    return /^[\w-]{20,}\.[\w-]{5,}\.[\w-]{20,}$/.test(v);
+}
+
+/** 앞뒤만 남기고 가린다. 확인용이라 전체를 보여줄 이유가 없다. */
+function mask(v: string): string {
+    return `${v.slice(0, 6)}…${v.slice(-4)} (${v.length}자)`;
+}
+
+/**
+ * **클립보드에서 먼저 읽는다.** 터미널에 붙여넣다가 명령어 위에 떨어뜨리면 그 토큰은
+ * 셸 기록에 남아 쓸 수 없게 된다 — 실제로 겪은 일이다. 포털에서 복사한 직후 이 명령만
+ * 치면 붙여넣을 일이 없다.
+ */
+async function readToken(rl: ReturnType<typeof createInterface>): Promise<string> {
+    const fromEnv = process.env.DISCORD_BOT_TOKEN?.trim();
+    if (fromEnv) return fromEnv;
+
+    const clip = await new Promise<string>((resolve) => {
+        const child = spawn("pbpaste", [], { stdio: ["ignore", "pipe", "ignore"] });
+        let out = "";
+        child.stdout?.on("data", (c) => (out += c));
+        child.on("close", () => resolve(out.trim()));
+        child.on("error", () => resolve(""));
+    });
+
+    if (looksLikeToken(clip)) {
+        const ok = await rl.question(`클립보드에서 토큰을 찾았습니다: ${mask(clip)}\n이걸로 진행할까요? [Y/n] `);
+        if (ok.trim().toLowerCase() !== "n") return clip;
+    } else if (clip) {
+        console.log("클립보드 내용이 토큰 형식이 아닙니다.");
+    }
+
+    console.log("포털에서 토큰을 복사한 뒤 이 명령을 다시 실행하면 자동으로 읽습니다.");
+    return (await rl.question("또는 지금 붙여넣고 엔터: ")).trim();
+}
+
 const rl = createInterface({ input: process.stdin, output: process.stdout });
-const token = (await rl.question("봇 토큰을 붙여넣고 엔터: ")).trim();
+const token = await readToken(rl);
 rl.close();
 
 if (!token) {
     console.error("토큰이 비어 있습니다.");
+    process.exit(1);
+}
+if (!looksLikeToken(token)) {
+    console.error("토큰 형식이 아닙니다. 포털 → 봇 → 토큰 초기화 로 받은 값을 복사해 주세요.");
     process.exit(1);
 }
 
