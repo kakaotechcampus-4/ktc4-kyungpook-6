@@ -1,0 +1,21 @@
+{
+  "name": "ktc4-discord-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:init": "wrangler d1 execute ktc4-bot --file=./schema.sql --remote",
+    "db:init:local": "wrangler d1 execute ktc4-bot --file=./schema.sql --local",
+    "register": "node --experimental-strip-types scripts/register.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261001.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.145.0"
+  }
+}

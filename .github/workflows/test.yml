@@ -60,9 +60,34 @@ jobs:
         run: ./scripts/test.sh
         working-directory: frontend
 
+  bot-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: bot/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: bot
+
+      - name: Run bot tests
+        run: npm test
+        working-directory: bot
+
+      - name: Typecheck bot
+        run: npm run typecheck
+        working-directory: bot
+
   all-tests-passed:
     name: All tests passed
-    needs: [backend-test, ai-test, frontend-test]
+    needs: [backend-test, ai-test, frontend-test, bot-test]
     if: always()
     runs-on: ubuntu-latest
     steps:

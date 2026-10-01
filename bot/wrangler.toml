@@ -1,0 +1,29 @@
+name = "ktc4-discord-bot"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# 1분마다 깨어나 보낼 때가 된 예약을 확인한다. Discord 는 예약 발송을 지원하지 않아
+# (봇 메시지는 호출 즉시 나간다) 보낼 시각까지 우리가 들고 있어야 한다.
+[triggers]
+crons = ["* * * * *"]
+
+# D1 은 Workers 에서 쓰는 SQLite 다. 예약을 저장한다 — KV 로는 "시각이 지난 것만
+# 골라오기"를 할 수 없어서(키 조회만 됨) SQL 쪽을 골랐다.
+[[d1_databases]]
+binding = "DB"
+database_name = "ktc4-bot"
+# `wrangler d1 create ktc4-bot` 가 출력하는 값으로 채운다. README 참고.
+database_id = "PLACEHOLDER_D1_DATABASE_ID"
+
+[observability]
+enabled = true
+
+# 시크릿은 이 파일에 적지 않는다 (공개 저장소).
+#   wrangler secret put DISCORD_PUBLIC_KEY   # 서명 검증용
+#   wrangler secret put DISCORD_BOT_TOKEN    # 예약 발송용
+#   wrangler secret put DISCORD_APP_ID       # 명령어 등록용
+#   wrangler secret put GITHUB_TOKEN         # /pr상태 용 (없으면 비인증 호출로 떨어진다)
+
+[vars]
+# /pr상태 가 볼 저장소.
+GITHUB_REPO = "kakaotechcampus-4/ktc4-kyungpook-6"
