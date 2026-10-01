@@ -35,7 +35,29 @@ Discord ──(슬래시 명령어 + 서명)──▶ Worker.fetch ──▶ D1
 Discord ◀──(예약 시각에 발송)──── Worker.scheduled ◀──┘  (1분마다)
 ```
 
-## 사람이 해야 하는 것
+## 지금 배포된 것
+
+| | |
+|---|---|
+| Worker | `https://ktc4-discord-bot.softkleenex1217.workers.dev` |
+| D1 | `ktc4-bot` (APAC) — `database_id` 는 `wrangler.toml` 에 들어 있다 |
+| Cron | 1분마다 |
+| Discord 앱 ID | `1555129530186731520` |
+| Interactions Endpoint | 등록·검증 완료 (Discord 가 서명된 PING 을 보내 통과했다) |
+
+확인된 것: `GET /` 200 · 서명 없는 `POST` 401 · 잘못된 서명 401 · `DELETE` 405.
+
+**아직 남은 것은 봇 토큰이다.** 토큰이 없으면 예약 발송(cron)과 명령어 등록이 되지 않는다.
+
+```bash
+cd bot
+npx wrangler secret put DISCORD_BOT_TOKEN   # 포털 → 봇 → Reset Token 으로 받은 값
+DISCORD_APP_ID=1555129530186731520 DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=... npm run register
+```
+
+그리고 **운영진에게 서버 추가를 요청**해야 봇이 채널에 들어간다.
+
+## 처음부터 다시 세팅할 때
 
 봇을 돌리려면 아래 셋을 사람이 해야 한다. 코드만으로는 안 된다.
 

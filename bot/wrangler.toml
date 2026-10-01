@@ -13,7 +13,7 @@ crons = ["* * * * *"]
 binding = "DB"
 database_name = "ktc4-bot"
 # `wrangler d1 create ktc4-bot` 가 출력하는 값으로 채운다. README 참고.
-database_id = "PLACEHOLDER_D1_DATABASE_ID"
+database_id = "aade3742-99c9-44b8-9df3-2efa9bb75795"
 
 [observability]
 enabled = true
