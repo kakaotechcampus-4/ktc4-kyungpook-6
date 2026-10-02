@@ -1,6 +1,8 @@
 package com.ktc4.backend.domain.qr.service;
 
+import com.ktc4.backend.domain.qr.dto.QrResolution;
 import com.ktc4.backend.domain.qr.entity.QrCredential;
+import com.ktc4.backend.domain.qr.enums.QrRejectReason;
 import com.ktc4.backend.domain.qr.repository.QrCredentialRepository;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.DisplayName;
@@ -117,7 +119,7 @@ class QrCredentialServiceTest extends PostgresContainerTest {
     }
 
     @Nested
-    @DisplayName("해석")
+    @DisplayName("해석 — 성공이면 아동 번호, 실패면 이유")
     class ResolveChildId {
 
         @Test
@@ -125,51 +127,59 @@ class QrCredentialServiceTest extends PostgresContainerTest {
         void resolvesIssuedPayload() {
             String payload = issueAndClear(7L);
 
-            assertThat(qrCredentialService.resolveChildId(payload)).contains(7L);
+            assertThat(qrCredentialService.resolveChildId(payload)).isEqualTo(new QrResolution.Resolved(7L));
         }
 
         @Test
-        @DisplayName("재발급 뒤에는 옛 QR 은 거부되고 새 QR 만 통한다")
+        @DisplayName("재발급 뒤에는 옛 QR 은 NOT_FOUND, 새 QR 만 통한다 — 옛 해시를 기억하지 않아 발급 안 된 값과 구분하지 않는다")
         void rejectsOldPayloadAfterReissue() {
             String oldPayload = issueAndClear(7L);
             String newPayload = issueAndClear(7L);
 
-            assertThat(qrCredentialService.resolveChildId(oldPayload)).isEmpty();
-            assertThat(qrCredentialService.resolveChildId(newPayload)).contains(7L);
+            assertThat(qrCredentialService.resolveChildId(oldPayload))
+                    .isEqualTo(new QrResolution.Rejected(QrRejectReason.NOT_FOUND));
+            assertThat(qrCredentialService.resolveChildId(newPayload)).isEqualTo(new QrResolution.Resolved(7L));
         }
 
         @Test
-        @DisplayName("형식은 맞지만 발급한 적 없는 토큰이면 빈 값이다")
+        @DisplayName("형식은 맞지만 발급한 적 없는 토큰이면 NOT_FOUND")
         void rejectsUnknownToken() {
             issueAndClear(7L);
 
-            assertThat(qrCredentialService.resolveChildId(PREFIX + "A".repeat(43))).isEmpty();
+            assertThat(qrCredentialService.resolveChildId(PREFIX + "A".repeat(43)))
+                    .isEqualTo(new QrResolution.Rejected(QrRejectReason.NOT_FOUND));
         }
 
         @Test
-        @DisplayName("토큰을 한 글자 바꾸면 빈 값이다")
+        @DisplayName("토큰을 한 글자 바꾸면 NOT_FOUND — 형식은 그대로라서")
         void rejectsTamperedToken() {
             String payload = issueAndClear(7L);
             char last = payload.charAt(payload.length() - 1);
             String tampered = payload.substring(0, payload.length() - 1) + (last == 'A' ? 'B' : 'A');
 
-            assertThat(qrCredentialService.resolveChildId(tampered)).isEmpty();
+            assertThat(qrCredentialService.resolveChildId(tampered))
+                    .isEqualTo(new QrResolution.Rejected(QrRejectReason.NOT_FOUND));
         }
 
         @Test
-        @DisplayName("DB 에 저장된 해시 자체를 QR 로 보내도 빈 값이다 — DB 가 유출돼도 QR 을 만들 수 없다")
+        @DisplayName("DB 에 저장된 해시 자체를 QR 로 보내면 FORMAT — 64글자라 토큰 형식(43글자)부터 맞지 않는다")
         void rejectsStoredHashUsedAsToken() {
             issueAndClear(7L);
             String storedHash = qrCredentialRepository.findByChildId(7L).orElseThrow().getTokenHash();
 
-            assertThat(qrCredentialService.resolveChildId(PREFIX + storedHash)).isEmpty();
+            assertThat(qrCredentialService.resolveChildId(PREFIX + storedHash))
+                    .isEqualTo(new QrResolution.Rejected(QrRejectReason.FORMAT));
         }
 
         @Test
-        @DisplayName("형식이 틀린 값은 DB 를 보기 전에 예외 없이 빈 값이다")
+        @DisplayName("형식이 틀린 값은 예외 없이 FORMAT")
         void rejectsMalformedPayloadWithoutThrowing() {
-            assertThat(qrCredentialService.resolveChildId("v1.!!!")).isEmpty();
-            assertThat(qrCredentialService.resolveChildId(null)).isEmpty();
+            assertThat(qrCredentialService.resolveChildId("v1.!!!"))
+                    .isEqualTo(new QrResolution.Rejected(QrRejectReason.FORMAT));
+            assertThat(qrCredentialService.resolveChildId(null))
+                    .isEqualTo(new QrResolution.Rejected(QrRejectReason.FORMAT));
+            assertThat(qrCredentialService.resolveChildId("A".repeat(43)))
+                    .isEqualTo(new QrResolution.Rejected(QrRejectReason.FORMAT));
         }
     }
 
