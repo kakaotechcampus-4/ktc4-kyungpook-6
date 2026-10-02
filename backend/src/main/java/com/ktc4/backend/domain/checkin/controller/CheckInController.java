@@ -37,13 +37,21 @@ public class CheckInController {
                       (발급한 적 없음, 재발급으로 바뀐 옛 QR, 형식 오류). 화면에는 "유효하지 않은 QR" 로 보여주면 됩니다.
                     - 가게가 없으면 QR 을 보기 전에 `store-not-found` 가 옵니다.
 
-                    ⚠️ 개발 단계라 아직 아무 가게 번호로나 부를 수 있습니다. 점주 로그인이 생기면 본인 가게만 가능해집니다.
+                    ⚠️ 권한 검사 스위치(`AUTH_ENFORCE`, 기본 설정은 꺼짐)가 켜지면 점주·관리자 토큰이 필요합니다.
+                    점주 로그인은 생겼지만 점주 ↔ 가게 연결이 아직 없어서, 로그인한 점주라면 아무 가게 번호로나
+                    기록할 수 있습니다. 연결이 생기면 자기 가게만 가능해집니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "체크인 기록 성공"),
             @ApiResponse(responseCode = "400",
                     description = "QR 이 유효하지 않거나(invalid-qr-token), qrPayload 가 비었거나 100자를 넘거나 "
                             + "storeId 가 숫자가 아닌 경우(invalid-request)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "권한 검사가 켜졌을 때, 토큰이 없거나 유효하지 않은 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "권한 검사가 켜졌을 때, 점주·관리자가 아닌 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우(0·음수 포함)",

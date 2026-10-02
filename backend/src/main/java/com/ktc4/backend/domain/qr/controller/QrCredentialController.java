@@ -35,12 +35,18 @@ public class QrCredentialController {
                     - 이미 발급받은 아동이 다시 부르면 **재발급**이고, 옛 QR 은 바로 쓸 수 없게 됩니다.
                       QR 화면이 유출됐을 때 이렇게 막습니다.
 
-                    ⚠️ 개발 단계라 아직 누구나 아무 `childId` 로 부를 수 있습니다. 카드 등록(아동 인증)이 생기면
-                    본인만 부를 수 있게 바뀝니다.
+                    ⚠️ 아동 인증(카드 등록)이 아직 없어서, 지금은 **관리자 토큰으로만** 부를 수 있습니다
+                    (권한 검사 스위치와 무관). 아동 인증이 생기면 아동 본인이 부르도록 바뀝니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "발급 성공"),
             @ApiResponse(responseCode = "400", description = "childId 가 양의 정수가 아닌 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "토큰이 없거나 유효하지 않은 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "관리자가 아닌 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class)))
     })
