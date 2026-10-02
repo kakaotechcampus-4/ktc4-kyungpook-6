@@ -31,8 +31,10 @@ import java.time.Duration;
  * <p>목록에 없는 경로는 관리자만 부를 수 있다. 새 API 를 추가하고 권한 설정을 잊어도 열리는 게 아니라
  * 막히게 하기 위해서다. 점주 API 가 생기면 여기에 경로를 추가한다.
  *
- * <p>{@code /api/admin/**} 는 스위치와 무관하게 항상 관리자만 부를 수 있다. 스위치는 이미 쓰이던 API 를
- * 깨지 않으려고 둔 것인데, 이 경로는 새로 만든 것이라 처음부터 막아도 깨지는 곳이 없다.
+ * <p>{@code /api/admin/**} 와 {@code /api/children/**} 는 스위치와 무관하게 항상 관리자만 부를 수 있다.
+ * 스위치는 이미 쓰이던 API 를 깨지 않으려고 둔 것인데, 이 경로들은 새로 만든 것이라 처음부터 막아도 깨지는 곳이 없다.
+ * 아동 QR 발급({@code /api/children/**})은 다시 부르면 옛 QR 이 바로 무효가 되어, 열려 있으면 누구나 아무 아동의
+ * QR 을 못 쓰게 만들 수 있다 — 아동 인증이 생기기 전까지 관리자만 부른다.
  *
  * <p>컨트롤러 테스트({@code @WebMvcTest})는 이 설정을 자동으로 불러오지 않는다 —
  * {@code @Import(SecurityConfig.class)} 로 가져와야 실제 규칙으로 검증된다.
@@ -40,7 +42,10 @@ import java.time.Duration;
  * <p><b>{@code auth.enforce} 스위치</b> — 프론트 로그인 화면과 AI 서버 키가 준비되기 전에 머지해도 기존 화면이
  * 멈추지 않도록, 끄면 권한 규칙 없이 지금처럼 모두 통과시킨다(인증이 없던 머지 전과 같은 상태).
  * 꺼져 있어도 로그인 API 는 동작하므로 프론트·AI 가 실제 API 로 붙여 볼 수 있다.
- * 모두 준비되면 켜고, 이 스위치는 지운다.
+ *
+ * <p>⚠️ <b>임시 스위치다 — 2026-10-14 까지 제거한다.</b> 프론트 관리자 로그인 화면이 머지되고 AI 서버가
+ * {@code X-API-KEY} 를 붙이면 기본값으로 켜고, {@code enforce} 분기와 {@code auth.enforce} 설정을 지운다.
+ * 기한 없는 임시 스위치는 영구가 된다. 꺼진 동안 새로 만드는 API 는 이 분기 위에(스위치와 무관하게) 규칙을 둔다.
  */
 @Slf4j
 @Configuration
@@ -89,7 +94,11 @@ public class SecurityConfig {
                             // 토큰 주인을 알려주는 API 라 토큰 없이는 의미가 없다 — 스위치와 무관하게 막는다.
                             .requestMatchers(HttpMethod.GET, "/api/auth/me").hasAnyRole("ADMIN", "OWNER")
                             // 점주 승인처럼 새로 만든 관리자 API — 스위치와 무관하게 막는다.
-                            .requestMatchers("/api/admin/**").hasRole("ADMIN");
+                            .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                            // 아동 QR 발급도 새로 만든 API 다. 재발급하면 옛 QR 이 무효가 되므로, 아동 인증이
+                            // 생기기 전까지는 스위치와 무관하게 관리자만 부른다.
+                            .requestMatchers("/api/children/**").hasRole("ADMIN");
+                    // ⚠️ 임시 분기 — 2026-10-14 까지 제거 (클래스 주석 참고)
                     if (!enforce) {
                         auth.anyRequest().permitAll();
                         return;
