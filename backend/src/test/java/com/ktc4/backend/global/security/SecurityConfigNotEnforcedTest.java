@@ -3,7 +3,10 @@ package com.ktc4.backend.global.security;
 import com.ktc4.backend.domain.auth.controller.AuthController;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.domain.member.controller.OwnerAdminController;
+import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.service.OwnerApprovalService;
+import com.ktc4.backend.domain.qr.controller.QrCredentialController;
+import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.controller.StoreController;
 import com.ktc4.backend.domain.store.service.StoreService;
 import org.junit.jupiter.api.DisplayName;
@@ -11,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -25,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 권한 검사 스위치를 끈 상태(auth.enforce=false) 확인 — 프론트·AI 가 준비되기 전 개발 서버의 동작이다.
  * 켠 상태의 규칙은 {@link SecurityConfigTest} 가 맡는다.
  */
-@WebMvcTest({StoreController.class, AuthController.class, OwnerAdminController.class})
+@WebMvcTest({StoreController.class, AuthController.class, OwnerAdminController.class, QrCredentialController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = "auth.enforce=false")
 @DisplayName("API 접근 권한 — 검사 꺼짐")
@@ -42,6 +46,12 @@ class SecurityConfigNotEnforcedTest {
 
     @MockitoBean
     private OwnerApprovalService ownerApprovalService;
+
+    @MockitoBean
+    private QrCredentialService qrCredentialService;
+
+    @Autowired
+    private JwtProvider jwtProvider;
 
     @Test
     @DisplayName("토큰 없이도 기존 API 를 지금처럼 부를 수 있다")
@@ -65,6 +75,18 @@ class SecurityConfigNotEnforcedTest {
     void ownerAdminApiAlwaysRequiresAdmin() throws Exception {
         mockMvc.perform(get("/api/admin/owners")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/admin/owners/3/approve")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("아동 QR 발급은 꺼져 있어도 관리자만 — 아무나 재발급해 남의 QR 을 무효로 만들 수 없게")
+    void qrIssueAlwaysRequiresAdmin() throws Exception {
+        mockMvc.perform(post("/api/children/7/qr-token")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/children/7/qr-token")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.OWNER).value()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/children/7/qr-token")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.ADMIN).value()))
+                .andExpect(status().isOk());
     }
 
     @Test
