@@ -16,7 +16,10 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.ktc4.backend.global.security.SecurityConfig;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -46,6 +49,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * WARN 로그가 사라지는 것을 실측으로 확인했다. 그 회귀를 테스트로 고정한다.
  */
 @WebMvcTest(StoreController.class)
+@Import(SecurityConfig.class)
+@WithMockUser(roles = "ADMIN")
 class GlobalExceptionHandlerTest {
 
     private static final String STORE_PATH = "/api/stores/1";
@@ -315,6 +320,37 @@ class GlobalExceptionHandlerTest {
                                 .contains("MethodArgumentNotValidException")
                                 .contains(STORE_PATH);
                     });
+        }
+
+        // 요청 본문에는 QR 문자열처럼 로그에 남기면 안 되는 값이 들어온다(코딩 컨벤션 "토큰 … 로그에 남기지 않기").
+        // Spring 의 검증 예외·Jackson 파싱 예외 메시지는 보낸 값을 그대로 품고 있어서, 그 메시지를 찍으면 값이 샌다.
+        private static final String SECRET = "SECRETVALUE";
+
+        @Test
+        @DisplayName("본문 검증 실패 로그에 거절된 값이 남지 않는다 — 필드 이름과 이유만 남긴다")
+        void validationLogOmitsRejectedValue() throws Exception {
+            mockMvc.perform(patch(STORE_PATH)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"" + SECRET + "가".repeat(200) + "\"}"))
+                    .andExpect(status().isBadRequest());
+
+            assertThat(logAppender.list).isNotEmpty();
+            assertThat(logAppender.list)
+                    .allSatisfy(event -> assertThat(event.getFormattedMessage()).doesNotContain(SECRET))
+                    .anySatisfy(event -> assertThat(event.getFormattedMessage()).contains("name"));
+        }
+
+        @Test
+        @DisplayName("깨진 JSON 로그에 본문 조각이 남지 않는다")
+        void malformedJsonLogOmitsBody() throws Exception {
+            mockMvc.perform(patch(STORE_PATH)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\": " + SECRET + "}"))
+                    .andExpect(status().isBadRequest());
+
+            assertThat(logAppender.list).isNotEmpty();
+            assertThat(logAppender.list)
+                    .allSatisfy(event -> assertThat(event.getFormattedMessage()).doesNotContain(SECRET));
         }
     }
 }

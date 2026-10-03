@@ -18,8 +18,10 @@ def client():
     app.dependency_overrides.clear()
 
 
-def test_구현이_없으면_503(client):
-    # 기본 구현은 UnavailableInvestigator — 아직 못 한다는 걸 200으로 감추지 않는다.
+def test_GCP_프로젝트가_없으면_503(client, monkeypatch):
+    # 자격증명이 없으면 UnavailableInvestigator — 못 한다는 걸 200으로 감추지 않는다.
+    # 로컬 .env 에 값이 있으면 실제 Vertex 를 부르게 되므로 테스트에서 지운다.
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     response = client.post("/investigations", json=[TARGET])
 
     assert response.status_code == 503
@@ -81,7 +83,7 @@ def test_잘못된_요청은_422(client, payload, expected):
 
 
 def test_백엔드가_준_addressRoad_를_그대로_받는다(client):
-    """`/investigation-targets` 응답을 그대로 되돌려줘도 주소가 살아 있어야 한다.
+    """백엔드 `nts-checks` 응답 행을 그대로 보내도 주소가 살아 있어야 한다.
 
     `address` 로만 받으면 `extra="ignore"` 에 먹혀 조용히 None 이 되고,
     주소 없이 상호명만으로 검색하게 된다.

@@ -1,7 +1,8 @@
 """조사 로직이 꽂히는 자리.
 
-여기서 말하는 조사는 **에이전트의 1차 조사**다. 아직 아무도 시작하지 않았고,
-이 티켓은 받는 자리만 고정한다. 구현이 생기면 `get_investigator()` 에 끼운다.
+여기서 말하는 조사는 **웹검색 2차 조사**다 — 백엔드 1차 조사(국세청 대조)에서 변화가
+감지되지 않은 가게를 받는다. 구현은 `web.py` 의 `WebInvestigator` 이고 `get_investigator()`
+가 끼운다.
 
 사업자등록번호 채우기(PROMPT-69)는 **다른 흐름이다.** 그쪽은 백엔드가 만들 사전
 로직을 받아 별도 엔드포인트로 오게 될 예정이라, 이 자리에 꽂히는 것이 아니다.
@@ -18,7 +19,7 @@ from src.investigation.models import InvestigationTarget, StoreFinding
 
 
 class InvestigatorUnavailable(RuntimeError):
-    """조사 구현이 아직 연결되지 않았거나, 필요한 자격증명이 없을 때."""
+    """조사 구현을 쓸 수 없을 때 — 필요한 자격증명(GCP 프로젝트)이 없는 경우 등."""
 
 
 @runtime_checkable
@@ -41,5 +42,5 @@ class UnavailableInvestigator:
 
     def investigate(self, target: InvestigationTarget) -> StoreFinding:
         raise InvestigatorUnavailable(
-            "조사 구현이 아직 연결되지 않았습니다 (에이전트 1차 조사 미구현)"
+            "조사 구현이 연결되지 않았습니다 (GOOGLE_CLOUD_PROJECT 미설정)"
         )

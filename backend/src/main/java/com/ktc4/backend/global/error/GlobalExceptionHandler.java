@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -102,10 +103,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             return null;
         }
 
-        // 응답 title 은 고정 문구로 나가므로, 원본 예외 정보는 로그에 남긴다.
+        // 응답 title 은 고정 문구로 나가므로, 원본 예외 정보는 로그에 남긴다(값은 빼고 — logSafeCause 참고).
         log.warn("{} 처리 - status={}, uri={}, 원본={}",
                 ex.getClass().getSimpleName(), status.value(),
-                request.getDescription(false).replaceFirst("^uri=", ""), ex.getMessage());
+                request.getDescription(false).replaceFirst("^uri=", ""), logSafeCause(ex));
 
         if (response.getBody() instanceof ProblemDetail problem) {
             ApiProblemDetail decorated = decorate(problem, errorCodeFor(status));
@@ -115,6 +116,27 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             return new ResponseEntity<>(decorated, response.getHeaders(), response.getStatusCode());
         }
         return response;
+    }
+
+    /**
+     * 로그에 남길 원인 설명. 요청 본문에서 온 값은 뺀다.
+     *
+     * <p>본문에는 QR 문자열처럼 로그에 남기면 안 되는 값이 들어온다(코딩 컨벤션 "토큰 … 로그에 남기지 않기").
+     * 그런데 검증 예외의 {@code getMessage()} 는 {@code rejected value [보낸 값]} 을, Jackson 파싱 예외는
+     * 본문 조각을 그대로 품고 있다. 그래서 검증 예외는 필드 이름과 이유만, 파싱 예외는 예외 이름만 남긴다.
+     * 경로·쿼리 파라미터 예외는 본문 값이 아니라서 원래 메시지를 그대로 둔다.
+     */
+    private static String logSafeCause(Exception ex) {
+        if (ex instanceof MethodArgumentNotValidException validationEx) {
+            return toFieldErrors(validationEx).stream()
+                    .map(error -> error.field() + ": " + error.message())
+                    .toList()
+                    .toString();
+        }
+        if (ex instanceof HttpMessageNotReadableException) {
+            return "요청 본문을 읽을 수 없음(본문 내용은 기록하지 않음)";
+        }
+        return ex.getMessage();
     }
 
     private static List<ApiProblemDetail.FieldError> toFieldErrors(MethodArgumentNotValidException ex) {
