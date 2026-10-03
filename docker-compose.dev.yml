@@ -2,10 +2,19 @@
 # docker-compose.yml(base) 위에 병합해서 사용합니다 — 직접 쓰지 말고 scripts/deploy.sh 를 사용하세요.
 #   예) scripts/deploy.sh dev up -d --build
 #
-# 값은 GitHub Actions Secrets 로 주입합니다(.github/workflows/deploy-dev.yml).
-# compose 는 .env·셸 환경변수를 ${...} 치환에만 쓰고, 여기 environment: 에 적은 것만 컨테이너에 들어갑니다.
-# ${VAR:?} 는 값이 없으면 배포를 멈춥니다 — 시크릿 없이 뜬 서버가 조용히 잘못 동작하는 것을 막기 위해서입니다.
-# 현재는 Dev에서만 관련 기능을 사용하고 있기 때문에 Dev에만 배포중이며, Frontend와 연동 이후 해당 환경 변수를 docker-compose.yml에서 전달하도록 변경 예정.
+# 값은 **각 서버의 .env** 로 관리합니다. compose 는 그 파일을 ${...} 치환에만 쓰고,
+# 여기 environment: 에 적은 것만 컨테이너에 들어갑니다 — 적지 않으면 .env 에 있어도 안 들어갑니다.
+# 배포(.github/workflows/deploy-dev.yml)는 checkout 의 clean: false 에 기대어 서버 .env 를 지우지
+# 않습니다. 그 옵션을 true 로 바꾸면 gitignore 대상인 .env 가 지워지니 바꾸지 마세요.
+#
+# ${VAR} 로 두었으므로 **값이 비어도 배포는 멈추지 않고 빈 값이 들어갑니다.** 멈추게 하려면 ${VAR:?} 로
+# 바꾸면 됩니다. 지금은 서버 .env 에 값을 채워 두는 운영 방식을 택해 멈추지 않는 쪽으로 두었습니다.
+#
+# 현재는 dev 에서만 쓰므로 여기 둡니다. prod 에도 필요해지면 두 환경에 같은 줄을 반복하지 않도록
+# base(docker-compose.yml)로 옮깁니다.
+#
+# ⚠️ AUTH_ENFORCE 기본값이 false 입니다. SecurityConfig 의 임시 스위치를 2026-10-14 에 제거할 때
+#    이 줄도 함께 지워야 합니다 — Java 기본값은 안전한 쪽(true)인데 여기서 덮고 있습니다.
 services:
   backend:
     environment:
