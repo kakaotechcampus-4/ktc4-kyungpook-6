@@ -37,7 +37,9 @@ def test_알려진_케이스를_조사한다(client):
     found = body["results"][0]
     assert found["storeId"] == 1
     assert found["failure"] is None
-    assert found["evidences"][0]["source"] == "mock"
+    assert found["proposedChanges"] == {"name": "로쏘"}
+    assert found["signals"][0]["confidence"] is None
+    assert found["signals"][0]["field"] == "name"
 
 
 def test_실패한_건도_결과에_남는다(client):
@@ -123,7 +125,7 @@ def test_중간에_구현이_끊겨도_이미_끝낸_결과는_돌려준다(clie
             self.calls += 1
             if self.calls > 1:
                 raise InvestigatorUnavailable("자격증명이 만료됐습니다")
-            return StoreFinding(storeId=target.store_id, evidences=[])
+            return StoreFinding(storeId=target.store_id)
 
     app.dependency_overrides[get_investigator] = DiesAfterFirst
 

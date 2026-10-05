@@ -10,6 +10,11 @@
 근거를 결과에 함께 담는 이유 — 담당자가 전화로 확인하기 전에 "왜 이렇게 판단했는지"를
 읽어야 하기 때문이다. 값만 돌려주면 사람이 검증할 수 없다. 2차 조사는 근거를 `Signal`(잡힌 변화 하나 +
 대표 근거)에 담는다.
+
+**응답은 백엔드 스키마 그대로 나간다** — `classification`·`proposedChanges` 는 `Task` 칸, `signals[]` 는
+`Signal` 칸(`signalType`·`confidence`·`evidenceText`·`evidenceUrl`)과 추가를 요청한 `field` 만 담아 백엔드가 바꾸지
+않고 저장할 수 있게 한다. 백엔드에 칸이 없는 값(`observed`·`sourceCount`·`mapCheck`)은 규칙·평가에만 쓰고
+응답에서는 뺀다(`exclude=True`). 담당자가 봐야 하는 것(출처 수, 지도와 어긋남)은 `evidenceText` 문구에 넣는다.
 """
 
 from __future__ import annotations
@@ -77,16 +82,6 @@ class InvestigationTarget(BaseModel):
     lng: float | None = None
 
 
-class Evidence(BaseModel):
-    """판단 근거 한 줄. 출처가 없으면 사람이 검증할 수 없으므로 `source`는 필수다."""
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
-
-    source: str  # 예: "비즈노 상호명 검색", "웹검색"
-    detail: str
-    url: str | None = None
-
-
 class PlaceStatus(str, Enum):
     """카카오맵 확인 결과(`kakao_map.py`)."""
 
@@ -110,24 +105,24 @@ class Signal(BaseModel):
     """잡힌 변화 하나와 그 대표 근거. 백엔드 `Signal` 한 행("이상 징후 하나")에 대응한다.
 
     DB 와 다른 값이 잡힌 항목마다 한 행이다(`SIGNAL_HIGH`). 변화가 없으면 Signal 은 없다.
-
-    **`confidence` 는 담지 않는다.** 모델이 매긴 확신도를 판단 근거로 쓰지 않기로 했다(멘토 결정).
-    대신 그 값을 가리킨 **서로 다른 출처(도메인) 수**(`sourceCount`)를 준다 — 백엔드 `Signal.confidence`
-    (NOT NULL) 칸에 넣는 것으로 제안한다. `field`·`observed` 는 백엔드에 칸이 없다 — `observed` 는
-    `proposedChanges` 값과 같아 필요 없고, `field` 는 수정안과 근거를 이어 보여 줄 때만 필요하다.
+    응답에는 백엔드 `Signal` 칸과 `field` 만 나간다. `observed`·`sourceCount` 는 규칙·평가용이다.
     """
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     signal_type: SignalType = Field(alias="signalType")
-    #: 어느 항목의 변화인가. 값은 `Task.proposedChanges` 의 키와 같다.
-    field: ChangeField | None = None
-    #: 웹에서 찾은 새 값 — 수정안에 오르는 값. 상태는 `StoreStatus` 값(OPEN/SUSPENDED/CLOSED)으로 담는다.
-    observed: str | None = None
+    #: **항상 null 이다.** 모델이 매긴 확신도를 판단 근거로 쓰지 않기로 했다(멘토 결정). 백엔드
+    #: `Signal.confidence` 는 지금 NOT NULL 이라 nullable 로 바꿔 달라고 요청한다(`docs/백엔드_연동.md`).
+    confidence: float | None = None
     evidence_text: str = Field(alias="evidenceText")
     evidence_url: str | None = Field(default=None, alias="evidenceUrl")
-    #: 이 값을 가리킨 서로 다른 출처(도메인) 수.
-    source_count: int = Field(default=0, alias="sourceCount")
+    #: 어느 항목의 변화인가. 값은 `Task.proposedChanges` 의 키와 같다 — 수정안이 여럿일 때 근거와 짝짓는다.
+    #: 백엔드 `signal.field` 컬럼은 추가를 요청했다(`docs/백엔드_연동.md`). 컬럼이 생기기 전에는 백엔드가 무시한다.
+    field: ChangeField | None = None
+    #: 웹에서 찾은 새 값 — 수정안에 오르는 값(`proposedChanges` 의 값과 같다). 응답에서는 뺀다.
+    observed: str | None = Field(default=None, exclude=True)
+    #: 이 값을 가리킨 서로 다른 출처(도메인) 수. 응답에서는 빼고 `evidenceText` 문구에 적는다.
+    source_count: int = Field(default=0, alias="sourceCount", exclude=True)
 
 
 class StoreFinding(BaseModel):
@@ -138,8 +133,8 @@ class StoreFinding(BaseModel):
     국세청 배치에서 같은 문제로 멘토 지적을 받았다.
 
     판정 필드는 백엔드가 저장하는 모양을 따른다 — `classification`·`proposedChanges` 는
-    `Task`, `signals` 는 `Signal` 행(잡힌 변화 하나씩)이다. 웹검색 2차 조사는 근거를 `signals` 에만 담고
-    `evidences` 는 비워 둔다 — 백엔드에 따로 저장할 곳이 없다. `evidences` 는 다른 조사 구현(목)용이다.
+    `Task`, `signals` 는 `Signal` 행(잡힌 변화 하나씩)이다. 실패한 가게(`failure`)는 판정이 없으므로
+    백엔드는 Task 를 만들지 않고 `Job.errorMessage` 에 적는다(`Task.classification` 이 NOT NULL).
 
     **`proposedChanges` 는 제안이다.** 우선확인이어도 담당자가 승인해야 가게 정보가 바뀐다.
     """
@@ -147,7 +142,6 @@ class StoreFinding(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     store_id: int = Field(alias="storeId")
-    evidences: list[Evidence] = Field(default_factory=list)
     #: 실패한 건은 판정이 없으므로 None.
     classification: TaskClassification | None = None
     #: 잡힌 변화마다 새 값 하나. 키는 `ChangeField` 값(가게 필드명)이고 `signals` 의 `field` 와 짝이다.
@@ -155,7 +149,8 @@ class StoreFinding(BaseModel):
     proposed_changes: dict[str, str] = Field(default_factory=dict, alias="proposedChanges")
     signals: list[Signal] = Field(default_factory=list)
     #: 카카오맵 확인 결과. 확인하지 않았으면 None. 분류는 바꾸지 않는다(`classify.py`).
-    map_check: PlaceCheck | None = Field(default=None, alias="mapCheck")
+    #: 응답에서는 뺀다 — 백엔드에 칸이 없다. 지도와 어긋나면 `evidenceText` 에 적힌다.
+    map_check: PlaceCheck | None = Field(default=None, alias="mapCheck", exclude=True)
     #: 실패 사유. 성공이면 None.
     failure: str | None = None
 

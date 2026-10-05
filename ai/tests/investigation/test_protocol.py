@@ -34,14 +34,14 @@ class TestMockInvestigator:
         found = MockInvestigator().investigate(TARGET)
 
         assert found.failure is None
-        assert found.evidences, "근거 없이 결과만 돌려주면 사람이 검증할 수 없다"
+        assert found.signals, "근거 없이 결과만 돌려주면 사람이 검증할 수 없다"
 
     def test_모르는_가게는_실패로_표시한다(self):
         found = MockInvestigator().investigate(
             InvestigationTarget(store_id=2, name="없는가게")
         )
 
-        assert found.evidences == []
+        assert found.signals == []
         assert found.failure == "근거를 찾지 못했습니다"
 
     def test_결과에_요청한_storeId_를_그대로_담는다(self):
