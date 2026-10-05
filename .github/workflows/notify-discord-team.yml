@@ -1,0 +1,55 @@
+# 팀 내부 PR(base=develop) 디스코드 알림
+#
+# 운영진 워크플로 notify-discord.yml 은 base=main 인 PR 만 알린다(리뷰 요청·리뷰 제출).
+# 그래서 팀원끼리 주고받는 develop PR 은 아무 알림이 없었다. 이 파일이 그 빈틈만 메운다.
+#
+# ⚠️ 운영진 소유 3개 파일(assign-mentor / notify-discord / convention-check)은 건드리지 않는다.
+#    CODEOWNERS 가 "workflows 에 팀 자체 워크플로 새로 추가"는 명시적으로 허용한다.
+#
+# 🚨 시크릿을 운영진 것과 **일부러 분리했다** — `DISCORD_WEBHOOK` 이 아니라 `DISCORD_WEBHOOK_TEAM`.
+#    운영진 `DISCORD_WEBHOOK` 이 어느 채널을 가리키는지 우리는 알 수 없다(시크릿 값은 읽을 수 없다).
+#    CODEOWNERS 메모에 "Discord 채널 구조(학교별 5채널 vs 팀별)가 미확정" 이라 적혀 있어,
+#    그게 학교 공용 채널이면 우리 develop PR 알림이 다른 팀에까지 쏟아진다.
+#    운영진 알림은 주 1회라 티가 안 나지만 우리 건 주당 10건이 넘는다.
+#    그래서 **우리 채널 전용 웹훅을 따로 받아 새 시크릿으로 등록한다.**
+#
+# 🔒 PR 제목·브랜치명은 외부 입력이다. 절대 run: 안에 ${{ }} 로 펼치지 않는다
+#    (제목에 따옴표나 $(...) 가 들어오면 셸에서 실행된다). 파이썬이 payload 파일을 직접 읽는다.
+#
+# 누구를 멘션할지는 시크릿 DISCORD_MEMBERS 가 정한다(형식: .github/discord-members.example.json).
+# 사람이 바뀌면 그 시크릿만 다시 올리면 된다. 없으면 멘션 없이 알림만 나간다.
+name: Notify Discord (team PR)
+
+on:
+  pull_request:
+    # review_requested — 올린 뒤에 리뷰어를 바꾸거나 추가했을 때. 올리자마자 오는 건은
+    # opened 가 이미 멘션했으므로 스크립트가 걸러낸다.
+    types: [opened, ready_for_review, closed, review_requested]
+    branches: [develop]
+  pull_request_review:
+    # 리뷰가 달렸는데 작성자가 모르는 일을 막는다 (승인 / 변경 요청 / 코멘트)
+    types: [submitted]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # 초안은 알리지 않는다. 닫힌 경우는 머지된 것만 알린다(그냥 닫은 PR 은 소음).
+    # 세부 분기는 스크립트가 하고, 여기서는 확실히 보낼 일 없는 것만 미리 쳐낸다.
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.action != 'closed' || github.event.pull_request.merged == true)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Send Discord message
+        env:
+          DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
+          # 멘션 대상 매핑. 저장소에 두면 깃허브 계정·디스코드 계정·실명이 한 줄에
+          # 묶인 목록이 이력에 남아서 시크릿으로 뺐다. 형식은 discord-members.example.json
+          DISCORD_MEMBERS: ${{ secrets.DISCORD_MEMBERS }}
+        run: python3 .github/scripts/pr_event_notify.py
