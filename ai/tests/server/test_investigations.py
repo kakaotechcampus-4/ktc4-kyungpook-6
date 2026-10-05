@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 from src.investigation import InvestigationTarget, InvestigatorUnavailable, StoreFinding
 from src.investigation.mock import MockInvestigator
+from src.investigation.web import WebInvestigator
+from src.server import main
 from src.server.main import MAX_TARGETS, app, get_investigator
 
 TARGET = {"storeId": 1, "name": "성심당", "address": "대전 중구 은행동", "bizNo": None}
@@ -26,6 +28,22 @@ def test_GCP_프로젝트가_없으면_503(client, monkeypatch):
 
     assert response.status_code == 503
     assert "연결되지 않았습니다" in response.json()["detail"]
+
+
+def test_GCP_프로젝트가_있으면_웹검색_조사를_쓴다(monkeypatch):
+    """PR #57 머지에서 이 연결이 빠져 설정이 있어도 항상 503 이었다 — 그 회귀를 막는다."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    built = []
+    monkeypatch.setattr(main, "VertexResearchProvider", lambda: built.append("vertex") or object())
+    main._web_investigator.cache_clear()
+    try:
+        investigator = main.get_investigator()
+    finally:
+        main._web_investigator.cache_clear()
+
+    assert isinstance(investigator, WebInvestigator)
+    assert built == ["vertex"]
 
 
 def test_알려진_케이스를_조사한다(client):
