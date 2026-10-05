@@ -125,6 +125,23 @@ class Signal(BaseModel):
     source_count: int = Field(default=0, alias="sourceCount", exclude=True)
 
 
+class FailureCode(str, Enum):
+    """조사 실패의 종류. 백엔드는 이 값으로 다시 조사할지 정한다."""
+
+    RATE_LIMITED = "RATE_LIMITED"  # Vertex 요청 한도(429). 기다렸다 다시 부르면 된다
+    TIMEOUT = "TIMEOUT"  # LLM 응답이 제한 시간을 넘겼다. 다시 부르면 될 수 있다
+    BAD_RESPONSE = "BAD_RESPONSE"  # 재시도 끝에도 모델 응답을 쓸 수 없었다(형식 이탈·출처 없음). 다시 부르면 될 수 있다
+    UNAVAILABLE = "UNAVAILABLE"  # AI 조사 기능을 쓸 수 없다(자격증명 등). 운영 조치 후 다시
+    ERROR = "ERROR"  # 그 밖의 예외. 다시 불러도 같을 수 있다
+
+
+class Failure(BaseModel):
+    """가게 한 건의 조사 실패. `message` 는 담당자 화면에 그대로 보여도 되는 문장이다."""
+
+    code: FailureCode
+    message: str
+
+
 class StoreFinding(BaseModel):
     """가게 한 건의 조사 결과.
 
@@ -151,8 +168,8 @@ class StoreFinding(BaseModel):
     #: 카카오맵 확인 결과. 확인하지 않았으면 None. 분류는 바꾸지 않는다(`classify.py`).
     #: 응답에서는 뺀다 — 백엔드에 칸이 없다. 지도와 어긋나면 `evidenceText` 에 적힌다.
     map_check: PlaceCheck | None = Field(default=None, alias="mapCheck", exclude=True)
-    #: 실패 사유. 성공이면 None.
-    failure: str | None = None
+    #: 실패 사유. 성공이면 None. "웹에서 아무것도 못 찾음"은 실패가 아니다 — 변화없음(Signal 0개)으로 나간다.
+    failure: Failure | None = None
 
 
 class InvestigationResponse(BaseModel):

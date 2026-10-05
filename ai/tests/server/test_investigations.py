@@ -53,7 +53,7 @@ def test_실패한_건도_결과에_남는다(client):
     # 요청 수와 응답 수가 같아야 부르는 쪽이 무엇이 빠졌는지 알 수 있다.
     assert body["requested"] == 2 and len(body["results"]) == 2
     assert body["succeeded"] == 1
-    assert body["results"][1]["failure"] == "근거를 찾지 못했습니다"
+    assert body["results"][1]["failure"]["code"] == "ERROR"
 
 
 def test_한_건의_예외가_배치를_죽이지_않는다(client):
@@ -70,7 +70,8 @@ def test_한_건의_예외가_배치를_죽이지_않는다(client):
         json=[TARGET, {"storeId": 2, "name": "정상가게"}],
     ).json()
 
-    assert body["results"][0]["failure"] == "비즈노 응답이 깨졌습니다"
+    # 예외 문장은 응답에 나가지 않는다 — 종류와 고정 문장만.
+    assert body["results"][0]["failure"] == {"code": "ERROR", "message": "조사 중 알 수 없는 오류가 났습니다"}
     assert body["results"][1]["failure"] is None
     assert body["succeeded"] == 1
 
@@ -138,5 +139,5 @@ def test_중간에_구현이_끊겨도_이미_끝낸_결과는_돌려준다(clie
     body = response.json()
     assert body["requested"] == 3 and len(body["results"]) == 3
     assert body["results"][0]["failure"] is None
-    assert body["results"][1]["failure"] == "자격증명이 만료됐습니다"
-    assert body["results"][2]["failure"] == "자격증명이 만료됐습니다"
+    assert body["results"][1]["failure"]["code"] == "UNAVAILABLE"
+    assert body["results"][2]["failure"]["code"] == "UNAVAILABLE"

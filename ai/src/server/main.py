@@ -32,6 +32,7 @@ from src.investigation import (
     StoreFinding,
     UnavailableInvestigator,
 )
+from src.investigation.failure import failure_of
 
 #: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
 MAX_TARGETS = MAX_LIMIT
@@ -134,13 +135,13 @@ def investigate(
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
                 ) from e
-            results.extend(
-                StoreFinding(storeId=t.store_id, failure=str(e)) for t in targets[len(results):]
-            )
+            failure = failure_of(e)
+            results.extend(StoreFinding(storeId=t.store_id, failure=failure) for t in targets[len(results):])
             break
         except Exception as e:  # noqa: BLE001 - 한 건의 예외로 배치 전체를 죽이지 않는다
+            # 응답에는 종류(code)와 고정 문장만 나간다 — 원래 예외 문장은 여기 로그로만 남긴다.
             logger.warning("조사 실패 (storeId=%s): %s", target.store_id, e)
-            results.append(StoreFinding(storeId=target.store_id, failure=str(e)))
+            results.append(StoreFinding(storeId=target.store_id, failure=failure_of(e)))
 
     return InvestigationResponse(
         results=results,

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from src.investigation.models import (
     ChangeField,
+    Failure,
+    FailureCode,
     InvestigationTarget,
     Signal,
     SignalType,
@@ -24,7 +26,10 @@ class MockInvestigator:
     def investigate(self, target: InvestigationTarget) -> StoreFinding:
         known = _KNOWN.get(target.name)
         if not known:
-            return StoreFinding(storeId=target.store_id, failure="근거를 찾지 못했습니다")
+            return StoreFinding(
+                storeId=target.store_id,
+                failure=Failure(code=FailureCode.ERROR, message="목 조사에 등록되지 않은 가게입니다"),
+            )
 
         change_field, value, evidence = known
         return StoreFinding(

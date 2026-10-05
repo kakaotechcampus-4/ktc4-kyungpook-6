@@ -16,6 +16,8 @@ from src.investigation import (
 )
 from src.investigation.models import (
     ChangeField,
+    Failure,
+    FailureCode,
     PlaceCheck,
     PlaceStatus,
     Signal,
@@ -73,7 +75,7 @@ class TestInvestigationTarget:
 class TestStoreFinding:
     def test_실패_결과는_storeId_만으로_만든다(self):
         """조사가 실패해도 결과에서 빼지 않는다 — 최소한의 형태가 성립해야 한다."""
-        found = StoreFinding(storeId=1, failure="근거를 찾지 못했습니다")
+        found = StoreFinding(storeId=1, failure=Failure(code=FailureCode.ERROR, message="실패"))
 
         assert found.classification is None
         assert found.signals == []
@@ -119,7 +121,7 @@ class TestStoreFinding:
 def test_응답은_요청_수와_성공_수를_함께_담는다():
     """부르는 쪽이 무엇이 빠졌는지 셀 수 있어야 한다."""
     response = InvestigationResponse(
-        results=[StoreFinding(storeId=1), StoreFinding(storeId=2, failure="실패")],
+        results=[StoreFinding(storeId=1), StoreFinding(storeId=2, failure=Failure(code=FailureCode.TIMEOUT, message="실패"))],
         requested=2,
         succeeded=1,
     )
