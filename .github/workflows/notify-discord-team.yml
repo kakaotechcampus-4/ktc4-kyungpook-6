@@ -14,13 +14,21 @@
 #    그래서 **우리 채널 전용 웹훅을 따로 받아 새 시크릿으로 등록한다.**
 #
 # 🔒 PR 제목·브랜치명은 외부 입력이다. 절대 run: 안에 ${{ }} 로 펼치지 않는다
-#    (제목에 따옴표나 $(...) 가 들어오면 셸에서 실행된다). env: 로 넘기고 jq 로 JSON 을 만든다.
+#    (제목에 따옴표나 $(...) 가 들어오면 셸에서 실행된다). 파이썬이 payload 파일을 직접 읽는다.
+#
+# 누구를 멘션할지는 시크릿 DISCORD_MEMBERS 가 정한다(형식: .github/discord-members.example.json).
+# 사람이 바뀌면 그 시크릿만 다시 올리면 된다. 없으면 멘션 없이 알림만 나간다.
 name: Notify Discord (team PR)
 
 on:
   pull_request:
-    types: [opened, ready_for_review, closed]
+    # review_requested — 올린 뒤에 리뷰어를 바꾸거나 추가했을 때. 올리자마자 오는 건은
+    # opened 가 이미 멘션했으므로 스크립트가 걸러낸다.
+    types: [opened, ready_for_review, closed, review_requested]
     branches: [develop]
+  pull_request_review:
+    # 리뷰가 달렸는데 작성자가 모르는 일을 막는다 (승인 / 변경 요청 / 코멘트)
+    types: [submitted]
 
 permissions:
   contents: read
@@ -29,71 +37,19 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     # 초안은 알리지 않는다. 닫힌 경우는 머지된 것만 알린다(그냥 닫은 PR 은 소음).
+    # 세부 분기는 스크립트가 하고, 여기서는 확실히 보낼 일 없는 것만 미리 쳐낸다.
     if: >-
       github.event.pull_request.draft == false &&
       (github.event.action != 'closed' || github.event.pull_request.merged == true)
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Send Discord message
         env:
           DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
-          ACTION: ${{ github.event.action }}
-          MERGED: ${{ github.event.pull_request.merged }}
-          PR_NUM: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          ADDITIONS: ${{ github.event.pull_request.additions }}
-          DELETIONS: ${{ github.event.pull_request.deletions }}
-          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
-        run: |
-          set -euo pipefail
-
-          # 🚨 시크릿이 없으면 **아무것도 보내지 않고 끝낸다.** 운영진 공용 웹훅으로 흘러가는
-          #    사고를 막기 위해, 기본값으로 다른 웹훅을 대신 쓰지 않는다.
-          if [ -z "${DISCORD_WEBHOOK_TEAM:-}" ]; then
-            echo "::notice::DISCORD_WEBHOOK_TEAM 시크릿이 없어 알림을 건너뜁니다. 팀 채널 웹훅을 등록하세요."
-            exit 0
-          fi
-
-          if [ "$ACTION" = "closed" ]; then
-            HEADLINE="✅ develop 에 머지됐습니다"
-            COLOR=5763719   # 초록
-          else
-            HEADLINE="🔵 새 PR 이 올라왔습니다 (→ develop)"
-            COLOR=3447003   # 파랑
-          fi
-
-          # 제목/브랜치는 전부 jq --arg 로만 넘긴다. 문자열 보간을 쓰지 않는다.
-          PAYLOAD=$(jq -n \
-            --arg headline "$HEADLINE" \
-            --arg title "#${PR_NUM} ${PR_TITLE}" \
-            --arg url "$PR_URL" \
-            --arg author "$PR_AUTHOR" \
-            --arg branch "$HEAD_REF" \
-            --arg diff "+${ADDITIONS} −${DELETIONS} · ${CHANGED_FILES}개 파일" \
-            --argjson color "$COLOR" \
-            '{
-              content: $headline,
-              embeds: [{
-                title: $title,
-                url: $url,
-                color: $color,
-                fields: [
-                  { name: "작성자", value: $author,  inline: true },
-                  { name: "브랜치", value: $branch,  inline: true },
-                  { name: "변경",   value: $diff,    inline: false }
-                ]
-              }]
-            }')
-
-          code=$(curl -sS -o /tmp/discord_resp -w '%{http_code}' \
-            -X POST -H 'Content-Type: application/json' \
-            -d "$PAYLOAD" "$DISCORD_WEBHOOK_TEAM")
-
-          echo "Discord 응답 코드: $code"
-          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
-            echo "::error::디스코드 전송 실패 ($code)"
-            cat /tmp/discord_resp
-            exit 1
-          fi
+          # 멘션 대상 매핑. 저장소에 두면 깃허브 계정·디스코드 계정·실명이 한 줄에
+          # 묶인 목록이 이력에 남아서 시크릿으로 뺐다. 형식은 discord-members.example.json
+          DISCORD_MEMBERS: ${{ secrets.DISCORD_MEMBERS }}
+        run: python3 .github/scripts/pr_event_notify.py

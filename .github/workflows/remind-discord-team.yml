@@ -29,4 +29,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
+          # 멘션 대상 매핑 (형식: .github/discord-members.example.json)
+          DISCORD_MEMBERS: ${{ secrets.DISCORD_MEMBERS }}
         run: python3 .github/scripts/remind_discord.py
