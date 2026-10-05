@@ -24,6 +24,10 @@ spring:
 
 server:
   port: 8080
+  forward-headers-strategy: framework
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
 
 auth:
   # 권한 검사 스위치. false 면 로그인 없이 기존 API 를 통과시킨다(로그인 API 는 동작).
