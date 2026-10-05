@@ -1,5 +1,9 @@
 package com.ktc4.backend.domain.checkin.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.ktc4.backend.domain.checkin.dto.CheckInResponse;
 import com.ktc4.backend.domain.checkin.entity.CheckIn;
 import com.ktc4.backend.domain.checkin.repository.CheckInRepository;
@@ -10,16 +14,23 @@ import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.support.PostgresContainerTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Import;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.HexFormat;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,6 +62,42 @@ class CheckInServiceTest extends PostgresContainerTest {
     private TestEntityManager entityManager;
 
     private Long storeId;
+
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
+
+    @BeforeEach
+    void attachLogAppender() {
+        // Lombok @Slf4j 로거는 private static final 이라 Mockito 로 잡을 수 없다. ListAppender 로 실제 로그를 받는다.
+        serviceLogger = (Logger) LoggerFactory.getLogger(CheckInService.class);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+        serviceLogger.detachAppender(logAppender);
+        logAppender.stop();
+    }
+
+    private List<String> qrFailureLogs() {
+        return logAppender.list.stream()
+                .filter(event -> event.getLevel() == Level.INFO)
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(message -> message.startsWith("QR 체크인 실패"))
+                .toList();
+    }
+
+    // 기대 해시는 운영 코드가 아니라 JDK 로 직접 계산한다 — 로그에 해시가 새지 않는지 확인할 때 쓴다.
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     @BeforeEach
     void setUp() {
@@ -201,6 +248,69 @@ class CheckInServiceTest extends PostgresContainerTest {
                     .extracting(CheckInServiceTest::errorCodeOf)
                     .isEqualTo(ErrorCode.STORE_NOT_FOUND);
             assertThat(checkInRepository.count()).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("실패 이유 로그 — 응답은 하나로, 로그에는 이유를 (멘토 Q6)")
+    class FailureLog {
+
+        @Test
+        @DisplayName("형식이 틀린 QR 이면 storeId 와 reason=FORMAT 을 한 줄 남기고, 보낸 값은 남기지 않는다")
+        void logsFormatReasonWithoutPayload() {
+            String malformed = "v1.SECRETPAYLOAD!!!";
+
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, malformed))
+                    .isInstanceOf(CustomException.class);
+
+            assertThat(qrFailureLogs()).containsExactly("QR 체크인 실패 - storeId=" + storeId + ", reason=FORMAT");
+            assertThat(logAppender.list)
+                    .allSatisfy(event -> assertThat(event.getFormattedMessage()).doesNotContain("SECRETPAYLOAD"));
+        }
+
+        @Test
+        @DisplayName("형식은 맞지만 모르는 QR 이면 reason=NOT_FOUND, 토큰과 그 해시는 남기지 않는다")
+        void logsNotFoundReasonWithoutTokenOrHash() {
+            String token = "B".repeat(43);
+
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1." + token))
+                    .isInstanceOf(CustomException.class);
+
+            assertThat(qrFailureLogs()).containsExactly("QR 체크인 실패 - storeId=" + storeId + ", reason=NOT_FOUND");
+            assertThat(logAppender.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
+                    .doesNotContain(token)
+                    .doesNotContain(sha256Hex(token)));
+        }
+
+        @Test
+        @DisplayName("재발급으로 바뀐 옛 QR 도 reason=NOT_FOUND — 옛 해시를 기억하지 않아 미발급과 구분하지 않는다")
+        void logsNotFoundForOldPayloadAfterReissue() {
+            String oldPayload = issue();
+            issue();
+
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, oldPayload))
+                    .isInstanceOf(CustomException.class);
+
+            assertThat(qrFailureLogs()).containsExactly("QR 체크인 실패 - storeId=" + storeId + ", reason=NOT_FOUND");
+        }
+
+        @Test
+        @DisplayName("성공하면 실패 로그를 남기지 않는다")
+        void noFailureLogOnSuccess() {
+            String payload = issue();
+
+            checkInService.checkIn(storeId, payload);
+
+            assertThat(qrFailureLogs()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("가게가 없으면 QR 을 보기 전에 끝나므로 QR 실패 로그가 없다")
+        void noQrFailureLogWhenStoreMissing() {
+            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, "v1.!!!"))
+                    .isInstanceOf(CustomException.class);
+
+            assertThat(qrFailureLogs()).isEmpty();
         }
     }
 }

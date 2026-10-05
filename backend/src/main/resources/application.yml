@@ -24,10 +24,16 @@ spring:
 
 server:
   port: 8080
+  forward-headers-strategy: framework
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
 
 auth:
-  # 권한 검사 스위치. false 면 지금처럼 로그인 없이 모든 API 를 통과시킨다(로그인 API 는 동작).
-  # 프론트 로그인 화면·AI 서버 키가 준비되면 true 로 바꾸고, 이후 이 설정을 지운다. (SecurityConfig 참고)
+  # 권한 검사 스위치. false 면 로그인 없이 기존 API 를 통과시킨다(로그인 API 는 동작).
+  # /api/admin/**, /api/children/**, /api/auth/me 는 false 여도 막힌다.
+  # ⚠️ 임시 설정 — 2026-10-14 까지 제거. 프론트 관리자 로그인 화면이 머지되고 AI 서버가 X-API-KEY 를 붙이면
+  #    true 로 바꾼 뒤 이 설정과 SecurityConfig 의 enforce 분기를 지운다.
   enforce: ${AUTH_ENFORCE:false}
   jwt:
     # 시크릿 기본값은 두지 않음(public repo). 비워 두면 기동할 때마다 임의 키를 만들어 앱은 뜨지만,
