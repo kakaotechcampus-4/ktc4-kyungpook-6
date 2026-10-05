@@ -5,7 +5,38 @@ on:
     branches: [develop, main]
 
 jobs:
+  # 바뀐 폴더만 테스트한다. 이 워크플로 파일이 바뀌면 파이프라인 자체를 검증하도록 모두 돈다.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      ai: ${{ steps.filter.outputs.ai }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      bot: ${{ steps.filter.outputs.bot }}
+    steps:
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/test.yml'
+            ai:
+              - 'ai/**'
+              - '.github/workflows/test.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/test.yml'
+            bot:
+              - 'bot/**'
+              - '.github/workflows/test.yml'
+
   backend-test:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,6 +53,8 @@ jobs:
         working-directory: backend
 
   ai-test:
+    needs: changes
+    if: needs.changes.outputs.ai == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,6 +73,8 @@ jobs:
         working-directory: ai
 
   frontend-test:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -61,6 +96,8 @@ jobs:
         working-directory: frontend
 
   bot-test:
+    needs: changes
+    if: needs.changes.outputs.bot == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -87,7 +124,7 @@ jobs:
 
   all-tests-passed:
     name: All tests passed
-    needs: [backend-test, ai-test, frontend-test, bot-test]
+    needs: [changes, backend-test, ai-test, frontend-test, bot-test]
     if: always()
     runs-on: ubuntu-latest
     steps:
