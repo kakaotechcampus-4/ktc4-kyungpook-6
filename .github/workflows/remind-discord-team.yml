@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: "0 * * * *"   # 매시 정각 (UTC). 판단은 스크립트가 KST 로 환산해서 한다
   workflow_dispatch:      # 수동 확인용
+    inputs:
+      catch_up:
+        description: "밀린 건을 한 번에 알립니다 (시간 구간 무시). 워크플로가 멈췄다 돌아왔거나, 규칙을 바꿔 소급 적용할 때."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,4 +36,6 @@ jobs:
           DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
           # 멘션 대상 매핑 (형식: .github/discord-members.example.json)
           DISCORD_MEMBERS: ${{ secrets.DISCORD_MEMBERS }}
-        run: python3 .github/scripts/remind_discord.py
+        run: |
+          python3 .github/scripts/remind_discord.py \
+            ${{ inputs.catch_up && '--catch-up' || '' }}

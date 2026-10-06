@@ -59,10 +59,17 @@ QUIET_END_HOUR = 8
 #   일 10:00 멘토 approve · 일 23:59 main 머지
 # (요일, 1시간 전 시각, 마감 설명)
 DEADLINES = [
-    (2, 17, "오늘 18:00 1차 PR 마감"),
     (5, 9, "오늘 10:00 2차 재리뷰 요청 마감"),
     (6, 23, "오늘 23:59 main 머지 마감"),
 ]
+
+# 점검 리포트를 보내는 시각. "마감이다"가 아니라 **지금 뭐가 됐고 뭐가 안 됐는지**를
+# 찍어 준다. 수요일은 1차 PR 을 쓰기 직전, 일요일 아침은 머지까지 남은 것을 본다.
+# (요일, 시각): (제목, 마감 설명)
+READINESS = {
+    (2, 17): ("1차 PR 마감 1시간 전", "오늘 18:00 까지 develop → main PR"),
+    (6, 9): ("main 머지 준비 점검", "오늘 23:59 까지 main 머지"),
+}
 # 멘토 쪽은 시각으로 보지 않는다. 리뷰가 언제 올지 정해져 있지 않고, 재촉할 일도 아니다.
 # 멘토가 **코멘트를 남기는 순간** 알리는 쪽으로 간다 — pr_event_notify.py 가 맡는다.
 
@@ -106,6 +113,9 @@ def wake_at(crossed: datetime) -> datetime:
     return k
 
 
+CATCH_UP = False   # --catch-up 이면 시간 구간을 무시하고 "이미 넘긴 것"을 전부 본다
+
+
 def due_now(created: datetime, threshold: int, now: datetime) -> bool:
     """`created + threshold` 를 (조용한 시간을 피해서) 지금 이 시간대에 넘겼는가.
 
@@ -114,6 +124,8 @@ def due_now(created: datetime, threshold: int, now: datetime) -> bool:
     """
     wake = wake_at(created + timedelta(hours=threshold))
     k = now.astimezone(KST)
+    if CATCH_UP:
+        return wake <= k      # 밀린 건을 한 번에 — 워크플로가 멈췄다 돌아왔을 때
     return wake <= k < wake + timedelta(hours=1)
 
 
@@ -161,6 +173,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
     pulls = gh(f"/repos/{repo}/pulls?state=open&per_page=100", token)
 
     main_pr = None
+    dev: list[tuple[dict, list]] = []   # 열린 develop PR 과 그 리뷰 — 점검 리포트에서 쓴다
     for pr in pulls:
         if pr.get("draft"):
             continue
@@ -172,6 +185,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             continue
 
         reviews = gh(f"/repos/{repo}/pulls/{pr['number']}/reviews?per_page=100", token)
+        dev.append((pr, reviews))
         opened_hours = (now - parse_ts(pr["created_at"])).total_seconds() / 3600
         state = latest_review_state(reviews)
 
@@ -191,7 +205,8 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                 })
         elif not reviews:
             # 리뷰어는 있는데 아직 안 봤다. 두 번까지만 깨운다.
-            if due_now(created, NO_REVIEW_FIRST_HOURS, now):
+            second = due_now(created, NO_REVIEW_SECOND_HOURS, now)
+            if due_now(created, NO_REVIEW_FIRST_HOURS, now) and not (CATCH_UP and second):
                 findings.append({
                     "color": COLOR_INFO,
                     "headline": "🕐 아직 리뷰가 없습니다",
@@ -199,7 +214,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
                     "mention": dm.mentions(assigned),
                 })
-            if due_now(created, NO_REVIEW_SECOND_HOURS, now):
+            if second:
                 findings.append({
                     "color": COLOR_WARN,
                     "headline": f"🟠 {NO_REVIEW_SECOND_HOURS}시간째 리뷰가 없습니다",
@@ -234,6 +249,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             findings.extend(conflict_finding(repo, token, pr))
 
     findings.extend(weekly_deadlines(now, main_pr, deadline_label))
+    findings.extend(readiness_report(repo, token, now, main_pr, dev))
     return findings
 
 
@@ -305,6 +321,132 @@ def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | 
     return out
 
 
+def readiness_report(repo: str, token: str, now: datetime,
+                     main_pr: dict | None, dev: list[tuple[dict, list]]) -> list[dict]:
+    """수 17:00 · 일 09:00 — "다 됐는지" 를 항목별로 찍어 준다.
+
+    재촉이 아니라 상태 보고다. 수요일에는 1차 PR 을 쓰기 직전에 무엇이 남았는지,
+    일요일 아침에는 머지까지 무엇이 남았는지 본다.
+    """
+    k = now.astimezone(KST)
+    slot = READINESS.get((k.weekday(), k.hour))
+    if not slot:
+        return []
+    title, deadline = slot
+    lines = [f"마감: {deadline}", ""]
+    ok = True
+
+    if (k.weekday(), k.hour) == (2, 17):
+        lines.append(f"{'✅' if main_pr else '❌'} 멘토 PR: "
+                     + (f"#{main_pr['number']} 올라와 있음" if main_pr else "아직 없음"))
+        ok = ok and bool(main_pr)
+
+        try:
+            cmp_ = gh(f"/repos/{repo}/compare/main...develop", token)
+            lines.append(f"ℹ️ develop 이 main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있음")
+        except urllib.error.HTTPError:
+            pass
+
+        unreviewed = [pr for pr, rv in dev if not rv]
+        if dev:
+            lines.append(f"{'⚠️' if unreviewed else '✅'} 열린 develop PR {len(dev)}건"
+                         + (f" · 그중 리뷰 0건이 {len(unreviewed)}건" if unreviewed else ""))
+            for pr, _ in dev[:5]:
+                lines.append(f"      #{pr['number']} {pr['title'][:40]}")
+            lines.append("      → 이번 주 PR 에 포함할지 먼저 정하세요")
+            ok = False
+        else:
+            lines.append("✅ 열린 develop PR 없음")
+
+        lines.append(check_state(repo, token, "develop"))
+    else:
+        if not main_pr:
+            lines.append("❌ 멘토 PR 이 없습니다")
+            ok = False
+        else:
+            reviews = gh(f"/repos/{repo}/pulls/{main_pr['number']}/reviews?per_page=100", token)
+            team = set(dm._table().get("members", {}))
+            outside = [r for r in reviews if (r.get("user") or {}).get("login") not in team]
+            approved = any(r.get("state") == "APPROVED" for r in outside)
+            lines.append(f"{'✅' if approved else '❌'} 멘토 approve: "
+                         + ("받음" if approved else "아직 없음"))
+            ok = ok and approved
+
+            waiting = unanswered(repo, token, main_pr["number"], team)
+            lines.append(f"{'⚠️' if waiting else '✅'} 답변이 필요한 멘토 코멘트: "
+                         + (f"{waiting}건" if waiting else "없음"))
+            ok = ok and not waiting
+
+            try:
+                detail = gh(f"/repos/{repo}/pulls/{main_pr['number']}", token)
+                m = detail.get("mergeable")
+                lines.append({True: "✅ 머지 가능", False: "❌ 충돌 — 풀어야 합니다"}
+                             .get(m, "ℹ️ 머지 가능 여부 계산 중"))
+                ok = ok and (m is not False)
+            except urllib.error.HTTPError:
+                pass
+
+    return [{
+        "color": COLOR_INFO if ok else COLOR_DEADLINE,
+        "headline": ("✅ 준비됐습니다 — " if ok else "📋 ") + title,
+        "pr": None,
+        "title": title,
+        "detail": "\n".join(lines),
+        "mention": dm.tech_leads(),
+    }]
+
+
+def check_state(repo: str, token: str, ref: str) -> str:
+    """브랜치 머리의 체크 결과 한 줄."""
+    try:
+        runs = gh(f"/repos/{repo}/commits/{ref}/check-runs", token).get("check_runs", [])
+    except urllib.error.HTTPError:
+        return "ℹ️ CI 상태를 읽지 못했습니다"
+    if not runs:
+        return "ℹ️ CI 기록 없음"
+    bad = [r["name"] for r in runs
+           if r.get("status") == "completed" and r.get("conclusion") not in ("success", "neutral", "skipped")]
+    return f"❌ {ref} CI 실패: {', '.join(bad[:3])}" if bad else f"✅ {ref} CI 통과"
+
+
+def needs_reply(comment: dict) -> bool:
+    """답이 필요해 보이는가. 물음표가 있는 것만 센다.
+
+    8주차 멘토의 마지막 코멘트는 "맞습니다 ㅎㅎ 이번주도 화이팅입니다!" 였다.
+    "마지막 말이 멘토 것이면 미응답"으로 세면 이런 인사까지 잡혀서, 매주 일요일
+    아침마다 가짜 경고가 뜬다. 되물음에는 물음표가 있다.
+    """
+    return "?" in (comment.get("body") or "") or "？" in (comment.get("body") or "")
+
+
+def unanswered(repo: str, token: str, number: int, team: set) -> int:
+    """멘토가 **물어본 뒤** 팀이 아무 말도 안 한 스레드 수.
+
+    코드 코멘트는 `in_reply_to_id` 로 스레드를 묶는다. 일반 코멘트는 스레드가 없어서
+    **마지막 한 건만** 본다 — 그 뒤에 팀 코멘트가 없으면 미응답 1건으로 센다.
+    """
+    def login(c):
+        return (c.get("user") or {}).get("login")
+
+    waiting = 0
+    try:
+        rc = gh(f"/repos/{repo}/pulls/{number}/comments?per_page=100", token)
+        threads: dict[int, list] = {}
+        for c in rc:
+            threads.setdefault(c.get("in_reply_to_id") or c["id"], []).append(c)
+        for items in threads.values():
+            items.sort(key=lambda c: c["created_at"])
+            if login(items[-1]) not in team and needs_reply(items[-1]):
+                waiting += 1
+
+        ic = gh(f"/repos/{repo}/issues/{number}/comments?per_page=100", token)
+        if ic and login(ic[-1]) not in team and needs_reply(ic[-1]):
+            waiting += 1
+    except urllib.error.HTTPError:
+        return 0
+    return waiting
+
+
 def to_payload(findings: list[dict]) -> dict:
     embeds = []
     for f in findings[:10]:  # 디스코드 embed 상한
@@ -318,7 +460,8 @@ def to_payload(findings: list[dict]) -> dict:
                 "name": "브랜치", "value": pr["head"]["ref"], "inline": True,
             })
         embed = {
-            "title": f"#{pr['number']} {pr['title']}" if pr else "main PR 없음",
+            "title": (f"#{pr['number']} {pr['title']}" if pr
+                      else f.get("title", "main PR 없음")),
             "color": f["color"],
             "fields": fields,
         }
@@ -355,7 +498,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="보내지 않고 payload 만 출력")
     ap.add_argument("--now", help="이 시각인 것처럼 굴린다 (ISO8601). 테스트용")
+    ap.add_argument("--catch-up", action="store_true",
+                    help="시간 구간을 무시하고 이미 임계값을 넘긴 건을 한 번에 알린다")
     args = ap.parse_args()
+
+    global CATCH_UP
+    CATCH_UP = args.catch_up
 
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")
