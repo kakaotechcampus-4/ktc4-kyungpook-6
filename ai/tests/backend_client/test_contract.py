@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -206,3 +207,73 @@ def test_change_field_값은_store_필드명이다() -> None:
             f"AI 가 보내는 ChangeField 값 '{value}' 가 StoreUpdateRequest 에 없습니다. "
             "수정안을 승인해도 반영할 칸이 없습니다."
         )
+
+
+# ── AI 응답의 칸이 백엔드에 실제로 자리가 있는가 ────────────────────────────────
+#
+# 지금까지 enum 값만 대조했다. **칸 이름은 보지 않아서**, AI 가 보내는 칸이 백엔드에
+# 없으면 연동할 때가 되어서야 안다. 문서에도 "남은 구멍"으로 적혀 있었다.
+#
+# 백엔드는 Java 필드명이 camelCase 이고 AI 도 alias 가 camelCase 라 그대로 견줄 수 있다.
+# DTO 가 아직 없어서 엔티티(`Signal.java`·`Task.java`)를 본다 — 저장될 자리가 거기다.
+
+JAVA_FIELD = re.compile(r"^\s*private\s+[\w<>,\[\]\s]+?\s+(\w+)\s*;", re.MULTILINE)
+
+
+def java_fields(path: Path) -> set[str]:
+    return set(JAVA_FIELD.findall(path.read_text(encoding="utf-8")))
+
+
+def test_signal_칸이_백엔드에_있다() -> None:
+    java_file = JAVA_ROOT / "signal/entity/Signal.java"
+    if not java_file.exists():
+        pytest.skip(f"백엔드 소스가 없습니다: {java_file}")
+
+    from src.investigation.models import ChangeField, Signal, SignalType
+
+    # **스키마가 아니라 실제 직렬화 결과**를 본다. `observed`·`sourceCount` 는
+    # `exclude=True` 라 응답에 안 나가는데, 스키마에는 그대로 남아 있다.
+    sample = Signal(
+        signalType=SignalType.SIGNAL_HIGH,
+        field=ChangeField.PHONE,
+        observed="053-000-0000",
+        evidenceText="근거",
+        evidenceUrl="https://example.com",
+        sourceCount=2,
+    )
+    sent = set(json.loads(sample.model_dump_json(by_alias=True)))
+    backend = java_fields(java_file)
+
+    missing = sent - backend
+    assert not missing, (
+        f"AI 가 보내는 Signal 칸이 백엔드에 없습니다: {sorted(missing)}. "
+        f"백엔드 Signal 엔티티: {sorted(backend)}"
+    )
+
+
+def test_store_finding_칸이_백엔드에_있다() -> None:
+    """`storeId`·`failure` 는 Task 칸이 아니라 백엔드가 흐름에서 쓰는 값이라 뺀다.
+
+    - `storeId` — 결과를 가게와 잇는 열쇠. Task 는 store 를 연관으로 들고 있다
+    - `failure` — Task 를 만들지 않고 `Job.errorMessage` 로 간다(`docs/백엔드_연동.md`)
+    """
+    java_file = JAVA_ROOT / "task/entity/Task.java"
+    if not java_file.exists():
+        pytest.skip(f"백엔드 소스가 없습니다: {java_file}")
+
+    from src.investigation.models import StoreFinding, TaskClassification
+
+    sample = StoreFinding(
+        storeId=1,
+        classification=TaskClassification.PRIORITY_CHECK,
+        proposedChanges={"phone": "053-000-0000"},
+    )
+    sent = set(json.loads(sample.model_dump_json(by_alias=True)))
+    sent -= {"storeId", "failure", "signals"}
+    backend = java_fields(java_file)
+
+    missing = sent - backend
+    assert not missing, (
+        f"AI 가 보내는 StoreFinding 칸이 백엔드 Task 에 없습니다: {sorted(missing)}. "
+        f"백엔드 Task 엔티티: {sorted(backend)}"
+    )
