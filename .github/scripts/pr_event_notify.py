@@ -34,6 +34,7 @@ import argparse
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -255,11 +256,21 @@ def post(webhook: str, payload: dict) -> None:
     req = urllib.request.Request(
         webhook,
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # 🚨 UA 를 빼면 디스코드(Cloudflare)가 403 으로 막는다.
+            #    urllib 기본값 "Python-urllib/3.x" 가 차단 목록에 걸린다.
+            "User-Agent": "ktc4-kyungpook-6-notifier (https://github.com/kakaotechcampus-4/ktc4-kyungpook-6)",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        print(f"디스코드 응답: {resp.status}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            print(f"디스코드 응답: {resp.status}")
+    except urllib.error.HTTPError as e:
+        # 웹훅 URL 은 절대 찍지 않는다. 응답 본문만 남겨야 원인을 안다.
+        print(f"디스코드 전송 실패: {e.code} {e.reason}\n{e.read().decode(errors='replace')[:400]}")
+        raise
 
 
 def main() -> int:
