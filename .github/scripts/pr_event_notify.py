@@ -40,8 +40,13 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discord_members as dm  # noqa: E402
 
-# 이 시간 안에 만들어진 PR 의 review_requested 는 opened 와 겹치므로 보내지 않는다
-FRESH_SECONDS = 120
+# PR 을 올릴 때 리뷰어를 같이 지정하면 GitHub 이 opened 와 review_requested 를 둘 다
+# 보낸다. opened 가 이미 멘션했으므로 그 건은 건너뛴다.
+#
+# ⏱️ 짧게 잡아야 한다. 두 이벤트는 **1~2초 안에** 같이 오는데, 사람이 올린 뒤 손으로
+#    리뷰어를 고르는 것도 1분 안쪽이다. 120초로 뒀다가 PR #70 에서 56초 뒤에 지정한
+#    리뷰어 알림이 통째로 묻혔다.
+FRESH_SECONDS = 20
 
 # 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
 # 메시지마다 덮어쓸 수 있어서, 봇과 같은 이름·아바타로 맞춘다. 채널에서 보면
@@ -126,9 +131,12 @@ def on_opened(pr: dict) -> dict:
 
 
 def on_review_requested(event: dict, pr: dict) -> dict | None:
-    reviewer = (event.get("requested_reviewer") or {}).get("login")
+    requested = event.get("requested_reviewer") or {}
+    reviewer = requested.get("login")
     if not reviewer:
         return None  # 팀 단위 리뷰 요청. 멘션할 개인이 없다
+    if requested.get("type") == "Bot" or reviewer == "Copilot":
+        return None  # Copilot 같은 봇 리뷰어는 부를 사람이 없다
     age = (datetime.now(timezone.utc) - parse_ts(pr["created_at"])).total_seconds()
     if age < FRESH_SECONDS:
         return None  # 방금 opened 가 이미 멘션했다
