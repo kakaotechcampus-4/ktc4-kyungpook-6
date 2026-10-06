@@ -3,7 +3,7 @@ import BackButton from "../components/ui/BackButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import TextField from "../components/ui/TextField";
 import PasswordVisibilityToggle from "../components/login/PasswordVisibilityToggle";
-import SignupPromptCard from "../components/login/SignupPromptCard";
+import LoginHelpLinks from "../components/login/LoginHelpLinks";
 import { useOwnerLogin } from "../hooks/login";
 
 function OwnerLoginPage() {
@@ -18,6 +18,7 @@ function OwnerLoginPage() {
     submit,
     errorMessage,
     goSignup,
+    goFindAccount,
   } = useOwnerLogin();
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -26,7 +27,7 @@ function OwnerLoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
+    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <div className="flex pt-3 pb-5">
         <BackButton />
       </div>
@@ -42,12 +43,12 @@ function OwnerLoginPage() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           autoComplete="username"
+          inputMode="email"
           autoCapitalize="none"
         />
         <TextField
           id="owner-login-password"
           label="비밀번호"
-          className="pb-4"
           type={isPasswordVisible ? "text" : "password"}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -57,20 +58,21 @@ function OwnerLoginPage() {
           }
         />
 
-        <PrimaryButton type="submit" className="mt-2" disabled={!canSubmit}>
+        {/* 에러 문구 자리. 높이를 고정해 두어 문구가 떠도 버튼·링크가 밀리지 않는다. */}
+        <div className="flex h-12 items-center justify-center">
+          {errorMessage && (
+            <p role="alert" className="text-center text-[13px] leading-[1.4] text-[#e5484d]">
+              {errorMessage}
+            </p>
+          )}
+        </div>
+
+        <PrimaryButton type="submit" disabled={!canSubmit}>
           로그인
         </PrimaryButton>
-
-        {errorMessage && (
-          <p role="alert" className="pt-3 text-center text-sm leading-[normal] text-[#dc2626]">
-            {errorMessage}
-          </p>
-        )}
       </form>
 
-      <div className="mt-auto pt-6">
-        <SignupPromptCard onSignup={goSignup} />
-      </div>
+      <LoginHelpLinks onSignup={goSignup} onFindAccount={goFindAccount} />
     </main>
   );
 }
