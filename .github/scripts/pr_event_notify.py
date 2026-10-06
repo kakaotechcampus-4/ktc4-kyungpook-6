@@ -5,8 +5,18 @@
 이벤트 payload(`$GITHUB_EVENT_PATH`) 안에 있어서 API 를 따로 부르지 않는다.
 
 다루는 이벤트
-  pull_request        opened / ready_for_review / closed(머지된 것만) / review_requested
-  pull_request_review submitted
+  pull_request                opened / ready_for_review / closed(머지된 것만) / review_requested
+  pull_request_review         submitted
+  issue_comment               created — PR 에 달린 일반 코멘트
+  pull_request_review_comment created — **답글만** (in_reply_to_id 가 있는 것)
+
+**멘토 리뷰는 시각이 정해져 있지 않다.** 언제 올지 모르고 재촉할 일도 아니라서,
+cron 으로 "왔나?" 를 보지 않고 **멘토가 코멘트를 남기는 순간** 알린다.
+8주차에 멘토 되물음 2건을 다음 주까지 못 보고 넘긴 적이 있다.
+
+코드 한 줄짜리 인라인 코멘트까지 전부 알리면 리뷰 한 번에 열 번이 울린다.
+새로 달리는 인라인 코멘트는 리뷰 제출(`pull_request_review`)이 한 번에 묶어 알리므로,
+`pull_request_review_comment` 는 **답글(되물음)만** 본다.
 
 **중복을 막는 지점** — PR 을 리뷰어까지 지정해서 올리면 GitHub 은 `opened` 와
 `review_requested` 를 둘 다 쏜다. `opened` 에서 이미 리뷰어를 멘션했으므로,
@@ -75,6 +85,9 @@ def pr_embed(pr: dict, color: int, extra: list[dict] | None = None) -> dict:
 
 def build(event_name: str, event: dict) -> dict | None:
     """보낼 payload. 보낼 것이 없으면 None."""
+    if event_name == "issue_comment":
+        return on_issue_comment(event)
+
     pr = event.get("pull_request")
     if not pr:
         return None
@@ -82,6 +95,8 @@ def build(event_name: str, event: dict) -> dict | None:
 
     if event_name == "pull_request_review":
         return on_review(event, pr)
+    if event_name == "pull_request_review_comment":
+        return on_reply(event, pr)
 
     if pr.get("draft"):
         return None  # 초안은 알리지 않는다
@@ -165,6 +180,73 @@ def on_review(event: dict, pr: dict) -> dict | None:
 
 def _table_tech_leads() -> list[str]:
     return dm._table().get("tech_leads", [])
+
+
+def is_outsider(login: str | None) -> bool:
+    """매핑에 없는 사람 = 팀원이 아니다. 멘토·운영진이 여기 걸린다."""
+    return bool(login) and login not in dm._table().get("members", {})
+
+
+def comment_payload(title: str, url: str, author: str | None,
+                    commenter: str, body: str, outsider: bool) -> dict:
+    """코멘트 알림 하나. 멘토면 테크리더까지 같이 부른다."""
+    who = dm.mentions([author] + _table_tech_leads()) if outsider else dm.mention(author)
+    head = ("🧑‍🏫 멘토 코멘트가 달렸습니다" if outsider
+            else "💬 코멘트가 달렸습니다")
+    line = ("추측해서 대신 답하지 말고 해당 파트가 직접 답해 주세요"
+            if outsider else "확인해 주세요")
+    excerpt = " ".join((body or "").split())[:300]
+    return {
+        "content": f"{head}\n{line} — {who}",
+        "embeds": [{
+            "title": title[:250],
+            "url": url,
+            "color": COLOR_REVIEW,
+            "fields": [
+                {"name": "남긴 사람", "value": commenter, "inline": True},
+                {"name": "내용", "value": excerpt or "(본문 없음)", "inline": False},
+            ],
+        }],
+    }
+
+
+def on_issue_comment(event: dict) -> dict | None:
+    """PR 에 달린 일반 코멘트. 이슈 코멘트는 제외한다."""
+    if event.get("action") != "created":
+        return None
+    issue = event.get("issue") or {}
+    if "pull_request" not in issue:
+        return None  # 진짜 이슈. PR 이 아니다
+    c = event.get("comment") or {}
+    commenter = (c.get("user") or {}).get("login")
+    author = (issue.get("user") or {}).get("login")
+    if commenter == author:
+        return None  # 작성자가 자기 PR 에 쓴 말
+    outsider = is_outsider(commenter)
+    if not outsider and not author:
+        return None
+    return comment_payload(f"#{issue['number']} {issue.get('title','')}",
+                           issue.get("html_url", ""), author, commenter,
+                           c.get("body", ""), outsider)
+
+
+def on_reply(event: dict, pr: dict) -> dict | None:
+    """코드 라인 코멘트의 **답글**. 멘토 되물음이 주로 여기로 온다.
+
+    새로 다는 인라인 코멘트는 리뷰 제출이 한 번에 알리므로 여기서는 보지 않는다.
+    그렇게 하지 않으면 리뷰 한 번에 열 번이 울린다.
+    """
+    if event.get("action") != "created":
+        return None
+    c = event.get("comment") or {}
+    if not c.get("in_reply_to_id"):
+        return None
+    commenter = (c.get("user") or {}).get("login")
+    author = pr["user"]["login"]
+    if commenter == author:
+        return None
+    return comment_payload(f"#{pr['number']} {pr['title']}", c.get("html_url", ""),
+                           author, commenter, c.get("body", ""), is_outsider(commenter))
 
 
 def post(webhook: str, payload: dict) -> None:

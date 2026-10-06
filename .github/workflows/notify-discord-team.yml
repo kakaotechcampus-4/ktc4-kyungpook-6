@@ -29,6 +29,14 @@ on:
   pull_request_review:
     # 리뷰가 달렸는데 작성자가 모르는 일을 막는다 (승인 / 변경 요청 / 코멘트)
     types: [submitted]
+  issue_comment:
+    # PR 에 달린 일반 코멘트. 멘토 리뷰는 시각이 정해져 있지 않아서, cron 으로
+    # "왔나?" 를 보지 않고 **코멘트가 달리는 순간** 알린다.
+    types: [created]
+  pull_request_review_comment:
+    # 코드 라인 코멘트. 스크립트가 **답글(되물음)만** 걸러낸다 — 새 인라인 코멘트는
+    # 리뷰 제출이 한 번에 알리므로, 여기까지 다 알리면 리뷰 한 번에 열 번 울린다.
+    types: [created]
 
 permissions:
   contents: read
@@ -38,9 +46,13 @@ jobs:
     runs-on: ubuntu-latest
     # 초안은 알리지 않는다. 닫힌 경우는 머지된 것만 알린다(그냥 닫은 PR 은 소음).
     # 세부 분기는 스크립트가 하고, 여기서는 확실히 보낼 일 없는 것만 미리 쳐낸다.
+    # 초안은 알리지 않는다. 닫힌 경우는 머지된 것만 알린다(그냥 닫은 PR 은 소음).
+    # issue_comment 에는 pull_request 필드가 없어서 draft 비교가 null 이 된다.
+    # 그 이벤트는 여기서 거르지 않고 스크립트가 "PR 인가"부터 판단한다.
     if: >-
-      github.event.pull_request.draft == false &&
-      (github.event.action != 'closed' || github.event.pull_request.merged == true)
+      github.event_name == 'issue_comment' ||
+      (github.event.pull_request.draft == false &&
+       (github.event.action != 'closed' || github.event.pull_request.merged == true))
     steps:
       - uses: actions/checkout@v4
         with:
