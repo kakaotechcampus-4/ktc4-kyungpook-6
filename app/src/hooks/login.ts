@@ -3,6 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import { login } from "../services/auth";
+import type { LoginRequest } from "../services/auth";
+import { saveAuthToken } from "../services/authToken";
 
 /*
   로그인 뒤·회원가입·계정 찾기를 누른 뒤 넘어갈 화면.
@@ -65,9 +67,13 @@ export const useOwnerLogin = (): UseOwnerLoginResult => {
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
-  // TODO: 받은 토큰을 어디에 저장할지(@capacitor/preferences 등) 정해지면 onSuccess 에서 저장한다.
+  // 토큰 저장까지 끝나야 성공으로 본다. 저장 전에 화면이 넘어가면 다음 요청에 토큰이 안 붙는다.
   const loginMutation = useMutation({
-    mutationFn: login,
+    mutationFn: async (payload: LoginRequest) => {
+      const response = await login(payload);
+      await saveAuthToken(response);
+      return response;
+    },
     onSuccess: () => navigate(AFTER_LOGIN_PATH, { replace: true }),
   });
 
