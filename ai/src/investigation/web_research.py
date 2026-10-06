@@ -351,12 +351,17 @@ class VertexResearchProvider:
         )
 
     def research(self, target: InvestigationTarget) -> ResearchResult:
+        return self.research_with_prompt(build_research_prompt(target))
+
+    def research_with_prompt(self, prompt: str) -> ResearchResult:
+        """프롬프트를 바꿔 같은 방식(그라운딩 검색 → 줄 파싱 → 출처 잇기)으로 관측을 모은다.
+        에이전트의 목적을 좁힌 웹검색(`agent.py`)이 쓴다."""
         from google.genai import types
 
         try:
             response = self._client.models.generate_content(
                 model=self._model,
-                contents=build_research_prompt(target),
+                contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[{"google_search": {}}],
                     http_options=types.HttpOptions(timeout=int(LLM_TIMEOUT_SECONDS * 1000)),
