@@ -249,3 +249,50 @@ def test_목업_조사기로_연동_흐름이_끝까지_통과한다(client, mon
     assert body["requested"] == 1
     assert len(body["results"]) == 1
     assert body["results"][0]["storeId"] == 1
+
+
+class Test수신_인증:
+    """조사를 시작할 수 있는 건 백엔드뿐이다.
+
+    `/investigations` 는 Vertex·카카오 쿼터를 쓰는 호출이라, 아무나 부를 수 있으면
+    돈과 한도가 샌다. 문서에 "남은 구멍"으로 적혀 있던 것이다.
+    """
+
+    def test_키가_없으면_검사하지_않는다(self, client, monkeypatch):
+        # 로컬에서 띄워 보는 길을 막지 않는다. compose 에서 포트를 안 열어 두어
+        # 같은 도커 네트워크 안에서만 닿는다.
+        monkeypatch.delenv("INTERNAL_API_KEY", raising=False)
+        monkeypatch.setenv("INVESTIGATOR", "mock")
+
+        assert client.post("/investigations", json=[TARGET]).status_code == 200
+
+    def test_키가_있는데_헤더가_없으면_401(self, client, monkeypatch):
+        monkeypatch.setenv("INTERNAL_API_KEY", "sekret")
+        monkeypatch.setenv("INVESTIGATOR", "mock")
+
+        response = client.post("/investigations", json=[TARGET])
+
+        assert response.status_code == 401
+        assert "X-API-KEY" in response.json()["detail"]
+
+    def test_키가_틀리면_401(self, client, monkeypatch):
+        monkeypatch.setenv("INTERNAL_API_KEY", "sekret")
+        monkeypatch.setenv("INVESTIGATOR", "mock")
+
+        response = client.post("/investigations", json=[TARGET], headers={"X-API-KEY": "nope"})
+
+        assert response.status_code == 401
+
+    def test_키가_맞으면_통과한다(self, client, monkeypatch):
+        monkeypatch.setenv("INTERNAL_API_KEY", "sekret")
+        monkeypatch.setenv("INVESTIGATOR", "mock")
+
+        response = client.post("/investigations", json=[TARGET], headers={"X-API-KEY": "sekret"})
+
+        assert response.status_code == 200
+
+    def test_health_는_키가_없어도_열려_있다(self, client, monkeypatch):
+        # 컨테이너 프로브가 키를 들고 있을 이유가 없다.
+        monkeypatch.setenv("INTERNAL_API_KEY", "sekret")
+
+        assert client.get("/health").status_code == 200

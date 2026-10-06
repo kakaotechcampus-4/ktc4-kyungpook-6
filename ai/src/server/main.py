@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from functools import lru_cache
 
 import logging
@@ -19,7 +20,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Response, status
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response, status
 
 from src.backend_client import (
     MAX_LIMIT,
@@ -122,9 +123,63 @@ def get_investigator() -> Investigator:
         return UnavailableInvestigator()
 
 
+#: 백엔드와 **같은 값**을 쓴다. 백엔드는 이 키로 AI 를 알아보고(`ApiKeyAuthenticationFilter`),
+#: AI 는 이 키로 백엔드를 알아본다. 키를 두 개 두면 어느 쪽이 틀렸는지 찾기 어렵다.
+API_KEY_ENV = "INTERNAL_API_KEY"
+API_KEY_HEADER = "X-API-KEY"
+
+
+def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
+    """조사를 시작할 수 있는 건 백엔드뿐이다.
+
+    **키가 설정돼 있지 않으면 검사하지 않는다.** 로컬에서 띄워 보는 길을 막지 않기
+    위해서다 — compose 에서 AI 는 포트를 바깥으로 열지 않아, 키가 없어도 같은 도커
+    네트워크 안에서만 닿는다.
+
+    키가 있는데 틀리면 401 이다. 조사는 Vertex·카카오 쿼터를 쓰는 호출이라, 아무나
+    부를 수 있으면 돈과 한도가 샌다.
+    """
+    expected = os.environ.get(API_KEY_ENV, "").strip()
+    if not expected:
+        return
+    # 글자 수가 달라도 시간 차가 안 나게 비교한다.
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"{API_KEY_HEADER} 가 없거나 맞지 않습니다.",
+        )
+
+
 def investigator_mode() -> str:
     """지금 어떤 조사기가 꽂혀 있는가. `/health` 가 쓴다."""
     return type(get_investigator()).__name__
+
+
+#: 백엔드와 **같은 값**을 쓴다. 백엔드는 이 키로 AI 를 알아보고(`ApiKeyAuthenticationFilter`),
+#: AI 는 이 키로 백엔드를 알아본다. 키를 두 개 두면 어느 쪽이 틀렸는지 찾기 어렵다.
+API_KEY_ENV = "INTERNAL_API_KEY"
+API_KEY_HEADER = "X-API-KEY"
+
+
+def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
+    """조사를 시작할 수 있는 건 백엔드뿐이다.
+
+    **키가 설정돼 있지 않으면 검사하지 않는다.** 로컬에서 띄워 보는 길을 막지 않기
+    위해서다 — compose 에서 AI 는 포트를 바깥으로 열지 않아, 키가 없어도 같은 도커
+    네트워크 안에서만 닿는다.
+
+    키가 있는데 틀리면 401 이다. 조사는 Vertex·카카오 쿼터를 쓰는 호출이라, 아무나
+    부를 수 있으면 돈과 한도가 샌다.
+    """
+    expected = os.environ.get(API_KEY_ENV, "").strip()
+    if not expected:
+        return
+    # 글자 수가 달라도 시간 차가 안 나게 비교한다.
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"{API_KEY_HEADER} 가 없거나 맞지 않습니다.",
+        )
 
 
 def investigator_mode() -> str:
@@ -166,6 +221,7 @@ def backend_health(
 def investigate(
     targets: list[InvestigationTarget] = Body(..., min_length=1, max_length=MAX_TARGETS),
     investigator: Investigator = Depends(get_investigator),
+    _: None = Depends(require_api_key),
 ) -> InvestigationResponse:
     """가게 목록을 받아 조사한다 — 백엔드가 AI를 부르는 자리.
 
