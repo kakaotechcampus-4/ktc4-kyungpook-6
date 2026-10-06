@@ -6,6 +6,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.Collection;
+import java.util.List;
 
 public interface StoreRepository extends JpaRepository<Store, Long> {
 
@@ -26,7 +30,24 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
     Page<StoreWithNtsCheck> findAllWithNtsCheck(Pageable pageable);
 
     /**
-     * 우리 DB 상태와 국세청 상태가 서로 다른 가게만 읽는다 — AI 조사 대상이다.
+     * 고른 가게들과 그 국세청 확인 기록을 함께 읽는다 — 조사 대상을 나눌 때 쓴다.
+     *
+     * <p>아직 확인되지 않은 가게도 빠지지 않도록 바깥 조인으로 읽는다. 없는 가게 번호는 결과에 없다.
+     *
+     * @param storeIds 읽을 가게 번호. 비어 있으면 안 된다
+     * @return storeId 오름차순의 가게별 확인 기록. 기록이 없으면 {@code check} 가 null
+     */
+    @Query("""
+            select new com.ktc4.backend.domain.store.dto.StoreWithNtsCheck(s, c)
+            from Store s
+            left join StoreNtsCheck c on c.store = s
+            where s.storeId in :storeIds
+            order by s.storeId asc
+            """)
+    List<StoreWithNtsCheck> findWithNtsCheckByStoreIdIn(@Param("storeIds") Collection<Long> storeIds);
+
+    /**
+     * 우리 DB 상태와 국세청 상태가 서로 다른 가게만 읽는다 — 1차 조사(국세청 대조)로 수정안이 나오는 대상이다.
      *
      * <p>거르는 규칙은 {@code StatusComparison.isMismatch()} 와 같아야 한다. 국세청 미등록은
      * 상태가 다른 게 아니라 번호가 틀린 것이라 제외하고({@code findDataProblem} 이 맡는다),
