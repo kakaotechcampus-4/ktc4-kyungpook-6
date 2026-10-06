@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import SplashPage from "./pages/SplashPage";
+import RoleSelectPage from "./pages/RoleSelectPage";
 
 function HomePage() {
   return (
@@ -18,6 +19,7 @@ function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/splash" element={<SplashPage />} />
+        <Route path="/role-select" element={<RoleSelectPage />} />
       </Routes>
     </BrowserRouter>
   );
