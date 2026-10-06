@@ -101,5 +101,9 @@ console.log(
     `\n✅ 끝났습니다. ${guildId ? `길드 ${guildId}` : "전역"} 에 ${registered.length}개 등록: ` +
         registered.map((c) => `/${c.name}`).join(" "),
 );
-if (!guildId) console.log("   전역 등록은 Discord 반영에 최대 1시간 걸립니다.");
-console.log("   남은 것: 운영진에게 봇 서버 추가 요청");
+console.log(
+    guildId
+        ? "   길드 등록은 즉시 반영됩니다. 전역 등록이 따로 있으면 명령어가 두 번 보이니\n" +
+          "   확인 뒤 `npm run clear:guild` 로 정리하세요."
+        : "   전역 등록은 Discord 반영에 최대 1시간 걸립니다. 바로 보려면 디스코드를 새로고침하세요.",
+);
