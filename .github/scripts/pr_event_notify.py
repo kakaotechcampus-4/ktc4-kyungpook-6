@@ -14,13 +14,16 @@
 embed 를 쓰지 않는다. embed 안의 멘션은 울리지 않고, 여러 건이 쌓이면 멘션과 PR 이
 따로 놀아서 누가 뭘 해야 하는지 안 보인다. remind_discord.py 와 모양을 맞춘다.
 
-**멘토 리뷰는 시각이 정해져 있지 않다.** 언제 올지 모르고 재촉할 일도 아니라서,
-cron 으로 "왔나?" 를 보지 않고 **멘토가 코멘트를 남기는 순간** 알린다.
-8주차에 멘토 되물음을 다음 주까지 못 보고 넘긴 적이 있다.
+🔇 **멘토·운영진이 남긴 것은 이 채널로 알리지 않는다.** 운영진 워크플로
+(`notify-discord.yml`)가 `#pr-alert-경북대` 로 이미 보내고 있어서, 여기까지 울리면
+같은 일이 두 번 울린다. 팀원이 아닌 사람(`DISCORD_MEMBERS` 매핑에 없는 사람)이
+남긴 리뷰·코멘트는 전부 건너뛴다. main PR 리뷰도 마찬가지다 —
+`pull_request_review` 는 GitHub 이 branches 필터를 지원하지 않아 여기로 들어오지만,
+그건 주간 멘토 리뷰 PR 이라 걸러 낸다.
 
 코드 한 줄짜리 인라인 코멘트까지 전부 알리면 리뷰 한 번에 열 번이 울린다.
 새로 달리는 인라인 코멘트는 리뷰 제출(`pull_request_review`)이 한 번에 묶어 알리므로,
-`pull_request_review_comment` 는 **답글(되물음)만** 본다.
+`pull_request_review_comment` 는 **답글만** 본다.
 
 로컬 확인:
     GITHUB_EVENT_PATH=event.json GITHUB_EVENT_NAME=pull_request \
@@ -154,15 +157,16 @@ def on_review(event: dict, pr: dict) -> dict | None:
         return None  # 자기 PR 에 자기가 단 코멘트는 알리지 않는다
     state = (review.get("state") or "").upper()
 
-    # pull_request_review 는 GitHub 이 branches 필터를 지원하지 않아 main PR 리뷰도 들어온다.
-    # 주간 멘토 리뷰 PR 이 그것이다. 되물음을 놓쳐 다음 주까지 답을 못 한 적이 있어,
-    # 멘토 리뷰는 작성자 한 사람이 아니라 테크리더까지 같이 부른다.
+    # 🔇 **멘토 쪽은 이 채널로 알리지 않는다.** 운영진 워크플로(notify-discord.yml)가
+    #    `#pr-alert-경북대` 로 이미 보내고 있어서, 여기까지 울리면 같은 일이 두 번 울린다.
+    #
+    #    pull_request_review 는 GitHub 이 branches 필터를 지원하지 않아 main PR 리뷰도 들어온다.
+    #    주간 멘토 리뷰 PR 이 그것이라 여기서 걸러 낸다.
     if pr["base"]["ref"] == "main":
-        who = dm.mentions([author] + dm._table().get("tech_leads", []))
-        action = ("멘토가 승인했습니다. 마감 전에 머지해 주세요" if state == "APPROVED"
-                  else "되물음이 있으면 추측하지 말고 해당 파트가 직접 답해 주세요")
-        return say(f"🧑‍🏫 멘토 리뷰가 달렸습니다 ({dm.name_of(reviewer)})",
-                   subject_of(pr), f"{action} — {who}", pr["html_url"])
+        return None
+    # 팀원이 아닌 사람(매핑에 없는 사람)이 develop PR 에 남긴 리뷰도 같은 이유로 조용히 둔다.
+    if is_outsider(reviewer):
+        return None
 
     headline, action = {
         "APPROVED": ("🟢 승인됐습니다", "머지하셔도 됩니다"),
@@ -176,19 +180,12 @@ def on_review(event: dict, pr: dict) -> dict | None:
 
 
 def comment_message(number: int, title: str, url: str, author: str | None,
-                    commenter: str, body: str, outsider: bool) -> dict:
-    """코멘트 알림 하나. 멘토면 테크리더까지 같이 부른다."""
-    if outsider:
-        who = dm.mentions([author] + dm._table().get("tech_leads", []))
-        headline = f"🧑‍🏫 멘토 코멘트가 달렸습니다 ({commenter})"
-        action = "추측해서 대신 답하지 말고 해당 파트가 직접 답해 주세요"
-    else:
-        who = dm.mention(author)
-        headline = f"💬 코멘트가 달렸습니다 ({dm.name_of(commenter)})"
-        action = "확인해 주세요"
+                    commenter: str, body: str) -> dict:
+    """팀원이 남긴 코멘트 알림. 멘토·운영진 것은 여기까지 오지 않는다(위에서 걸러진다)."""
     excerpt = " ".join((body or "").split())[:200]
     subject = f"**#{number} {title}**" + (f"\n> {excerpt}" if excerpt else "")
-    return say(headline, subject, f"{action} — {who}", url)
+    return say(f"💬 코멘트가 달렸습니다 ({dm.name_of(commenter)})", subject,
+               f"확인해 주세요 — {dm.mention(author)}", url)
 
 
 def on_issue_comment(event: dict) -> dict | None:
@@ -203,12 +200,11 @@ def on_issue_comment(event: dict) -> dict | None:
     author = (issue.get("user") or {}).get("login")
     if commenter == author:
         return None  # 작성자가 자기 PR 에 쓴 말
-    outsider = is_outsider(commenter)
-    if not outsider and not author:
+    # 🔇 멘토·운영진 코멘트는 알리지 않는다 — 운영진 채널이 담당한다.
+    if is_outsider(commenter) or not author:
         return None
     return comment_message(issue["number"], issue.get("title", ""),
-                           c.get("html_url", ""), author, commenter,
-                           c.get("body", ""), outsider)
+                           c.get("html_url", ""), author, commenter, c.get("body", ""))
 
 
 def on_reply(event: dict, pr: dict) -> dict | None:
@@ -226,8 +222,10 @@ def on_reply(event: dict, pr: dict) -> dict | None:
     author = pr["user"]["login"]
     if commenter == author:
         return None
+    if is_outsider(commenter):
+        return None  # 🔇 멘토 되물음도 운영진 채널이 담당한다
     return comment_message(pr["number"], pr["title"], c.get("html_url", ""),
-                           author, commenter, c.get("body", ""), is_outsider(commenter))
+                           author, commenter, c.get("body", ""))
 
 
 def post(webhook: str, payload: dict) -> None:
