@@ -132,7 +132,7 @@ class Observation:
     field: ChangeField
     value: str
     evidence: str
-    observed_at: str = ""  # YYYY-MM-DD. 모르면 빈 문자열
+    observed_at: str = ""  # YYYY-MM-DD · YYYY-MM · YYYY(`normalize_date`). 모르면 빈 문자열
     #: 이 근거 문장을 뒷받침하는 검색 결과. 비어 있으면 출처를 확인하지 못한 관측이다.
     sources: tuple[Source, ...] = ()
 
@@ -144,6 +144,9 @@ class Observation:
 @dataclass(frozen=True)
 class ResearchResult:
     observations: list[Observation] = field(default_factory=list)
+    #: 모델이 실제로 쓴 검색어(`web_search_queries`). 판정에는 쓰지 않고, 검색이 흔들린 것인지
+    #: 추출이 흔들린 것인지 가리는 데 쓴다(`2차_조사_불확실성_처리.md` 단계 0).
+    queries: tuple[str, ...] = ()
 
 
 class ResearchParseError(Exception):
@@ -178,6 +181,27 @@ def _squash_nothing(value: str) -> bool:
     return value.strip(" .-()") in ("", NOTHING_FOUND, "정보 없음", "정보없음", "모름", "N/A")
 
 
+#: 근거의 게시일. "2025-07-22", "2025.7.22", "2025년 7월", "2025" 를 받는다.
+_DATE = re.compile(r"(?<!\d)(20\d{2})(?:\s*[-./년]\s*(\d{1,2}))?(?:\s*[-./월]\s*(\d{1,2}))?")
+
+
+def normalize_date(text: str) -> str:
+    """모델이 적은 날짜를 "YYYY-MM-DD" · "YYYY-MM" · "YYYY" 로 고친다. 날짜가 아니면 빈 문자열.
+
+    모델은 날짜 칸에 "맛집검색" 같은 엉뚱한 말을 적기도 한다(실측) — 그대로 두면 날짜 비교에서
+    어떤 날짜보다도 "나중"으로 정렬된다.
+    """
+    match = _DATE.search(text)
+    if not match:
+        return ""
+    parts = [match[1]]
+    for piece, limit in ((match[2], 12), (match[3], 31)):
+        if piece is None or not 1 <= int(piece) <= limit:
+            break
+        parts.append(f"{int(piece):02}")
+    return "-".join(parts)
+
+
 def _parse_line(line: str) -> Observation | None:
     """한 줄을 관측으로 읽는다. 약속을 어긴 줄(모르는 항목, 빈 근거, 엉뚱한 상태 값)은 None."""
     parts = [part.strip() for part in _LIST_MARKER.sub("", line).split("|")]
@@ -198,7 +222,7 @@ def _parse_line(line: str) -> Observation | None:
         field=change_field,
         value=value,
         evidence=evidence,
-        observed_at=parts[3] if len(parts) > 3 else "",
+        observed_at=normalize_date(parts[3]) if len(parts) > 3 else "",
     )
 
 
@@ -249,6 +273,13 @@ def _says_nothing_found(line: str) -> bool:
         return True
     parts = [part.strip() for part in _LIST_MARKER.sub("", line).split("|")]
     return len(parts) >= 2 and parts[0].lower() in _FIELDS and parts[1] == NOTHING_FOUND
+
+
+def search_queries_of(response: object) -> tuple[str, ...]:
+    """SDK 응답에서 모델이 쓴 검색어를 꺼낸다. 없으면 빈 튜플."""
+    candidates = getattr(response, "candidates", None) or []
+    metadata = getattr(candidates[0], "grounding_metadata", None) if candidates else None
+    return tuple(getattr(metadata, "web_search_queries", None) or ())
 
 
 def grounding_of(response: object) -> tuple[list[Source], list[Support]]:
@@ -334,7 +365,7 @@ class VertexResearchProvider:
         observations = parse_observations(response.text or "", chunks, supports)
         if observations and not chunks:
             raise ResearchUngrounded(f"관측 {len(observations)}건에 그라운딩 검색 결과가 없습니다")
-        return ResearchResult(observations=self._with_real_urls(observations))
+        return ResearchResult(observations=self._with_real_urls(observations), queries=search_queries_of(response))
 
     def _with_real_urls(self, observations: list[Observation]) -> list[Observation]:
         """출처로 쓰인 리다이렉트 주소만 원래 URL 로 바꾼다. 같은 주소는 한 번만 푼다."""

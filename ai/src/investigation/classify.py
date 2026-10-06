@@ -4,7 +4,7 @@
 
     항목별로:
       관측 없음 / 전부 DB 값과 같음 → 판단 없음
-      DB 와 다른 값이 있음           → 변화 — 그 값을 수정안에 담는다(여럿이면 출처가 가장 많은 값)
+      DB 와 다른 값이 있음           → 변화 — 그 값을 수정안에 담는다(여럿이면 출처가 가장 많은 값, 같으면 최근 글)
 
     가게 전체:
       수정안이 있음 → 우선확인
@@ -12,9 +12,9 @@
 
 **Signal 은 잡힌 변화 하나다.** 백엔드 `Signal` 이 "이상 징후 하나 + 근거 문장·URL 한 쌍" 구조라,
 DB 와 다른 값이 잡힌 항목마다 한 행을 만든다. 근거는 그 값을 가리킨 관측 중 대표 하나이고, 그 값을
-가리킨 **서로 다른 출처(도메인) 수**를 `sourceCount` 로 함께 담는다(백엔드에는 `confidence` 칸에 넣는
-것으로 제안 — 모델 확신도가 아니다). 출처끼리 엇갈리면 근거 문장 끝에 표시한다. DB 값을 확인한 근거·
-비교할 수 없는 근거는 이상 징후가 아니라 Signal 로 만들지 않는다 — 변화가 없으면 Signal 은 0행이다.
+가리킨 **서로 다른 출처(도메인) 수**를 근거 문구 끝에 "(출처 N곳)" 으로 적는다. 출처끼리 엇갈리면 그것도
+문구 끝에 표시한다. DB 값을 확인한 근거·비교할 수 없는 근거는 이상 징후가 아니라 Signal 로 만들지 않는다 —
+변화가 없으면 Signal 은 0행이다.
 
 **신호에 등급을 두지 않는다.** 가게 정보는 어차피 담당자가 승인해야 바뀌므로, 근거가 약하다고
 AI 가 걸러 낼 이유가 없다. 변화 Signal 은 전부 `SIGNAL_HIGH` 이고 `SIGNAL_LOW`·`SIGNAL_NONE` 은
@@ -27,10 +27,9 @@ AI 가 걸러 낼 이유가 없다. 변화 Signal 은 전부 `SIGNAL_HIGH` 이�
 그라운딩 검색 결과에 이어지지 않은 관측(`Observation.sources` 가 빈 것)은 **세지도
 보여주지도 않는다** — 출처를 댈 수 없는 근거는 사람이 검증할 수 없다.
 
-**카카오맵 확인(`kakao_map.py`)은 분류를 바꾸지 않고 Signal 도 만들지 않는다.** 결과는 `StoreFinding.mapCheck`
-로 따로 나가고(찾았으면 장소 링크), 찾았을 때 폐업·주소·상호 변화 Signal 에는 "지도에는 원래대로 등록되어
-있음"을 달아 담당자가 다른 가게 정보인지 가리게 한다. 못 찾은 것은 폐업 근거가 아니다(영업 가게의 43% 도
-못 찾는다).
+**카카오맵 확인(`kakao_map.py`, 근처에 같은 상호가 있는지)은 분류를 바꾸지 않고 Signal 도 만들지 않는다.**
+찾았을 때 폐업·주소·상호 변화 Signal 에 "지도에는 원래대로 등록되어 있음"을 달아 담당자가 다른 가게 정보인지
+가리게 한다. 못 찾은 것은 폐업 근거가 아니다(영업 가게의 43% 도 못 찾는다).
 """
 
 from __future__ import annotations
@@ -63,6 +62,9 @@ _FIELD_LABELS = {
 # 같은 주소로 본다. 도로명은 낱말 첫머리에서 시작하고(시·구가 앞에 붙지 않게), 번호 뒤에
 # "가"·"동" 같은 글자가 오면 동 이름("동성로3가")이라 도로명 주소가 아니다.
 _ROAD_ADDRESS = re.compile(r"(?:^|\s)([가-힣A-Za-z0-9]+(?:로|길))\s*(\d+(?:-\d+)?)(?![가-힣\d])")
+# 지번 주소의 "동·리 + 번지" 또는 "N가 + 번지". "범어동 48-1", "수성동1가 819". 번지 뒤에 "층"·"호"가 오면
+# 번지가 아니다 — "수성구 범어동 3층" 은 검색 요약에서 잘린 주소다(네이버 검색 API 실험).
+_JIBUN_ADDRESS = re.compile(r"(?:[가-힣]+(?:동|리)|\d+가)\s*(?:산\s*)?\d+(?:-\d+)?(?![\d층호])")
 # "대종로 480번길" 처럼 도로명을 띄어 쓴 것을 붙인다.
 _SPLIT_ROAD = re.compile(r"(로|길)\s+(\d+번?길)")
 # 상호명의 괄호 병기 — "성심당(聖心堂)", "이재모피자 (본점)", "[본점]".
@@ -101,9 +103,12 @@ def _comparable(change_field: ChangeField, current: str | None, observed: str) -
     DB 가 도로명 주소인데 웹에서 지번 주소를 봤으면 같은 곳인지 가릴 수 없다 — 다르다고
     세면 멀쩡한 가게가 "주소 엇갈림"이 된다(실측: 삼송빵집 "동성로3가 1-3").
     """
-    if change_field is ChangeField.ADDRESS and current and road_address_key(current):
+    if change_field is not ChangeField.ADDRESS:
+        return True
+    if current and road_address_key(current):
         return road_address_key(observed) is not None
-    return True
+    # DB 가 지번이거나 비었으면 지번 주소도 받되, 번지까지 있는 주소만 — 잘린 주소를 수정안에 올리지 않는다.
+    return road_address_key(observed) is not None or _JIBUN_ADDRESS.search(observed) is not None
 
 
 # 전화번호 하나 — (국가번호 또는 0)지역번호-국번-번호. 앞뒤에 숫자가 붙어 있으면 번호가 아니다.
@@ -195,8 +200,10 @@ def _judge_field(
 ) -> Signal | None:
     """항목 하나를 판정한다. DB 와 다른 값(변화)이 있으면 그 변화 하나를 Signal 로, 없으면 None.
 
-    값이 여럿이면 서로 다른 출처(도메인)가 가장 많은 값을 제안한다. 근거는 그 값을 가리킨 관측 중
-    대표 하나이고, 그 값을 가리킨 출처 수를 `sourceCount` 로 담는다.
+    값이 여럿이면 서로 다른 출처(도메인)가 가장 많은 값을, 출처 수가 같으면 **가장 최근 글**의 값을
+    제안한다. 블로그처럼 출처가 늘 한 도메인이면 출처 수가 갈라 주지 못해 아무 값이나 골랐다(네이버
+    실험: 돈뼈락 2019 번호 vs 2020 번호). 근거는 그 값을 가리킨 관측 중 대표 하나이고, 그 값을 가리킨
+    출처 수를 `sourceCount` 로 담는다.
     """
     current = _current_value(target, change_field)
     current_key = comparison_key(change_field, current) if current else None
@@ -206,18 +213,33 @@ def _judge_field(
         if _comparable(change_field, current, o.value):
             groups.setdefault(comparison_key(change_field, o.value), []).append(o)
 
+    def domains(group: list[Observation]) -> set[str]:
+        return {d for o in group for d in o.domains}
+
+    def newest(group: list[Observation]) -> str:
+        return max((o.observed_at for o in group), default="")
+
+    # DB 값이 맞다는 가장 최근 근거. 그보다 확실히 오래된 다른 값은 낡은 정보다 — 예전 번호·옛 표기·오타가
+    # 최신 확인을 이기지 않게 한다(네이버 실험: 감나무집 2026-09 글은 DB 상호, 2026-07 글의 오타가 상호 변경으로 올라옴).
+    confirmed_on = max(
+        (newest(g) for k, g in groups.items() if _same_as_current(change_field, current_key, k)), default=""
+    )
+
+    def superseded(group: list[Observation]) -> bool:
+        # 연·월만 아는 날짜는 그 기간의 끝으로 본다 — "2026" 글은 2026-03-01 확인보다 나중일 수 있다.
+        return bool(confirmed_on) and all(o.observed_at and _period_end(o.observed_at) < confirmed_on for o in group)
+
     differing = {
         k: v
         for k, v in groups.items()
-        if not _same_as_current(change_field, current_key, k) and _is_change(change_field, current, k)
+        if not _same_as_current(change_field, current_key, k)
+        and _is_change(change_field, current, k)
+        and not superseded(v)
     }
     if not differing:
         return None
 
-    def domains(group: list[Observation]) -> set[str]:
-        return {d for o in group for d in o.domains}
-
-    best = max(differing.values(), key=lambda g: len(domains(g)))
+    best = max(differing.values(), key=lambda g: (len(domains(g)), newest(g)))
     # 다른 값을 가리키는 출처가 있거나, 지금 값이 맞다는 출처(상태를 모를 때의 OPEN 포함)가 있으면 엇갈린 것이다.
     conflicted = len(groups) > 1
 
@@ -267,11 +289,28 @@ def _contradicts_map(target: InvestigationTarget, change_field: ChangeField, obs
     return change_field is ChangeField.NAME
 
 
+def _period_end(observed_at: str) -> str:
+    """"2025" → "2025-12-31", "2025-07" → "2025-07-31". 연·월만 아는 날짜는 그 기간의 끝으로 본다 —
+    확인일보다 이전인지 확실할 때만 빼려는 것이다."""
+    return observed_at + {4: "-12-31", 7: "-31"}.get(len(observed_at), "")
+
+
+def _after_check(observations: list[Observation], checked_on: str, store_id: int) -> list[Observation]:
+    """담당자 확인일보다 확실히 이전에 쓰인 근거를 뺀다. 날짜를 모르는 근거는 남긴다 — 그라운딩 근거의
+    2/3 가 날짜가 없어(간이 DB 실측), 빼면 근거 대부분을 버린다."""
+    kept = [o for o in observations if not o.observed_at or _period_end(o.observed_at) >= checked_on]
+    if len(kept) < len(observations):
+        logger.info("확인일(%s) 이전 근거 %s건을 뺐습니다 (storeId=%s)", checked_on, len(observations) - len(kept), store_id)
+    return kept
+
+
 def classify(
     target: InvestigationTarget, result: ResearchResult, place: PlaceCheck | None = None
 ) -> StoreFinding:
     """관측 결과를 `StoreFinding` 으로 만든다. 수정안은 제안일 뿐 반영하지 않는다."""
     grounded = [o for o in result.observations if o.sources]
+    if target.last_checked_at is not None:
+        grounded = _after_check(grounded, target.last_checked_at.date().isoformat(), target.store_id)
     if len(grounded) < len(result.observations):
         logger.info(
             "출처가 이어지지 않아 뺀 관측 %s건 (storeId=%s)",
