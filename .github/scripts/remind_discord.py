@@ -209,7 +209,9 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "pr": pr,
                     "detail": (f"열린 지 {int(opened_hours)}시간 · 리뷰어 0명 · "
                                "같은 파트 팀원 1명 이상을 지정해 주세요"),
-                    "mention": dm.mention(pr["user"]["login"]) + " " + dm.tech_leads(),
+                    # 부를 사람은 PR 을 올린 본인이다. 리뷰어를 정하는 것도 본인 몫이라
+                    # 테크리더까지 부르면 매번 같은 세 명이 울려 알림이 무뎌진다.
+                    "mention": dm.mention(pr["user"]["login"]),
                 })
         elif not reviews:
             # 리뷰어는 있는데 아직 안 봤다. 두 번까지만 깨운다.
@@ -456,39 +458,40 @@ def unanswered(repo: str, token: str, number: int, team: set) -> int:
 
 
 def to_payload(findings: list[dict]) -> dict:
-    embeds = []
-    for f in findings[:10]:  # 디스코드 embed 상한
+    """PR 하나당 "무슨 일 · 누가 · 링크" 를 한 묶음으로 쓴다.
+
+    embed 를 쓰지 않는다. 여러 건이 한 메시지로 나갈 때 embed 는 멘션과 PR 이
+    따로 놀아서 "누가 뭘 해야 하는지"가 안 보인다. 멘션은 content 에 있어야
+    울리기도 한다.
+
+    링크는 `<...>` 로 감싼다. 그래야 디스코드가 미리보기 카드를 안 붙여서,
+    3건이 한 번에 와도 화면이 길어지지 않는다.
+    """
+    shown = findings[:10]
+    blocks = []
+    for f in shown:
         pr = f["pr"]
-        fields = [{"name": "상황", "value": f["detail"], "inline": False}]
+        lines = [f["headline"]]
         if pr:
-            fields.insert(0, {
-                "name": "작성자", "value": dm.name_of(pr["user"]["login"]), "inline": True,
-            })
-            fields.insert(1, {
-                "name": "브랜치", "value": pr["head"]["ref"], "inline": True,
-            })
-        embed = {
-            "title": (f"#{pr['number']} {pr['title']}" if pr
-                      else f.get("title", "main PR 없음")),
-            "color": f["color"],
-            "fields": fields,
-        }
-        if pr:  # url 을 null 로 보내면 디스코드가 400 을 낸다. 없으면 키째로 뺀다.
-            embed["url"] = pr["html_url"]
-        embeds.append(embed)
+            lines.append(f"**#{pr['number']} {pr['title']}** · {f['detail']}")
+        elif f.get("detail"):
+            lines.append(f["detail"])
+        tail = []
+        if f.get("mention"):
+            tail.append(f["mention"])
+        if pr:
+            tail.append(f"<{pr['html_url']}>")
+        if tail:
+            lines.append(" · ".join(tail))
+        blocks.append("\n".join(lines))
 
-    head = findings[0]["headline"] if len(findings) == 1 else f"확인이 필요한 PR {len(findings)}건"
+    body = "\n\n".join(blocks)
+    if len(shown) > 1:
+        body = f"확인이 필요한 PR {len(shown)}건\n\n" + body
+    if len(findings) > len(shown):
+        body += f"\n\n…외 {len(findings) - len(shown)}건"
 
-    # 멘션은 content 에 있어야 울린다. embed 안의 <@id> 는 알림이 가지 않는다.
-    seen, mention_parts = set(), []
-    for f in findings[:10]:
-        for token in (f.get("mention") or "").split():
-            if token not in seen:
-                seen.add(token)
-                mention_parts.append(token)
-    content = head + ("\n" + " ".join(mention_parts) if mention_parts else "")
-    return {"content": content, "embeds": embeds,
-            "allowed_mentions": {"parse": ["users"]}}
+    return {"content": body[:1900], "allowed_mentions": {"parse": ["users"]}}
 
 
 def post(webhook: str, payload: dict) -> None:
