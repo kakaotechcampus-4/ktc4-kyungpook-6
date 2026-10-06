@@ -135,6 +135,9 @@ class Observation:
     observed_at: str = ""  # YYYY-MM-DD · YYYY-MM · YYYY(`normalize_date`). 모르면 빈 문자열
     #: 이 근거 문장을 뒷받침하는 검색 결과. 비어 있으면 출처를 확인하지 못한 관측이다.
     sources: tuple[Source, ...] = ()
+    #: 값을 수정안·근거 문구에 담아도 되는가. 카카오 로컬 값은 저장할 수 없다(실시간 비교 후 폐기만 허용) —
+    #: 판정에는 쓰되, 수정안에는 값 대신 "지도 등록 정보와 다름 + 링크"만 남긴다.
+    storable: bool = True
 
     @property
     def domains(self) -> frozenset[str]:

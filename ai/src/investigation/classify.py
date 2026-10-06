@@ -14,7 +14,8 @@
 DB 와 다른 값이 잡힌 항목마다 한 행을 만든다. 근거는 그 값을 가리킨 관측 중 대표 하나이고, 그 값을
 가리킨 **서로 다른 출처(도메인) 수**를 근거 문구 끝에 "(출처 N곳)" 으로 적는다. 출처끼리 엇갈리면 그것도
 문구 끝에 표시한다. DB 값을 확인한 근거·비교할 수 없는 근거는 이상 징후가 아니라 Signal 로 만들지 않는다 —
-변화가 없으면 Signal 은 0행이다.
+변화가 없으면 Signal 은 0행이다. 저장할 수 없는 값(카카오, `Observation.storable`)만 가리키는 변화는 수정안에
+값을 담지 않고 Signal(근거·링크)만 남긴다.
 
 **신호에 등급을 두지 않는다.** 가게 정보는 어차피 담당자가 승인해야 바뀌므로, 근거가 약하다고
 AI 가 걸러 낼 이유가 없다. 변화 Signal 은 전부 `SIGNAL_HIGH` 이고 `SIGNAL_LOW`·`SIGNAL_NONE` 은
@@ -29,7 +30,8 @@ AI 가 걸러 낼 이유가 없다. 변화 Signal 은 전부 `SIGNAL_HIGH` 이�
 
 **카카오맵 확인(`kakao_map.py`, 근처에 같은 상호가 있는지)은 분류를 바꾸지 않고 Signal 도 만들지 않는다.**
 찾았을 때 폐업·주소·상호 변화 Signal 에 "지도에는 원래대로 등록되어 있음"을 달아 담당자가 다른 가게 정보인지
-가리게 한다. 못 찾은 것은 폐업 근거가 아니다(영업 가게의 43% 도 못 찾는다).
+가리게 한다. 못 찾은 것은 폐업 근거가 아니다(영업 가게의 43% 도 못 찾는다). 지도에 등록된 **값**을 관측으로
+쓰는 지도 대조(`map_lookup.py`)는 이와 별개로, 웹 관측과 똑같이 판정에 들어간다.
 """
 
 from __future__ import annotations
@@ -278,9 +280,14 @@ def _judge_field(
     # 다른 값을 가리키는 출처가 있거나, 지금 값이 맞다는 출처(상태를 모를 때의 OPEN 포함)가 있으면 엇갈린 것이다.
     conflicted = len(groups) > 1
 
-    shown = _representative(best)
+    storable = [o for o in best if o.storable]
+    shown = _representative(storable or best)
     # 백엔드 Signal 에는 출처 수 칸이 없어 문구에 적는다 — 담당자가 근거의 무게를 가늠하는 값이다.
-    text = f"{_FIELD_LABELS[change_field]}: {shown.evidence} (출처 {len(domains(best))}곳)"
+    if storable:
+        text = f"{_FIELD_LABELS[change_field]}: {shown.evidence} (출처 {len(domains(best))}곳)"
+    else:
+        # 저장할 수 없는 값(카카오)뿐이면 값을 담지 않는다 — 담당자가 링크를 열어 확인한다.
+        text = f"{_FIELD_LABELS[change_field]}: {shown.evidence} — DB 값과 다름, 링크에서 확인 (출처 {len(domains(best))}곳)"
     if conflicted:
         text += " (다른 값을 가리키는 출처도 있음)"
     if found_on_map and _contradicts_map(target, change_field, shown.value):
@@ -288,7 +295,7 @@ def _judge_field(
     return Signal(
         signal_type=SignalType.SIGNAL_HIGH,
         field=change_field,
-        observed=shown.value,
+        observed=shown.value if storable else None,
         evidence_text=text,
         evidence_url=shown.sources[0].url,
         source_count=len(domains(best)),
@@ -322,6 +329,43 @@ def _contradicts_map(target: InvestigationTarget, change_field: ChangeField, obs
     if change_field is ChangeField.ADDRESS:
         return bool(target.address and road_address_key(target.address))
     return change_field is ChangeField.NAME
+
+
+def relation_to_db(target: InvestigationTarget, change_field: ChangeField, value: str) -> str:
+    """관측값 하나가 DB 값과 어떤 관계인가 — "same" · "different" · "inconclusive" · "unknown"(비교 불가·DB 빈 값)."""
+    current = _current_value(target, change_field)
+    if not current or not _comparable(change_field, current, value):
+        return "unknown"
+    current_key, key = comparison_key(change_field, current), comparison_key(change_field, value)
+    if _inconclusive(change_field, current_key, key):
+        return "inconclusive"
+    return "same" if _same_as_current(change_field, current_key, key) else "different"
+
+
+def coverage(target: InvestigationTarget, observations: list[Observation]) -> str:
+    """이 관측으로 가게를 어디까지 확인했나 — "changed" · "confirmed" · "unresolved".
+
+    - changed: DB 와 다른 값(변화)이 잡혔다
+    - confirmed: 변화가 없고, DB 에 값이 있는 항목(상호·주소·전화) **전부**가 DB 값과 같다는 근거가 있고,
+      다른 값을 가리키는 근거가 없다 — 담당자가 건너뛰어도 되는 가게
+    - unresolved: 그 밖 — 더 조사하거나 담당자가 봐야 한다
+
+    지도 대조만으로 끝낼지(웹검색을 부를지) 정하는 데 쓴다.
+    """
+    if classify(target, ResearchResult(observations)).signals:
+        return "changed"
+    fields = (ChangeField.NAME, ChangeField.ADDRESS, ChangeField.PHONE)
+    confirmed, disagree = set(), False
+    for o in observations:
+        if not o.sources or o.field not in fields:
+            continue
+        relation = relation_to_db(target, o.field, o.value)
+        if relation == "same":
+            confirmed.add(o.field)
+        elif relation == "different":
+            disagree = True
+    needed = {f for f in fields if _current_value(target, f)}
+    return "confirmed" if confirmed and not disagree and needed <= confirmed else "unresolved"
 
 
 def _period_end(observed_at: str) -> str:
@@ -376,7 +420,8 @@ def classify(
     return StoreFinding(
         store_id=target.store_id,
         classification=TaskClassification.PRIORITY_CHECK if signals else TaskClassification.NO_CHANGE,
-        proposed_changes={s.field.value: s.observed for s in signals},
+        # 저장할 수 없는 값만 있는 변화는 Signal(근거·링크)만 있고 수정안에는 오르지 않는다.
+        proposed_changes={s.field.value: s.observed for s in signals if s.observed is not None},
         signals=signals,
         map_check=place,
     )
