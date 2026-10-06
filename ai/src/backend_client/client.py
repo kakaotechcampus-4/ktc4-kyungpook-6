@@ -32,6 +32,11 @@ DEFAULT_TIMEOUT_SECONDS = 10.0
 # 두 곳에 같은 숫자가 있으므로 `tests/backend_client/test_contract.py` 가 Java 원본과 대조한다.
 MAX_LIMIT = 100
 
+# 백엔드 `ApiKeyAuthenticationFilter.HEADER`. 이 헤더가 맞으면 `ROLE_AI_SERVER` 가 붙는다.
+# 지금은 배포 서버가 `AUTH_ENFORCE=false` 라 없어도 통하지만, 그 임시 스위치는 2026-10-14 에
+# 없어진다(`SecurityConfig` 클래스 주석). 그때 조용히 401 로 막히는 것을 미리 막는다.
+API_KEY_HEADER = "X-API-KEY"
+
 
 class BackendError(RuntimeError):
     """백엔드가 2xx로 답하지 않았거나 아예 닿지 않았을 때.
@@ -53,7 +58,11 @@ class BackendClient:
         *,
         client: httpx.Client | None = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        api_key: str | None = None,
     ) -> None:
+        # 키가 없으면 헤더를 아예 붙이지 않는다. 빈 문자열을 보내면 백엔드 필터가
+        # "키를 보냈는데 틀렸다"로 보고 401 을 내서, 키 미설정과 키 오류를 구분할 수 없다.
+        self._api_key = (api_key if api_key is not None else os.environ.get("INTERNAL_API_KEY", "")).strip()
         if client is not None:
             # 주입받은 client 가 주소·타임아웃을 이미 갖고 있다. base_url 을 따로 들고 있으면
             # 오류 메시지가 실제 호출 주소와 달라져 디버깅을 엉뚱한 곳으로 끈다.
@@ -62,7 +71,11 @@ class BackendClient:
             self._owns_client = False
         else:
             self._base_url = (base_url or os.environ.get("BACKEND_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-            self._client = httpx.Client(base_url=self._base_url, timeout=timeout)
+            self._client = httpx.Client(
+                base_url=self._base_url,
+                timeout=timeout,
+                headers={API_KEY_HEADER: self._api_key} if self._api_key else None,
+            )
             self._owns_client = True
 
     def close(self) -> None:

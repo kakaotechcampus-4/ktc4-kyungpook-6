@@ -117,3 +117,36 @@ def test_unreachable_backend_becomes_backend_error():
 
     with pytest.raises(BackendError, match="닿지 못했습니다"):
         client.get_stores()
+
+
+class Test백엔드_인증_헤더:
+    """`AUTH_ENFORCE=true` 가 되면 키 없이는 401 이다 — 그 전에 붙여 둔다.
+
+    백엔드 `ApiKeyAuthenticationFilter.HEADER` 가 `X-API-KEY` 이고, 맞으면
+    `ROLE_AI_SERVER` 가 붙어 `GET /api/stores/nts-checks` 를 읽을 수 있다.
+    """
+
+    def test_키가_있으면_헤더를_붙인다(self, monkeypatch):
+        monkeypatch.setenv("INTERNAL_API_KEY", "sekret")
+        client = BackendClient("http://backend:8080")
+        try:
+            assert client._client.headers["X-API-KEY"] == "sekret"
+        finally:
+            client.close()
+
+    def test_키가_없으면_헤더를_아예_안_붙인다(self, monkeypatch):
+        # 빈 값을 보내면 백엔드가 "틀린 키"로 보고 401 을 낸다 — 미설정과 구분이 안 된다.
+        monkeypatch.delenv("INTERNAL_API_KEY", raising=False)
+        client = BackendClient("http://backend:8080")
+        try:
+            assert "X-API-KEY" not in client._client.headers
+        finally:
+            client.close()
+
+    def test_공백만_있으면_없는_것으로_본다(self, monkeypatch):
+        monkeypatch.setenv("INTERNAL_API_KEY", "   ")
+        client = BackendClient("http://backend:8080")
+        try:
+            assert "X-API-KEY" not in client._client.headers
+        finally:
+            client.close()

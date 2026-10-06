@@ -1,0 +1,13 @@
+# 이미지에 들어가면 안 되는 것 — 자격증명과 실제 가게 정보
+.env
+.venv
+eval/fixtures/
+
+# 넣을 이유가 없는 것
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
+docs/
+README.md

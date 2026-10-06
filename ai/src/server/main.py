@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 import logging
@@ -77,6 +78,14 @@ def get_client() -> BackendClient:
     return _client()
 
 
+#: 조사 구현을 고르는 환경변수.
+#:   web   — 실제 웹검색 조사 (`WebInvestigator`). GOOGLE_CLOUD_PROJECT 가 있어야 한다
+#:   mock  — 알려진 사례만 답하는 가짜. **연동 흐름만** 확인할 때 (외부 호출 없음)
+#:   off   — 항상 503. 붙이기 전 상태를 일부러 유지할 때
+#: 비워 두면 GOOGLE_CLOUD_PROJECT 유무로 정한다 — 지금까지의 동작 그대로다.
+INVESTIGATOR_MODE = "INVESTIGATOR"
+
+
 @lru_cache(maxsize=1)
 def _web_investigator() -> Investigator:
     """Vertex 클라이언트를 프로세스당 하나만 만든다. 카카오 키가 있으면 지도 확인도 붙인다."""
@@ -92,17 +101,47 @@ def get_investigator() -> Investigator:
 
     PR #57 머지(08c5244)에서 이 분기가 빠져 GCP 설정이 있어도 항상 503 이었다 — 테스트가
     "없으면 503" 만 보고 "있으면 웹검색 조사" 는 보지 않아 못 잡았다.
+
+    `INVESTIGATOR` 로 덮어쓸 수 있다. 자격증명 없이 **연동 흐름만** 확인해야 할 때
+    (`mock`)와, 붙이기 전 상태를 일부러 유지해야 할 때(`off`) 쓴다. 지금 무엇이 꽂혀
+    있는지는 `GET /health` 가 알려 준다.
     """
-    if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+    mode = os.environ.get(INVESTIGATOR_MODE, "").strip().lower()
+    if mode == "off":
         return UnavailableInvestigator()
-    return _web_investigator()
+    if mode == "mock":
+        from src.investigation.mock import MockInvestigator
+
+        return MockInvestigator()
+    if not mode and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return UnavailableInvestigator()
+    try:
+        return _web_investigator()
+    except Exception as e:  # noqa: BLE001 - 자격증명·의존성 어느 쪽이 빠져도 503 이어야 한다
+        logger.warning("조사기를 만들지 못했습니다: %s", e)
+        return UnavailableInvestigator()
+
+
+def investigator_mode() -> str:
+    """지금 어떤 조사기가 꽂혀 있는가. `/health` 가 쓴다."""
+    return type(get_investigator()).__name__
+
+
+def investigator_mode() -> str:
+    """지금 어떤 조사기가 꽂혀 있는가. `/health` 가 쓴다."""
+    impl = get_investigator()
+    return type(impl).__name__
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     """이 프로세스가 살아 있는가. 백엔드 상태는 보지 않는다 — 둘을 섞으면
-    백엔드가 죽었을 때 AI까지 죽은 것으로 보여 원인 파악이 늦어진다."""
-    return {"status": "ok"}
+    백엔드가 죽었을 때 AI까지 죽은 것으로 보여 원인 파악이 늦어진다.
+
+    **어떤 조사기가 꽂혀 있는지 같이 알려 준다.** 503 이 날 때 "자격증명이 없어서"인지
+    "코드가 안 꽂혀서"인지를 배포 환경에서 확인할 길이 이것뿐이다.
+    """
+    return {"status": "ok", "investigator": investigator_mode()}
 
 
 @app.get("/backend-health")

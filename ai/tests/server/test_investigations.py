@@ -159,3 +159,93 @@ def test_중간에_구현이_끊겨도_이미_끝낸_결과는_돌려준다(clie
     assert body["results"][0]["failure"] is None
     assert body["results"][1]["failure"]["code"] == "UNAVAILABLE"
     assert body["results"][2]["failure"]["code"] == "UNAVAILABLE"
+
+
+class Test조사기_선택:
+    """`INVESTIGATOR` 로 어떤 구현이 꽂히는가.
+
+    `get_investigator()` 가 지금까지 항상 `UnavailableInvestigator` 를 돌려줘서,
+    백엔드가 불러도 무조건 503 이었다. 환경변수로 고르게 바꾸면서 붙인 테스트다.
+    """
+
+    @staticmethod
+    def _mode(monkeypatch, value: str | None, *, gcp: str | None = None) -> str:
+        from src.server import main
+
+        main._web_investigator.cache_clear()
+        if value is None:
+            monkeypatch.delenv("INVESTIGATOR", raising=False)
+        else:
+            monkeypatch.setenv("INVESTIGATOR", value)
+        if gcp is None:
+            monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        else:
+            monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", gcp)
+        return main.investigator_mode()
+
+    def test_off_이면_항상_못_한다고_답한다(self, monkeypatch):
+        # 자격증명이 있어도 off 가 이긴다 — 붙이기 전 상태를 일부러 유지할 수 있어야 한다.
+        assert self._mode(monkeypatch, "off", gcp="some-project") == "UnavailableInvestigator"
+
+    def test_mock_이면_가짜_조사기(self, monkeypatch):
+        assert self._mode(monkeypatch, "mock") == "MockInvestigator"
+
+    def test_값이_없고_자격증명도_없으면_못_한다고_답한다(self, monkeypatch):
+        assert self._mode(monkeypatch, None) == "UnavailableInvestigator"
+
+    def test_대소문자와_공백을_가리지_않는다(self, monkeypatch):
+        assert self._mode(monkeypatch, "  MOCK  ") == "MockInvestigator"
+
+    def test_web_인데_자격증명이_깨졌으면_500_이_아니라_503(self, monkeypatch):
+        # 조사기를 만들다 터지면 서버가 죽는 게 아니라 "못 한다"로 떨어져야 한다.
+        from src.server import main
+
+        main._web_investigator.cache_clear()
+        monkeypatch.setenv("INVESTIGATOR", "web")
+        monkeypatch.setattr(
+            main, "_web_investigator", lambda: (_ for _ in ()).throw(RuntimeError("자격증명 없음"))
+        )
+        assert main.investigator_mode() == "UnavailableInvestigator"
+
+
+def test_health_가_꽂힌_조사기를_알려준다(client, monkeypatch):
+    # 503 이 날 때 "자격증명이 없어서"인지 "코드가 안 꽂혀서"인지를
+    # 배포 환경에서 확인할 길이 이것뿐이다.
+    monkeypatch.setenv("INVESTIGATOR", "mock")
+    body = client.get("/health").json()
+
+    assert body["status"] == "ok"
+    assert body["investigator"] == "MockInvestigator"
+
+
+def test_목업_조사기로_연동_흐름이_끝까지_통과한다(client, monkeypatch):
+    """백엔드 `GET /api/stores/nts-checks` 응답 행을 **그대로** 던져도 받아야 한다.
+
+    `ntsLookup`·`statusComparison` 처럼 조사에 쓰지 않는 칸이 섞여 있는데,
+    여기서 422 가 나면 백엔드가 행을 골라 담아야 한다 — 그러면 계약이 두 곳으로 갈린다.
+    """
+    monkeypatch.setenv("INVESTIGATOR", "mock")
+    row = {
+        "storeId": 1,
+        "name": "성심당",
+        "nameNormalized": "성심당",
+        "addressRoad": "대전 중구 은행동",
+        "addressNormalized": "대전중구은행동",
+        "lat": 36.3,
+        "lng": 127.4,
+        "category": "한식",
+        "bizNo": "000-00-00000",
+        "internalStatus": "UNKNOWN",
+        "ntsLookup": "CONFIRMED",
+        "ntsStatus": "ACTIVE",
+        "statusComparison": "NOT_COMPARABLE",
+        "statusMismatch": False,
+        "dataProblem": False,
+    }
+    response = client.post("/investigations", json=[row])
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["requested"] == 1
+    assert len(body["results"]) == 1
+    assert body["results"][0]["storeId"] == 1
