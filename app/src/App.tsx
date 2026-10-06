@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
+import OwnerLoginPage from "./pages/OwnerLoginPage";
 
 function HomePage() {
   return (
@@ -16,6 +17,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/owner/login" element={<OwnerLoginPage />} />
       </Routes>
     </BrowserRouter>
   );
