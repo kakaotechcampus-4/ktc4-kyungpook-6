@@ -62,7 +62,7 @@ const token = process.env.DISCORD_BOT_TOKEN?.trim() || (await readClipboard());
 if (!looksLikeToken(token)) {
     console.error(
         token
-            ? "클립보드에 토큰이 없습니다 (복사된 건 토큰 형식이 아닙니다)."
+            ? "클립보드에 **디스코드 봇 토큰**이 없습니다 (GitHub 토큰이 아닙니다)."
             : "클립보드가 비어 있습니다.",
     );
     console.error("포털 → 봇 → 토큰 초기화 로 받은 값을 복사한 뒤 다시 실행해 주세요.");

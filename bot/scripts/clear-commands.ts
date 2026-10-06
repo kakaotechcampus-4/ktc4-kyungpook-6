@@ -42,7 +42,11 @@ function readClipboard(): Promise<string> {
 
 const token = process.env.DISCORD_BOT_TOKEN?.trim() || (await readClipboard());
 if (!looksLikeToken(token)) {
-    console.error("클립보드에 봇 토큰이 없습니다. 포털에서 복사한 뒤 다시 실행해 주세요.");
+    console.error("클립보드에 **디스코드 봇 토큰**이 없습니다. (GitHub 토큰이 아닙니다)");
+    console.error("포털 → 애플리케이션 → 사랑이 → 봇 → 토큰 재설정 → 복사한 뒤 다시 실행해 주세요.");
+    console.error("  https://discord.com/developers/applications/" + APP_ID + "/bot");
+    console.error("⚠️ 토큰을 재설정하면 Cloudflare 에 든 기존 토큰이 무효가 됩니다.");
+    console.error("   그 경우 `npm run setup:token` 을 먼저 돌려 시크릿을 갱신하세요.");
     process.exit(1);
 }
 console.log(`토큰을 읽었습니다: ${mask(token)}`);
