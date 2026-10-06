@@ -205,10 +205,10 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             if due_now(created, NO_REVIEWER_HOURS, now):
                 findings.append({
                     "color": COLOR_DEADLINE,
-                    "headline": "🔴 리뷰어가 아직 정해지지 않았습니다",
+                    "headline": "🔴 리뷰어가 아직 없습니다",
                     "pr": pr,
-                    "detail": (f"열린 지 {int(opened_hours)}시간 · 리뷰어 0명 · "
-                               "같은 파트 팀원 1명 이상을 지정해 주세요"),
+                    "detail": f"열린 지 {int(opened_hours)}시간 · 아무도 보고 있지 않습니다",
+                    "action": "같은 파트 팀원 1명 이상을 리뷰어로 지정해 주세요",
                     # 부를 사람은 PR 을 올린 본인이다. 리뷰어를 정하는 것도 본인 몫이라
                     # 테크리더까지 부르면 매번 같은 세 명이 울려 알림이 무뎌진다.
                     "mention": dm.mention(pr["user"]["login"]),
@@ -219,9 +219,10 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             if due_now(created, NO_REVIEW_FIRST_HOURS, now) and not (CATCH_UP and second):
                 findings.append({
                     "color": COLOR_INFO,
-                    "headline": "🕐 아직 리뷰가 없습니다",
+                    "headline": "🕐 리뷰를 기다리고 있습니다",
                     "pr": pr,
                     "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
+                    "action": "리뷰 부탁드립니다",
                     "mention": dm.mentions(assigned),
                 })
             if second:
@@ -230,6 +231,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "headline": f"🟠 {NO_REVIEW_SECOND_HOURS}시간째 리뷰가 없습니다",
                     "pr": pr,
                     "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
+                    "action": "오늘 안에 보기 어려우면 다른 분께 넘겨 주세요",
                     "mention": dm.mentions(assigned + [pr["user"]["login"]]),
                 })
 
@@ -241,6 +243,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                 "headline": f"⏰ 1시간 뒤 {deadline_label} — 아직 리뷰가 없습니다",
                 "pr": pr,
                 "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
+                "action": "이번 주 PR 에 넣을 거면 지금 리뷰해야 합니다",
                 "mention": dm.mentions(people(pr)),
             })
 
@@ -252,6 +255,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "headline": "🟢 승인됐는데 아직 머지되지 않았습니다",
                     "pr": pr,
                     "detail": f"승인 후 {APPROVED_UNMERGED_HOURS}시간 경과",
+                    "action": "머지하셔도 됩니다",
                     "mention": dm.mention(pr["user"]["login"]),
                 })
 
@@ -277,9 +281,10 @@ def conflict_finding(repo: str, token: str, pr: dict) -> list[dict]:
         return []
     return [{
         "color": COLOR_WARN,
-        "headline": "⚔️ 충돌이 나 머지할 수 없는 PR 이 있습니다",
+        "headline": "🧨 충돌이 나서 머지할 수 없습니다",
         "pr": pr,
-        "detail": "develop 를 머지해 충돌을 푼 뒤 다시 올려 주세요",
+        "detail": "develop 와 겹치는 변경이 있습니다",
+        "action": "develop 를 머지해 충돌을 푼 뒤 다시 올려 주세요",
         "mention": dm.mention(pr["user"]["login"]),
     }]
 
@@ -300,23 +305,23 @@ def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | 
     if (weekday, hour) == (2, 15) and main_pr is None:
         out.append({
             "color": COLOR_DEADLINE,
-            "headline": "⏰ 3시간 뒤 1차 PR 마감입니다 (수 18:00) — main PR 이 아직 없습니다",
+            "headline": "⏰ 3시간 뒤 1차 PR 마감입니다 (수 18:00)",
             "pr": None,
-            "detail": "develop → main PR 을 올려야 멘토 리뷰가 시작됩니다",
+            "detail": "멘토 PR 이 아직 없습니다. develop → main PR 을 올려야 리뷰가 시작됩니다",
         })
     if (weekday, hour) == (5, 8) and main_pr is not None:
         out.append({
             "color": COLOR_DEADLINE,
             "headline": "⏰ 2시간 뒤 2차 재리뷰 요청 마감입니다 (토 10:00)",
             "pr": main_pr,
-            "detail": "재리뷰 코멘트 + 멘토 리뷰 재요청",
+            "detail": "반영한 refactor PR 링크를 멘토 코멘트에 답글로 남기고 재리뷰를 요청합니다",
         })
     if (weekday, hour) == (6, 20) and main_pr is not None:
         out.append({
             "color": COLOR_DEADLINE,
             "headline": "⏰ 오늘 23:59 이 main 머지 마감입니다",
             "pr": main_pr,
-            "detail": "멘토 승인 여부 확인 후 머지",
+            "detail": "멘토 승인을 확인하고 머지해 주세요",
         })
 
     if deadline_label:
@@ -476,6 +481,8 @@ def to_payload(findings: list[dict]) -> dict:
             lines.append(f"**#{pr['number']} {pr['title']}** · {f['detail']}")
         elif f.get("detail"):
             lines.append(f["detail"])
+        if f.get("action"):
+            lines.append(f["action"])
         tail = []
         if f.get("mention"):
             tail.append(f["mention"])
