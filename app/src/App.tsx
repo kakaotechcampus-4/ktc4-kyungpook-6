@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
+import SplashPage from "./pages/SplashPage";
 
 function HomePage() {
   return (
@@ -16,6 +17,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/splash" element={<SplashPage />} />
       </Routes>
     </BrowserRouter>
   );
