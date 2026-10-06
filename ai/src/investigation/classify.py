@@ -69,6 +69,15 @@ _JIBUN_ADDRESS = re.compile(r"(?:[가-힣]+(?:동|리)|\d+가)\s*(?:산\s*)?\d+(
 _SPLIT_ROAD = re.compile(r"(로|길)\s+(\d+번?길)")
 # 상호명의 괄호 병기 — "성심당(聖心堂)", "이재모피자 (본점)", "[본점]".
 _BRACKETED = re.compile(r"[(\[（【][^)\]）】]*[)\]）】]")
+# 지점명 앞의 지역어 — "크라운호프대구수성못점" 의 "대구". 웹은 "크라운 호프 수성못점" 처럼 빼고 쓴다(불일치
+# 벤치마크). 뒤에 "…점" 이 올 때만 뺀다 — "대구탕" 의 대구는 음식 이름이다.
+_REGION_BEFORE_BRANCH = re.compile(r"(?:대구|서울|부산|인천|광주|대전|울산|세종|경기)(?=[가-힣a-z0-9]*점$)")
+# 같은 상호로 볼 꼬리 — 업종 낱말과 지점 표기. "삼송빵집" ↔ "삼송빵집본점", "은정" ↔ "은정식당".
+_NAME_TAIL = re.compile(
+    r"(?:식당|음식점|카페|커피|치킨|분식|김밥|포차|호프|주점|반점|국밥|가든|횟집|본가)?(?:[가-힣a-z0-9]{0,10}점)?"
+)
+# 모델이 도로명 속 "대구" 를 "대구광역시" 로 바꿔 적는다 — "동대구로" → "동대구광역시로"(불일치 벤치마크).
+_CITY_IN_ROAD = re.compile(r"(대구|부산|인천|광주|대전|울산)광역시(?=[가-힣\d]*(?:로|길))")
 
 logger = logging.getLogger(__name__)
 
@@ -84,16 +93,17 @@ def comparison_key(change_field: ChangeField, value: str) -> str:
         return re.sub(r"\D", "", domestic_phone(value) or value)
     if change_field is ChangeField.ADDRESS:
         road = road_address_key(value)
-        return road if road else _squash(value)
+        return road if road else _squash(_CITY_IN_ROAD.sub(r"\1", value))
     if change_field is ChangeField.STATUS:
         return value.upper()
     # 괄호를 지우고 나면 아무것도 안 남는 이름("(주)")은 원래대로 비교한다.
-    return _squash(_BRACKETED.sub("", value)) or _squash(value)
+    key = _squash(_BRACKETED.sub("", value)) or _squash(value)
+    return _REGION_BEFORE_BRANCH.sub("", key) or key
 
 
 def road_address_key(value: str) -> str | None:
     """도로명 주소의 "도로명+건물번호". 도로명 주소가 아니면(지번 주소 등) None."""
-    road = _ROAD_ADDRESS.search(_SPLIT_ROAD.sub(r"\1\2", value))
+    road = _ROAD_ADDRESS.search(_SPLIT_ROAD.sub(r"\1\2", _CITY_IN_ROAD.sub(r"\1", value)))
     return f"{road.group(1)}{road.group(2)}" if road else None
 
 
@@ -173,14 +183,36 @@ def _is_change(change_field: ChangeField, current: str | None, key: str) -> bool
     return not (change_field is ChangeField.STATUS and current in (None, "UNKNOWN") and key == "OPEN")
 
 
+def name_relation(current_key: str, key: str) -> str:
+    """두 상호(비교 열쇠)의 관계 — "same" · "partial" · "different".
+
+    - same: 같거나, 한쪽이 다른 쪽의 앞부분이고 남는 부분이 업종·지점 표기("삼송빵집" ↔ "삼송빵집본점")
+    - partial: 한쪽이 다른 쪽을 품지만 위가 아님("최과장" ↔ "최과장회닾밥") — **판단 보류**. 같다고 하면 잘린
+      이름이 DB 의 오타를 "확인"해 버리고(불일치 벤치마크), 다르다고 하면 멀쩡한 "최과장회덮밥" 에 상호 변경을 낸다
+    - different: 그 밖
+    """
+    if not key or not current_key:
+        return "different"
+    if key == current_key:
+        return "same"
+    short, long = sorted((key, current_key), key=len)
+    if long.startswith(short) and _NAME_TAIL.fullmatch(long[len(short):]):
+        return "same"
+    return "partial" if short in long else "different"
+
+
 def _same_as_current(change_field: ChangeField, current_key: str | None, key: str) -> bool:
-    """DB 값과 같은 값인가. 상호명은 한쪽이 다른 쪽을 품으면 같다고 본다
-    ("삼송빵집" ⊂ "삼송빵집 본점") — 지점 표기 차이를 상호 변경으로 세지 않는다."""
+    """DB 값과 같은 값인가. 상호명은 `name_relation` 이 same 일 때만 같다."""
     if current_key is None:
         return False
     if change_field is ChangeField.NAME:
-        return bool(key) and (key in current_key or current_key in key)
+        return name_relation(current_key, key) == "same"
     return key == current_key
+
+
+def _inconclusive(change_field: ChangeField, current_key: str | None, key: str) -> bool:
+    """DB 값과 같다고도 다르다고도 할 수 없는 관측 — 확인 근거로도, 변화로도 세지 않는다."""
+    return change_field is ChangeField.NAME and current_key is not None and name_relation(current_key, key) == "partial"
 
 
 def _current_value(target: InvestigationTarget, change_field: ChangeField) -> str | None:
@@ -210,8 +242,11 @@ def _judge_field(
 
     groups: dict[str, list[Observation]] = {}
     for o in observations:
-        if _comparable(change_field, current, o.value):
-            groups.setdefault(comparison_key(change_field, o.value), []).append(o)
+        if not _comparable(change_field, current, o.value):
+            continue
+        key = comparison_key(change_field, o.value)
+        if not _inconclusive(change_field, current_key, key):
+            groups.setdefault(key, []).append(o)
 
     def domains(group: list[Observation]) -> set[str]:
         return {d for o in group for d in o.domains}

@@ -7,7 +7,7 @@ from datetime import datetime
 import pytest
 
 from src.backend_client.models import StoreStatus
-from src.investigation.classify import classify, comparison_key, domestic_phone, road_address_key
+from src.investigation.classify import classify, comparison_key, domestic_phone, name_relation, road_address_key
 from src.investigation.models import (
     ChangeField,
     InvestigationTarget,
@@ -570,3 +570,53 @@ class TestTruncatedAddress:
         found = classify(self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, value, "a.com")]))
 
         assert found.proposed_changes == {"addressRoad": value}
+
+
+
+class TestNameRelation:
+    """상호 비교 — 불일치 벤치마크에서 나온 사례."""
+
+    @pytest.mark.parametrize(
+        ("db", "web"),
+        [
+            ("삼송빵집", "삼송빵집 본점"),
+            ("은정", "은정식당"),
+            ("크라운호프대구수성못점", "크라운 호프 수성못점"),  # 지점명 앞 지역어
+            ("스텔라떡볶이 대구신암신천점", "스텔라떡볶이 신암신천점"),
+        ],
+    )
+    def test_업종_지점_표기와_지역어_차이는_같은_상호다(self, db, web):
+        db_key, web_key = comparison_key(ChangeField.NAME, db), comparison_key(ChangeField.NAME, web)
+
+        assert name_relation(db_key, web_key) == "same"
+
+    def test_잘린_이름은_판단을_보류한다(self):
+        """"최과장" 은 "최과장회닾밥"(오타)도 "최과장회덮밥"(정상)도 확인해 주지 못한다."""
+        assert name_relation(comparison_key(ChangeField.NAME, "최과장회닾밥"), "최과장") == "partial"
+
+    def test_음식_이름의_지역어는_빼지_않는다(self):
+        assert comparison_key(ChangeField.NAME, "대구탕집") == "대구탕집"
+
+    def test_잘린_이름은_오타_DB_를_확인하지도_상호_변경을_내지도_않는다(self):
+        target = TARGET.model_copy(update={"name": "최과장회닾밥"})
+        found = classify(target, ResearchResult([obs(ChangeField.NAME, "최과장", "a.com", "b.com")]))
+
+        assert found.classification is TaskClassification.NO_CHANGE and found.signals == []
+
+    def test_잘린_이름이_있어도_다른_출처의_바른_이름은_올린다(self):
+        target = TARGET.model_copy(update={"name": "최과장회닾밥"})
+        found = classify(
+            target,
+            ResearchResult([obs(ChangeField.NAME, "최과장", "a.com"), obs(ChangeField.NAME, "최과장회덮밥", "b.com")]),
+        )
+
+        assert found.proposed_changes == {"name": "최과장회덮밥"}
+
+
+class TestCityInRoad:
+    def test_도로명_속_광역시를_되돌려_비교한다(self):
+        """모델이 "동대구로 590" 을 "동대구광역시로 590" 으로 적어 왔다(불일치 벤치마크)."""
+        assert road_address_key("대구광역시 동구 동대구광역시로 590 상가") == road_address_key("대구광역시 동구 동대구로 590")
+
+    def test_시_이름_뒤에_띄어_쓴_광역시는_그대로다(self):
+        assert road_address_key("대구광역시 중구 동성로 12") == "동성로12"
