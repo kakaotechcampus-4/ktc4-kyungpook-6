@@ -44,6 +44,14 @@ import discord_members as dm  # noqa: E402
 # 이 시간 안에 만들어진 PR 의 review_requested 는 opened 와 겹치므로 보내지 않는다
 FRESH_SECONDS = 120
 
+# 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
+# 메시지마다 덮어쓸 수 있어서, 봇과 같은 이름·아바타로 맞춘다. 채널에서 보면
+# 알림과 /예약 응답이 같은 "사랑이"로 보인다.
+# 아바타를 바꾸면 해시도 바뀐다 — 그때 이 URL 을 같이 고칠 것.
+WEBHOOK_NAME = "사랑이"
+WEBHOOK_AVATAR = ("https://cdn.discordapp.com/avatars/1555129530186731520/"
+                  "add6bacc3fd09363b755ef9dbe1bced6.webp?size=128")
+
 COLOR_NEW = 3447003       # 파랑
 COLOR_MERGED = 5763719    # 초록
 COLOR_REVIEW = 10181046   # 보라
@@ -253,6 +261,7 @@ def on_reply(event: dict, pr: dict) -> dict | None:
 def post(webhook: str, payload: dict) -> None:
     # parse 를 users 로 좁힌다. @everyone·@here·역할 멘션이 본문에 섞여도 울리지 않는다.
     payload["allowed_mentions"] = {"parse": ["users"]}
+    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
     req = urllib.request.Request(
         webhook,
         data=json.dumps(payload).encode(),

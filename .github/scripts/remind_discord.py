@@ -73,6 +73,14 @@ READINESS = {
 # 멘토 쪽은 시각으로 보지 않는다. 리뷰가 언제 올지 정해져 있지 않고, 재촉할 일도 아니다.
 # 멘토가 **코멘트를 남기는 순간** 알리는 쪽으로 간다 — pr_event_notify.py 가 맡는다.
 
+# 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
+# 메시지마다 덮어쓸 수 있어서, 봇과 같은 이름·아바타로 맞춘다. 채널에서 보면
+# 알림과 /예약 응답이 같은 "사랑이"로 보인다.
+# 아바타를 바꾸면 해시도 바뀐다 — 그때 이 URL 을 같이 고칠 것.
+WEBHOOK_NAME = "사랑이"
+WEBHOOK_AVATAR = ("https://cdn.discordapp.com/avatars/1555129530186731520/"
+                  "add6bacc3fd09363b755ef9dbe1bced6.webp?size=128")
+
 COLOR_WARN = 16753920   # 주황
 COLOR_INFO = 3447003    # 파랑
 COLOR_DEADLINE = 15548997  # 빨강
@@ -484,6 +492,7 @@ def to_payload(findings: list[dict]) -> dict:
 
 
 def post(webhook: str, payload: dict) -> None:
+    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
     req = urllib.request.Request(
         webhook,
         data=json.dumps(payload).encode(),
