@@ -27,6 +27,7 @@ services:
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/ktc4}
       DB_USERNAME: ${DB_USERNAME:-ktc4}
       DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
     depends_on:
       postgres:
         condition: service_healthy
