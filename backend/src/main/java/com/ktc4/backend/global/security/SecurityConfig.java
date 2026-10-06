@@ -44,7 +44,8 @@ import java.time.Duration;
  * 꺼져 있어도 로그인 API 는 동작하므로 프론트·AI 가 실제 API 로 붙여 볼 수 있다.
  *
  * <p>⚠️ <b>임시 스위치다 — 2026-10-14 까지 제거한다.</b> 프론트 관리자 로그인 화면이 머지되고 AI 서버가
- * {@code X-API-KEY} 를 붙이면 기본값으로 켜고, {@code enforce} 분기와 {@code auth.enforce} 설정을 지운다.
+ * {@code X-API-KEY} 를 붙이면 서버 .env 의 {@code AUTH_ENFORCE=false} 를 지워 켜고, {@code enforce} 분기와
+ * {@code auth.enforce} 설정을 지운다.
  * 기한 없는 임시 스위치는 영구가 된다. 꺼진 동안 새로 만드는 API 는 이 분기 위에(스위치와 무관하게) 규칙을 둔다.
  */
 @Slf4j
@@ -68,7 +69,7 @@ public class SecurityConfig {
                                                    JwtProvider jwtProvider,
                                                    ObjectMapper objectMapper,
                                                    @Value("${auth.internal-api-key:}") String internalApiKey,
-                                                   // 설정이 빠지면 켜진 쪽(안전한 쪽)으로 둔다. 지금은 application.yml 이 끈다.
+                                                   // 설정이 빠지면 켜진 쪽(안전한 쪽)으로 둔다. 끄는 것은 서버 .env 의 AUTH_ENFORCE=false 로만 한다.
                                                    @Value("${auth.enforce:true}") boolean enforce)
             throws Exception {
         ProblemResponseWriter problemWriter = new ProblemResponseWriter(objectMapper);
