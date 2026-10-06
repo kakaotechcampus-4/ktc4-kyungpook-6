@@ -41,6 +41,18 @@ export const COMMANDS = [
     },
     {
         name: "pr상태",
-        description: "열린 PR 을 요약해 봅니다",
+        description: "열린 PR 을 리뷰 상태까지 한눈에 봅니다",
+    },
+    {
+        name: "내차례",
+        description: "내가 리뷰할 PR 과 내가 올린 PR 만 봅니다",
+    },
+    {
+        name: "마감",
+        description: "다음 마감까지 남은 시간과 지금 준비 상태를 봅니다",
+    },
+    {
+        name: "일정",
+        description: "주간 코드 리뷰 사이클 일정을 봅니다",
     },
 ] as const;
