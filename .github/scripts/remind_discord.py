@@ -36,20 +36,34 @@ import discord_members as dm  # noqa: E402
 KST = timezone(timedelta(hours=9))
 API = "https://api.github.com"
 
-# 리뷰가 하나도 없이 이만큼 지나면 알린다 (시간)
-NO_REVIEW_HOURS = 24
+# 팀 내부 리뷰 기한은 "PR 작성 후 24시간"이다(코드 리뷰 가이드 · 팀원 간 리뷰 규칙).
+# 24시간에 처음 알리면 그때가 이미 기한이라 늦다. 그래서 두 단계로 나눈다.
+NO_REVIEW_FIRST_HOURS = 1    # 1차 독촉 — 리뷰어를 깨운다
+NO_REVIEW_OVERDUE_HOURS = 24  # 기한 초과 — 테크리더까지 부른다
 # 승인됐는데 머지되지 않고 이만큼 지나면 알린다 (시간)
 APPROVED_UNMERGED_HOURS = 6
 # 충돌난 PR 을 점검하는 시각 (KST). 충돌은 "언제 깨졌는지" 타임스탬프가 없어서
 # 구간 계산을 못 한다. 그래서 하루 한 번 고정 시각에만 본다.
 CONFLICT_CHECK_HOUR = 10
 
-# (요일, 1시간 전 시각, 마감 설명). 월=0.  `_local/주차별_PR/README.md` 의 일정표
+# 조용한 시간 (KST). 이 사이에 임계값을 넘긴 건은 울리지 않고 QUIET_END 로 미뤄서
+# 한 번에 보낸다. 1시간 독촉을 넣으면서 새벽 3시에 멘션이 가는 일이 생겨서 둔다.
+QUIET_START_HOUR = 0
+QUIET_END_HOUR = 8
+
+# 멘토 리뷰 사이클 (`_local/코드 리뷰 가이드.md`). 월=0
+#   수 18:00 1차 PR · 목 22:00 멘토 1차 리뷰 · 토 10:00 재리뷰 요청
+#   일 10:00 멘토 approve · 일 23:59 main 머지
+# (요일, 1시간 전 시각, 마감 설명)
 DEADLINES = [
     (2, 17, "오늘 18:00 1차 PR 마감"),
     (5, 9, "오늘 10:00 2차 재리뷰 요청 마감"),
     (6, 23, "오늘 23:59 main 머지 마감"),
 ]
+# 멘토가 움직일 차례인 지점. 우리가 멘토를 재촉할 수는 없으니, 결과를 보고
+# **우리가 할 일이 생겼을 때만** 알린다.
+MENTOR_REVIEW_DUE = (3, 22)   # 목 22:00 — 1차 리뷰가 와 있으면 반영 시작
+MENTOR_APPROVE_DUE = (6, 11)  # 일 11:00 — 10시까지 오기로 한 approve 가 없으면
 
 COLOR_WARN = 16753920   # 주황
 COLOR_INFO = 3447003    # 파랑
@@ -77,6 +91,29 @@ def parse_ts(value: str) -> datetime:
 def in_band(hours_elapsed: float, threshold: int) -> bool:
     """임계값을 이번 한 시간 안에 넘었는가. 매시간 실행이면 PR 하나당 한 번만 참이다."""
     return threshold <= hours_elapsed < threshold + 1
+
+
+def wake_at(crossed: datetime) -> datetime:
+    """임계값을 넘은 시각을 조용한 시간 밖으로 민다.
+
+    새벽에 넘긴 건은 그 시각이 아니라 QUIET_END_HOUR 에 한꺼번에 알린다.
+    여러 건이 몰려도 payload 가 묶어서 한 메시지로 나간다.
+    """
+    k = crossed.astimezone(KST)
+    if QUIET_START_HOUR <= k.hour < QUIET_END_HOUR:
+        k = k.replace(hour=QUIET_END_HOUR, minute=0, second=0, microsecond=0)
+    return k
+
+
+def due_now(created: datetime, threshold: int, now: datetime) -> bool:
+    """`created + threshold` 를 (조용한 시간을 피해서) 지금 이 시간대에 넘겼는가.
+
+    `in_band` 를 쓰지 않는 이유 — 조용한 시간에 넘긴 건을 아침으로 미루면
+    "지난 시간"이 아니라 "밀린 시각"을 기준으로 봐야 하기 때문이다.
+    """
+    wake = wake_at(created + timedelta(hours=threshold))
+    k = now.astimezone(KST)
+    return wake <= k < wake + timedelta(hours=1)
 
 
 def latest_review_state(reviews: list[dict]) -> str | None:
@@ -137,13 +174,28 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         opened_hours = (now - parse_ts(pr["created_at"])).total_seconds() / 3600
         state = latest_review_state(reviews)
 
-        if not reviews and in_band(opened_hours, NO_REVIEW_HOURS):
+        created = parse_ts(pr["created_at"])
+
+        # 1차 독촉 — 팀 기준 리뷰 기한(24시간) 안에 끝내려면 일찍 깨워야 한다.
+        if not reviews and due_now(created, NO_REVIEW_FIRST_HOURS, now):
+            who = reviewers(pr)
             findings.append({
-                "color": COLOR_WARN,
-                "headline": "🕐 리뷰 없이 하루가 지났습니다",
+                "color": COLOR_INFO,
+                "headline": "🕐 아직 리뷰가 없습니다",
+                "pr": pr,
+                "detail": (f"열린 지 {int(opened_hours)}시간 · 리뷰 0건 · "
+                           f"팀 기준 리뷰 기한은 {NO_REVIEW_OVERDUE_HOURS}시간입니다"),
+                "mention": dm.mentions(who) if who else dm.mention(pr["user"]["login"]),
+            })
+
+        # 기한 초과 — 여기서는 테크리더까지 부른다. 팀 규칙을 넘긴 상태다.
+        if not reviews and due_now(created, NO_REVIEW_OVERDUE_HOURS, now):
+            findings.append({
+                "color": COLOR_DEADLINE,
+                "headline": f"🔴 리뷰 기한 {NO_REVIEW_OVERDUE_HOURS}시간을 넘겼습니다",
                 "pr": pr,
                 "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
-                "mention": dm.mentions(reviewers(pr) or [pr["user"]["login"]]),
+                "mention": dm.mentions(people(pr)) + " " + dm.tech_leads(),
             })
 
         # 마감 1시간 전에 아직 리뷰가 하나도 없는 PR — 작성자와 리뷰어를 같이 부른다.
@@ -172,6 +224,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             findings.extend(conflict_finding(repo, token, pr))
 
     findings.extend(weekly_deadlines(now, main_pr, deadline_label))
+    findings.extend(mentor_cycle(repo, token, now, main_pr))
     return findings
 
 
@@ -241,6 +294,46 @@ def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | 
             "mention": dm.tech_leads(),
         })
     return out
+
+
+def mentor_cycle(repo: str, token: str, now: datetime, main_pr: dict | None) -> list[dict]:
+    """멘토가 움직일 차례인 지점. 멘토를 재촉할 수는 없으니 **우리 할 일이 생겼을 때만** 알린다.
+
+    목 22:00 멘토 1차 리뷰 · 일 10:00 멘토 approve (`_local/코드 리뷰 가이드.md`)
+    """
+    if main_pr is None:
+        return []
+    k = now.astimezone(KST)
+    slot = (k.weekday(), k.hour)
+    if slot not in (MENTOR_REVIEW_DUE, MENTOR_APPROVE_DUE):
+        return []
+
+    reviews = gh(f"/repos/{repo}/pulls/{main_pr['number']}/reviews?per_page=100", token)
+    team = set(dm._table().get("members", {}))
+    mentor_reviews = [r for r in reviews if (r.get("user") or {}).get("login") not in team]
+
+    if slot == MENTOR_REVIEW_DUE:
+        if not mentor_reviews:
+            return []  # 아직 안 오셨다. 우리가 할 일은 없다
+        return [{
+            "color": COLOR_WARN,
+            "headline": "🧑‍🏫 멘토 1차 리뷰가 와 있습니다 — 반영을 시작할 시간입니다",
+            "pr": main_pr,
+            "detail": (f"리뷰 {len(mentor_reviews)}건 · develop 에서 refactor/* 브랜치를 만들어 "
+                       "반영하고, 그 PR 링크를 멘토 코멘트에 답글로 남깁니다 (토 10:00 재리뷰 요청)"),
+            "mention": dm.tech_leads(),
+        }]
+
+    # 일 11:00 — 10시까지 오기로 한 approve 가 없으면 PM 이 챙겨야 한다
+    if any(r.get("state") == "APPROVED" for r in mentor_reviews):
+        return []
+    return [{
+        "color": COLOR_DEADLINE,
+        "headline": "⏰ 멘토 approve 가 아직 없습니다 (일 10:00 예정)",
+        "pr": main_pr,
+        "detail": "오늘 23:59 까지 main 에 머지해야 합니다. 멘토님께 확인이 필요합니다",
+        "mention": dm.mention(main_pr["user"]["login"]),
+    }]
 
 
 def to_payload(findings: list[dict]) -> dict:
