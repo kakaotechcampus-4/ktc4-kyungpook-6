@@ -45,6 +45,7 @@ public enum ErrorCode {
     // 관리자 조사(Job)
     NO_INVESTIGATION_TARGET(HttpStatus.BAD_REQUEST, "조사할 가게가 없습니다"),
     JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "조사를 찾을 수 없습니다"),
+    JOB_ALREADY_RUNNING(HttpStatus.CONFLICT, "진행 중인 조사가 있습니다"),
 
     // 아래 넷은 GlobalExceptionHandler.errorCodeFor 가 프레임워크 예외의 상태코드를 매핑할 때 쓴다.
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 경로를 찾을 수 없습니다"),

@@ -169,4 +169,38 @@ class JobServiceCreateTest extends PostgresContainerTest {
                 .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
                         .isEqualTo(ErrorCode.NO_INVESTIGATION_TARGET));
     }
+
+    @Test
+    @DisplayName("끝나지 않은 조사(대기·진행 중)가 있으면 새 조사를 만들지 않는다 — 같은 가게를 AI 가 다시 조사하지 않게")
+    void rejectsWhileAnotherJobIsUnfinished() {
+        Store matched = store("정상가게", StoreStatus.OPEN, "2222222222", BusinessState.ACTIVE);
+        for (JobStatus unfinished : new JobStatus[]{JobStatus.PENDING, JobStatus.IN_PROGRESS}) {
+            Job running = entityManager.persistAndFlush(Job.builder()
+                    .requestedBy("1").status(unfinished).targetCount(1).completedCount(0).build());
+            long jobsBefore = jobRepository.count();
+
+            assertThatThrownBy(() -> jobService.create(List.of(matched.getStoreId()), ADMIN_ID))
+                    .isInstanceOf(CustomException.class)
+                    .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                            .isEqualTo(ErrorCode.JOB_ALREADY_RUNNING));
+            assertThat(jobRepository.count()).isEqualTo(jobsBefore);
+
+            entityManager.remove(running);
+            entityManager.flush();
+        }
+    }
+
+    @Test
+    @DisplayName("끝난 조사(완료·실패)만 있으면 새 조사를 만들 수 있다")
+    void allowsWhenPreviousJobsAreFinished() {
+        Store matched = store("정상가게", StoreStatus.OPEN, "2222222222", BusinessState.ACTIVE);
+        for (JobStatus finished : new JobStatus[]{JobStatus.DONE, JobStatus.FAILED}) {
+            entityManager.persistAndFlush(Job.builder()
+                    .requestedBy("1").status(finished).targetCount(1).completedCount(1).build());
+        }
+
+        CreatedJob created = jobService.create(List.of(matched.getStoreId()), ADMIN_ID);
+
+        assertThat(created.targetCount()).isEqualTo(1);
+    }
 }

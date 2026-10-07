@@ -16,7 +16,7 @@ public record JobResultResponse(
         @Schema(description = "조사 ID", example = "42")
         Long jobId,
 
-        @Schema(description = "PENDING(대기 — 앞 조사가 끝나길 기다림) · IN_PROGRESS(진행 중) · DONE(완료) · FAILED(실패). "
+        @Schema(description = "PENDING(접수됨 — 곧 시작) · IN_PROGRESS(진행 중) · DONE(완료) · FAILED(실패). "
                 + "FAILED 여도 그때까지의 결과가 tasks 에 있을 수 있다", example = "IN_PROGRESS")
         JobStatus status,
 

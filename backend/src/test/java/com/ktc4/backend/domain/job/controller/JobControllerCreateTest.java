@@ -26,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.List;
@@ -35,7 +36,9 @@ import java.util.stream.LongStream;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -146,6 +149,34 @@ class JobControllerCreateTest {
                 .andExpect(jsonPath("$.title").value(ErrorCode.NO_INVESTIGATION_TARGET.getTitle()));
 
         verify(investigationRunner, never()).run(any());
+    }
+
+    @Test
+    @DisplayName("진행 중인 조사가 있으면 409 job-already-running 이고 실행기를 부르지 않는다")
+    void rejectsWhileAnotherJobIsRunning() throws Exception {
+        given(jobService.create(List.of(1L), ADMIN_ID))
+                .willThrow(new CustomException(ErrorCode.JOB_ALREADY_RUNNING));
+
+        postJobs("{\"storeIds\": [1]}", MemberRole.ADMIN)
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ErrorCode.JOB_ALREADY_RUNNING.getType().toString()))
+                .andExpect(jsonPath("$.title").value(ErrorCode.JOB_ALREADY_RUNNING.getTitle()));
+
+        verify(investigationRunner, never()).run(any());
+    }
+
+    @Test
+    @DisplayName("실행기에 넘기지 못하면 만든 Job 을 실패로 끝내 둔다 — 대기로 남아 새 조사를 모두 막지 않게")
+    void failsJobWhenRunnerCannotStart() throws Exception {
+        InvestigationPlan plan = new InvestigationPlan(42L, List.of(), List.of());
+        given(jobService.create(List.of(1L), ADMIN_ID)).willReturn(new CreatedJob(42L, 1, List.of(), plan));
+        willThrow(new TaskRejectedException("종료 중")).given(investigationRunner).run(plan);
+
+        postJobs("{\"storeIds\": [1]}", MemberRole.ADMIN)
+                .andExpect(status().isInternalServerError());
+
+        verify(jobService).fail(eq(42L), eq(JobController.ERROR_NOT_STARTED), any());
     }
 
     @Test
