@@ -17,6 +17,13 @@
 - [`backend/docs/백엔드_아키텍처_가이드.md`](backend/docs/백엔드_아키텍처_가이드.md) — 도메인 패키지 구조
 - [`backend/docs/Javadoc_가이드.md`](backend/docs/Javadoc_가이드.md) — Javadoc 작성 대상과 형식
 - [`backend/docs/스웨거_API_문서화_가이드.md`](backend/docs/스웨거_API_문서화_가이드.md) — Swagger 사용법
+- [`backend/docs/데이터_정규화_가이드.md`](backend/docs/데이터_정규화_가이드.md) — 주소·전화·상호 정규화 규칙
+
+## AI (Python / FastAPI)
+
+- [`ai/docs/백엔드_연동.md`](ai/docs/백엔드_연동.md) — 조사 흐름, 백엔드와 주고받는 값, 요청할 것
+- [`ai/docs/2차_조사.md`](ai/docs/2차_조사.md) — 가게 정보 불일치를 어떻게 찾는가
+- [`ai/docs/웹검색_폴백.md`](ai/docs/웹검색_폴백.md) — 웹검색이 실패할 때
 
 ---
 
