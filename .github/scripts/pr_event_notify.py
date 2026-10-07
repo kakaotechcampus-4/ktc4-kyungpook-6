@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
-"""PR 이벤트가 생길 때 팀 디스코드 채널로 알린다. 멘션해야 할 사람을 멘션한다.
+"""PR 이벤트가 생길 때 팀 디스코드로 알린다. 멘션해야 할 사람을 멘션한다.
 
 `notify-discord-team.yml` 이 호출한다. 판단 재료는 전부 GitHub 이 넘겨주는
 이벤트 payload(`$GITHUB_EVENT_PATH`) 안에 있어서 API 를 따로 부르지 않는다.
+보내는 곳은 채널이 아니라 그 안의 스레드다 (`discord_webhook.py`).
 
 다루는 이벤트
-  pull_request                opened / ready_for_review / closed(머지된 것만) / review_requested
+  pull_request                opened / ready_for_review / reopened / closed(머지된 것만)
+                              / review_requested
   pull_request_review         submitted
   issue_comment               created — PR 에 달린 일반 코멘트
   pull_request_review_comment created — **답글만** (in_reply_to_id 가 있는 것)
 
-**메시지는 세 줄로 쓴다** — 무슨 일 / 어느 PR / 그래서 뭘 해야 하는지(+멘션+링크).
-embed 를 쓰지 않는다. embed 안의 멘션은 울리지 않고, 여러 건이 쌓이면 멘션과 PR 이
-따로 놀아서 누가 뭘 해야 하는지 안 보인다. remind_discord.py 와 모양을 맞춘다.
+**부를 사람과 할 일은 content, 무슨 일·어느 PR 은 embed.** 두 자리를 나눈 이유가 각각 있다.
+
+- 🚨 **멘션은 content 에만.** embed 안의 `<@id>` 는 링크로 보이기만 하고 알림이 가지 않는다.
+  `--dry-run` 으로는 멀쩡해 보여서 실제로 보내 보고야 알았다.
+- 📏 **embed 를 쓰는 건 스레드 때문이다.** 같은 웹훅이 연달아 보내면 디스코드가 메시지를
+  묶어서 이름·시각을 맨 위 한 번만 보여준다. 채널에서는 GitHub 링크 미리보기가 칸막이
+  노릇을 했는데, 미리보기를 끄면서(`<>`) 그것도 없어졌다. embed 왼쪽 색상 세로바가
+  그 자리를 대신하고, 색으로 종류까지 구분된다.
+
+`remind_discord.py` 도 같은 모양이다 — 그쪽은 건마다 메시지 하나로 쪼개서 맞춘다.
 
 🔇 **멘토·운영진이 남긴 것은 이 채널로 알리지 않는다.** 운영진 워크플로
 (`notify-discord.yml`)가 `#pr-alert-경북대` 로 이미 보내고 있어서, 여기까지 울리면

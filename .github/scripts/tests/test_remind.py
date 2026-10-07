@@ -124,6 +124,31 @@ def test_SINCE_가_없으면_그_시각에만():
     assert not r.slot_due(at(2026, 10, 7, 21), 17, 2)
 
 
+# ── 승인-미머지 ─────────────────────────────────────────────────────────
+
+def test_승인_미머지도_구간으로_본다():
+    """🐛 여기만 옛 `in_band`(1시간 구간)를 써서, 그 한 시간에 실행이 없으면 사라졌다."""
+    approved = at(2026, 10, 8, 10)          # 6시간 뒤 = 16:00
+    r.SINCE = at(2026, 10, 8, 15).astimezone(UTC)   # 15시에 돌고 다음이 21시
+    assert r.due_now(approved, r.APPROVED_UNMERGED_HOURS, at(2026, 10, 8, 21))
+    r.SINCE = at(2026, 10, 8, 21).astimezone(UTC)
+    assert not r.due_now(approved, r.APPROVED_UNMERGED_HOURS, at(2026, 10, 9, 3)), "또 나갔다"
+
+
+def test_승인_미머지도_조용한_시간을_지킨다():
+    """옛 `in_band` 는 조용한 시간을 아예 안 봐서 새벽 3시에 울릴 수 있었다."""
+    approved = at(2026, 10, 8, 20)          # 6시간 뒤 = 02:00
+    r.SINCE = at(2026, 10, 9, 1).astimezone(UTC)
+    assert not r.due_now(approved, r.APPROVED_UNMERGED_HOURS, at(2026, 10, 9, 3))
+    r.SINCE = at(2026, 10, 9, 3).astimezone(UTC)
+    assert r.due_now(approved, r.APPROVED_UNMERGED_HOURS, at(2026, 10, 9, 8)), "아침에 나가야 한다"
+
+
+def test_옛_in_band_는_지웠다():
+    """남겨 두면 누가 다시 가져다 쓴다. 구간을 안 보고 조용한 시간도 안 본다."""
+    assert not hasattr(r, "in_band")
+
+
 # ── 메시지 모양 ─────────────────────────────────────────────────────────
 
 def _finding(**kw):
