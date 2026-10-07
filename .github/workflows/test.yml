@@ -111,7 +111,7 @@ jobs:
           cache-dependency-path: bot/package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: bot
 
       - name: Run bot tests
