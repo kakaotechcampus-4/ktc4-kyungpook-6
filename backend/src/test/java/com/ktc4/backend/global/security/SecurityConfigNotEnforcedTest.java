@@ -13,6 +13,7 @@ import com.ktc4.backend.domain.qr.controller.QrCredentialController;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.controller.StoreController;
 import com.ktc4.backend.domain.store.service.StoreService;
+import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,10 +24,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -89,6 +94,41 @@ class SecurityConfigNotEnforcedTest {
     void ownerAdminApiAlwaysRequiresAdmin() throws Exception {
         mockMvc.perform(get("/api/admin/owners")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/admin/owners/3/approve")).andExpect(status().isUnauthorized());
+    }
+
+    // 승인은 "누가 인정했는지"를 남기므로 로그인한 관리자가 반드시 있어야 한다. 스위치가 꺼져 있어도 토큰 없는 요청이
+    // 서비스까지 닿지 않는다는 것과, 그때의 응답이 에러 처리 가이드의 규격(unauthorized / forbidden)이라는 것을 고정한다.
+    @Test
+    @DisplayName("꺼져 있어도 토큰 없는 승인·후보 조회는 가이드의 unauthorized 로 거절되고 서비스에 닿지 않는다")
+    void approveNeverReachesServiceWithoutAdmin() throws Exception {
+        expectProblem(mockMvc.perform(post("/api/admin/owners/3/approve")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.UNAUTHORIZED);
+        expectProblem(mockMvc.perform(get("/api/admin/owners/3/store-candidates")), ErrorCode.UNAUTHORIZED);
+
+        verifyNoInteractions(ownerApprovalService);
+    }
+
+    @Test
+    @DisplayName("꺼져 있어도 점주 토큰의 승인·후보 조회는 가이드의 forbidden 으로 거절된다 — 점주가 스스로를 승인할 수 없다")
+    void ownerCannotApprove() throws Exception {
+        String owner = "Bearer " + jwtProvider.issue(3L, MemberRole.OWNER).value();
+
+        expectProblem(mockMvc.perform(post("/api/admin/owners/3/approve").header(HttpHeaders.AUTHORIZATION, owner)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.FORBIDDEN);
+        expectProblem(mockMvc.perform(get("/api/admin/owners/3/store-candidates")
+                .header(HttpHeaders.AUTHORIZATION, owner)), ErrorCode.FORBIDDEN);
+
+        verifyNoInteractions(ownerApprovalService);
+    }
+
+    // 보안 필터의 거절 응답이 docs/에러_처리_가이드.md 의 모양(RFC 9457)인지 본다 — SecurityConfigTest 와 같은 확인이다.
+    private static void expectProblem(ResultActions result, ErrorCode errorCode) throws Exception {
+        result.andExpect(status().is(errorCode.getHttpStatus().value()))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(errorCode.getType().toString()))
+                .andExpect(jsonPath("$.title").value(errorCode.getTitle()))
+                .andExpect(jsonPath("$.status").value(errorCode.getHttpStatus().value()))
+                .andExpect(jsonPath("$.detail").doesNotExist());
     }
 
     @Test

@@ -66,12 +66,15 @@ public class AuthController {
                     (로그인하면 403 `owner-pending-approval`).
 
                     사업자등록번호는 하이픈이 있어도 되고, 서버가 숫자 10자리로 맞춰 저장합니다.
+                    휴대폰 번호(`phone`)도 하이픈이 있어도 되며 010·011·016·017·018·019 로 시작해야 합니다.
+                    가게를 등록할 때 적은 번호와 같으면 관리자가 가게를 찾기 쉬워집니다.
                     """)
     @SecurityRequirements
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "신청 완료 — 상태는 PENDING(승인 대기)"),
             @ApiResponse(responseCode = "400",
-                    description = "입력값이 비었거나 형식이 틀린 경우(errors 에 필드 표시), 사업자등록번호가 10자리가 아닌 경우",
+                    description = "입력값이 비었거나 형식이 틀린 경우(errors 에 필드 표시), 사업자등록번호가 10자리가 아닌 경우(invalid-biz-no), "
+                            + "휴대폰 번호 형식이 아닌 경우(invalid-phone)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "이미 가입된 이메일",
