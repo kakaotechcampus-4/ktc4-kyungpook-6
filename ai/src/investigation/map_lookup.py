@@ -126,6 +126,11 @@ class MapLookup:
     def __init__(self, sources: list) -> None:
         self._sources = sources
 
+    @property
+    def uses_kakao(self) -> bool:
+        """카카오 값 대조가 켜져 있는가 — 켜져 있으면 예전 "근처에 있다/없다" 확인(`KakaoPlaceChecker`)은 겹친다."""
+        return any(isinstance(s, KakaoLocalLookup) for s in self._sources)
+
     @classmethod
     def from_env(cls) -> MapLookup | None:
         """`NAVER_LOCAL_ENABLED`·`KAKAO_COMPARE_ENABLED` 가 "true" 인 출처만. 둘 다 꺼져 있으면 None."""

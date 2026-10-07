@@ -193,10 +193,10 @@ def _investigator(mode: str, provider: _Capturing, maps: _CapturingMaps):
     if mode == "web":
         return WebInvestigator(provider, place_checker=KakaoPlaceChecker())
     if mode == "fixed":
-        return WebInvestigator(provider, place_checker=KakaoPlaceChecker(), map_lookup=maps)
+        return WebInvestigator(provider, map_lookup=maps)  # 카카오는 값 대조 한 경로만(운영과 같게)
     from src.investigation.agent import AgentInvestigator, OpenAIDecider
     # AGENT_MODEL 이 있으면 그 모델(OpenAI 호환, 카테캠 프록시 등)이 판단하고, 없으면 Vertex Gemini 가 판단한다.
-    return AgentInvestigator(provider, map_lookup=maps, place_checker=KakaoPlaceChecker(), decider=OpenAIDecider.from_env())
+    return AgentInvestigator(provider, map_lookup=maps, decider=OpenAIDecider.from_env())
 
 
 def run(tag: str, mode: str = "web") -> int:

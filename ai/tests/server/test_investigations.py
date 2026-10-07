@@ -46,6 +46,24 @@ def test_GCP_프로젝트가_있으면_웹검색_조사를_쓴다(monkeypatch):
     assert built == ["vertex"]
 
 
+@pytest.mark.parametrize(("kakao_compare", "checker_expected"), [("true", False), ("false", True)])
+def test_카카오는_한_경로만_쓴다(monkeypatch, kakao_compare, checker_expected):
+    """값 대조가 켜져 있으면 예전 "근처에 있다/없다" 확인을 붙이지 않는다 — 같은 카카오를 두 번 부르지 않게."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("KAKAO_REST_API_KEY", "k")
+    monkeypatch.setenv("KAKAO_COMPARE_ENABLED", kakao_compare)
+    monkeypatch.delenv("NAVER_LOCAL_ENABLED", raising=False)
+    monkeypatch.setattr(main, "VertexResearchProvider", lambda: object())
+    main._web_investigator.cache_clear()
+    try:
+        investigator = main.get_investigator()
+    finally:
+        main._web_investigator.cache_clear()
+
+    assert (investigator._place_checker is not None) is checker_expected
+    assert (investigator._map_lookup is not None) is (kakao_compare == "true")
+
+
 def test_알려진_케이스를_조사한다(client):
     app.dependency_overrides[get_investigator] = MockInvestigator
 
