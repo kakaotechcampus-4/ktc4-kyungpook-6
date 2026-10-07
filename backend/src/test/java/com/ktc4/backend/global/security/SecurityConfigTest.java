@@ -110,7 +110,8 @@ class SecurityConfigTest {
         void allowsOwnerSignup() throws Exception {
             mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
-                                    + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\"}"))
+                                    + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\","
+                                    + "\"phone\":\"010-0000-0000\"}"))
                     .andExpect(status().isCreated());
         }
 
@@ -118,6 +119,7 @@ class SecurityConfigTest {
         @DisplayName("점주 승인 API 는 401")
         void blocksOwnerAdminApi() throws Exception {
             expectProblem(mockMvc.perform(get("/api/admin/owners")), ErrorCode.UNAUTHORIZED);
+            expectProblem(mockMvc.perform(get("/api/admin/owners/3/store-candidates")), ErrorCode.UNAUTHORIZED);
             expectProblem(mockMvc.perform(post("/api/admin/owners/3/approve")), ErrorCode.UNAUTHORIZED);
         }
 
@@ -159,11 +161,15 @@ class SecurityConfigTest {
         }
 
         @Test
-        @DisplayName("점주 가입 신청 목록과 승인을 부를 수 있다")
+        @DisplayName("점주 가입 신청 목록, 후보 가게 조회, 승인을 부를 수 있다")
         void allowsOwnerAdminApi() throws Exception {
             mockMvc.perform(get("/api/admin/owners").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
                     .andExpect(status().isOk());
-            mockMvc.perform(post("/api/admin/owners/3/approve").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
+            mockMvc.perform(get("/api/admin/owners/3/store-candidates")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post("/api/admin/owners/3/approve").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}"))
                     .andExpect(status().isOk());
         }
     }

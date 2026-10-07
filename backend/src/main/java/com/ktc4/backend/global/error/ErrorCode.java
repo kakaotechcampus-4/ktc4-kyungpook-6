@@ -39,8 +39,19 @@ public enum ErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다"),
     DUPLICATE_EMAIL(HttpStatus.CONFLICT, "이미 가입된 이메일입니다"),
     INVALID_BIZ_NO(HttpStatus.BAD_REQUEST, "사업자등록번호 형식이 올바르지 않습니다"),
+    INVALID_PHONE(HttpStatus.BAD_REQUEST, "휴대폰 번호 형식이 올바르지 않습니다"),
     PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호가 너무 깁니다"),
     OWNER_ALREADY_REVIEWED(HttpStatus.CONFLICT, "이미 처리된 가입 신청입니다"),
+
+    // 관리자 조사(Job)
+    NO_INVESTIGATION_TARGET(HttpStatus.BAD_REQUEST, "조사할 가게가 없습니다"),
+    JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "조사를 찾을 수 없습니다"),
+    JOB_ALREADY_RUNNING(HttpStatus.CONFLICT, "진행 중인 조사가 있습니다"),
+
+    // 조사 결과 확인(Task → Verification)
+    TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "조사 결과를 찾을 수 없습니다"),
+    TASK_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확인한 조사 결과입니다"),
+    NOTHING_TO_APPLY(HttpStatus.CONFLICT, "반영할 수 있는 수정안이 없습니다"),
 
     // 아래 넷은 GlobalExceptionHandler.errorCodeFor 가 프레임워크 예외의 상태코드를 매핑할 때 쓴다.
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 경로를 찾을 수 없습니다"),

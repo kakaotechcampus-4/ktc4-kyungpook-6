@@ -20,11 +20,24 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class StoreService {
+
+    /** 후보 가게를 이만큼만 보여준다. 흔한 이름으로 신청해도 관리자 화면이 넘치지 않게 하기 위해서다. */
+    static final int MAX_OWNER_CANDIDATES = 20;
+
+    /**
+     * 후보를 찾을 때 "이 단서로는 찾지 않는다"를 뜻하는 값. 숫자만 남긴 번호에도, 한글·영문·숫자만 남긴
+     * 이름에도 나올 수 없는 글자라 어떤 가게와도 맞지 않는다.
+     */
+    static final String NO_MATCH = "#";
+
+    /** 정규화한 상호명이 이보다 짧으면 이름으로는 후보를 찾지 않는다. */
+    static final int MIN_NAME_LENGTH_FOR_SEARCH = 2;
 
     private final StoreRepository storeRepository;
 
@@ -115,6 +128,35 @@ public class StoreService {
     }
 
     /**
+     * 점주 가입 신청에 연결할 후보 가게를 찾는다. 사업자등록번호가 같은 가게, 전화번호가 같은 가게,
+     * 이름이 겹치는 가게 순서다.
+     *
+     * <p>이름은 가게 이름과 같은 규칙으로 정규화해 비교한다. 정규화하고 남는 글자가
+     * {@value #MIN_NAME_LENGTH_FOR_SEARCH}자보다 적으면 이름으로는 찾지 않는다 — 빈 값은 모든 가게와,
+     * 한 글자는 사실상 모든 가게와 겹쳐 맞는 가게가 건수 제한에 잘린다.
+     *
+     * <p>비어 있는 단서로는 찾지 않는다. 빈 값으로 찾으면 그 칸이 비어 있는 가게가 전부 후보가 된다.
+     * 사업자등록번호는 가입할 때 10자리를 확인하므로 빌 일이 없지만, 다른 단서와 똑같이 막아 둔다.
+     *
+     * @param bizNo     신청서의 사업자등록번호 (숫자 10자리)
+     * @param phone     신청서의 휴대폰 번호 (숫자만). 이 칸이 생기기 전에 가입한 점주는 {@code null}
+     * @param storeName 신청서의 상호명
+     * @return 후보 가게. 최대 {@value #MAX_OWNER_CANDIDATES}곳
+     */
+    public List<Store> findOwnerCandidates(String bizNo, String phone, String storeName) {
+        String nameNormalized = StoreNormalizer.normalizeName(storeName);
+        return storeRepository.findOwnerCandidates(
+                orNoMatch(bizNo),
+                orNoMatch(phone),
+                nameNormalized.length() < MIN_NAME_LENGTH_FOR_SEARCH ? NO_MATCH : nameNormalized,
+                MAX_OWNER_CANDIDATES);
+    }
+
+    private static String orNoMatch(String clue) {
+        return clue == null || clue.isEmpty() ? NO_MATCH : clue;
+    }
+
+    /**
      * 담당자가 가게 정보를 직접 확인했음을 현재 시각으로 기록한다.
      *
      * @param storeId 확인 완료 처리할 가게 ID
@@ -123,9 +165,23 @@ public class StoreService {
      */
     @Transactional
     public StoreResponse confirmStore(Long storeId) {
+        return confirmStore(storeId, LocalDateTime.now());
+    }
+
+    /**
+     * 담당자가 가게 정보를 직접 확인했음을 넘겨받은 시각으로 기록한다. 확인 기록(Verification)과 가게 확인일을
+     * 같은 시각으로 맞출 때 쓴다.
+     *
+     * @param storeId     확인 완료 처리할 가게 ID
+     * @param confirmedAt 확인 완료로 기록할 시각
+     * @return 확인 시각이 갱신된 가게 정보
+     * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    @Transactional
+    public StoreResponse confirmStore(Long storeId, LocalDateTime confirmedAt) {
         Store store = findStore(storeId);
 
-        store.confirm(LocalDateTime.now());
+        store.confirm(confirmedAt);
 
         return StoreResponse.from(store);
     }
