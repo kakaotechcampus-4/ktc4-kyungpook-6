@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""매 시간 돌면서 사람이 손써야 하는 PR 만 디스코드에 알린다.
+"""사람이 손써야 하는 PR 만 골라 디스코드로 알린다.
 
-봇이 아니라 GitHub Actions 의 schedule(cron) + 웹훅이다. 알림만 보내면 되니
-24시간 켜둘 서버가 필요 없다. 디코에서 명령어로 조회하고 싶어지면 그때 봇을 얹는다.
+봇이 아니라 GitHub Actions + 웹훅이다. 알림만 보내면 되니 24시간 켜둘 서버가 필요 없다.
 
-**같은 PR 을 매시간 다시 알리지 않는 방법** — 조건을 "임계값을 넘었다"가 아니라
-"이번 한 시간 안에 임계값을 넘었다"로 좁힌다. 예를 들어 리뷰 없이 24시간이 지난 PR 이
-아니라, 열린 지 24시간 이상 25시간 미만인 PR 만 고른다. 매시간 도니까 각 PR 은 그 구간을
-정확히 한 번만 지나간다. 상태를 저장할 곳이 없어도 중복이 안 생긴다.
+**언제 도나** — cron(`0 * * * *`)으로는 모자라서 트리거가 셋이다.
+`Notify Discord (team PR)`·`Test` 가 끝날 때도 `workflow_run` 으로 깨운다.
+**cron 이 적힌 대로 돌지 않기 때문이다** — 자세한 건 `load_since()` 주석에.
 
-마감 알림과 충돌 점검은 시각이 고정이라(수 18:00 / 토 10:00 / 일 23:59, 매일 10:00)
-구간 계산이 필요 없다.
+**같은 건을 두 번 알리지 않는 방법** — 이번 실행이 책임지는 구간을
+**`(직전 성공 실행, 지금]`** 으로 잡고(`load_since()` · `window_start()`), 그 구간 안에서
+임계값을 넘긴 것만 고른다. 구간이 겹치지 않으니 몇 번을 더 돌든 한 번만 나간다.
+상태를 저장할 곳이 없어도 중복이 안 생긴다. 고정 시각(마감·점검)도 같은 구간으로 본다
+(`slot_due()`).
 
-멘션 대상은 `.github/discord-members.json` 이 정한다. 사람이 바뀌면 그 파일만 고친다.
+**어떻게 보내나** — **건마다 메시지 하나**다(`to_payloads()`). 멘션은 content 에,
+무슨 일·어느 PR 은 embed 에 담는다. 묶어 보내면 멘션이 맨 위에 뭉쳐 누가 어느 PR 을
+봐야 하는지 안 보이고, embed 안의 멘션은 아예 울리지 않는다.
+
+멘션 대상은 저장소 시크릿 `DISCORD_MEMBERS` 가 정한다(`discord_members.py`).
+저장소에는 두지 않는다 — 공개 저장소라 깃허브 계정·디스코드 계정·실명이 한 줄에 묶인
+목록이 이력에 남는다. 형식은 `.github/discord-members.example.json`.
 
 로컬 확인:
     GITHUB_TOKEN=$(gh auth token) GITHUB_REPOSITORY=kakaotechcampus-4/ktc4-kyungpook-6 \
@@ -49,15 +56,15 @@ NO_REVIEWER_HOURS = 2
 # 리뷰가 없으면 그 뒤로는 아무 말이 없었다 — 실제로 24시간·19시간째 리뷰 0건인 PR 이 생겼다
 # (2026-10-07). 기한을 넘긴 PR 은 **하루 한 번 정해진 시각에** 다시 부른다.
 #
-# 매시간 보지 않는 이유 — 하루 종일 같은 PR 로 울리면 알림이 무뎌진다. 하루 한 번이면
+# 매번 보지 않는 이유 — 하루 종일 같은 PR 로 울리면 알림이 무뎌진다. 하루 한 번이면
 # 그 PR 당 정확히 한 번이라 중복도 없다.
 STALE_REVIEW_HOURS = 24
 STALE_CHECK_HOUR = 10   # KST. 조용한 시간 밖이라 따로 밀 필요가 없다
 
 # 승인됐는데 머지되지 않고 이만큼 지나면 알린다 (시간)
 APPROVED_UNMERGED_HOURS = 6
-# 충돌난 PR 을 점검하는 시각 (KST). 충돌은 "언제 깨졌는지" 타임스탬프가 없어서
-# 구간 계산을 못 한다. 그래서 하루 한 번 고정 시각에만 본다.
+# 충돌을 훑는 시각 (KST). 충돌은 "언제 깨졌는지" 타임스탬프가 없어 구간 계산을 못 한다.
+# 그래서 하루 한 번 이 시각에 전수로 본다 — 할 말이 생긴 PR 은 그때마다 따로 확인한다.
 CONFLICT_CHECK_HOUR = 10
 
 # 조용한 시간 (KST). 이 사이에 임계값을 넘긴 건은 울리지 않고 QUIET_END 로 미뤄서
@@ -117,11 +124,6 @@ def parse_ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def in_band(hours_elapsed: float, threshold: int) -> bool:
-    """임계값을 이번 한 시간 안에 넘었는가. 매시간 실행이면 PR 하나당 한 번만 참이다."""
-    return threshold <= hours_elapsed < threshold + 1
-
-
 def wake_at(crossed: datetime) -> datetime:
     """임계값을 넘은 시각을 조용한 시간 밖으로 민다.
 
@@ -147,7 +149,7 @@ def wake_at(crossed: datetime) -> datetime:
 CATCH_UP = False   # --catch-up 이면 시간 구간을 무시하고 "이미 넘긴 것"을 전부 본다
 
 # 직전 성공 실행 시각. 이번 실행이 책임지는 구간은 (SINCE, now] 다.
-# None 이면 알아내지 못한 것이고, 그때는 "한 시간 구간"으로 되돌아간다.
+# None 이면 알아내지 못한 것이고, 그때는 "지난 한 시간"으로 되돌아간다(안전한 쪽).
 SINCE: datetime | None = None
 
 # 구간 상한. 워크플로가 오래 멈췄다 돌아왔을 때 며칠 치가 한꺼번에 쏟아지는 걸 막는다.
@@ -170,7 +172,7 @@ def load_since(repo: str, token: str, now: datetime) -> datetime | None:
     5~7시간에 한 번 돌았다(2026-10-07 확인: 34.6시간 동안 7번, 기대치의 20%).
     GitHub 의 예약 실행은 부하가 걸리면 밀리거나 **통째로 건너뛴다.**
 
-    "매시간 도니까 각 건은 1시간 구간을 정확히 한 번 지나간다"가 이 스크립트의 핵심
+    "매시간 도니까 각 건은 1시간 구간을 정확히 한 번 지나간다"가 원래 이 스크립트의 핵심
     아이디어였는데, 그 구간이 통째로 없어지면 **알림이 영영 사라진다.** 상태를 저장하지
     않는 설계라 되살릴 길도 없다. 실제로 수요일 17:00 준비 점검이 그렇게 날아갔다.
 
@@ -381,7 +383,10 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
 
         if state == "APPROVED":
             since = approved_at(reviews)
-            if since and in_band((now - since).total_seconds() / 3600, APPROVED_UNMERGED_HOURS):
+            # due_now 를 쓴다. 예전엔 여기만 in_band(옛 1시간 구간)였는데, cron 이
+            # 5~7시간에 한 번 도는 지금은 그 한 시간에 실행이 없으면 **영영 안 나간다.**
+            # due_now 는 구간(직전 실행 이후)과 조용한 시간을 둘 다 본다.
+            if since and due_now(since, APPROVED_UNMERGED_HOURS, now):
                 pr_findings.append({
                     "color": COLOR_INFO,
                     "headline": "🟢 승인됐는데 아직 머지되지 않았습니다",
@@ -412,7 +417,7 @@ def is_conflicted(repo: str, token: str, pr: dict) -> bool:
     """충돌인가. `mergeable` 은 목록 API 에 없고 개별 조회에서만 나온다.
 
     GitHub 이 아직 계산 전이면 null 이 온다. 그때는 **아니라고 본다** — 없는 걸 있다고
-    말하는 쪽보다 한 번 거르는 쪽이 낫다. 매시간 다시 보므로 다음 시간에 잡힌다.
+    말하는 쪽보다 한 번 거르는 쪽이 낫다. 다음 실행에서 다시 보므로 결국 잡힌다.
     """
     try:
         detail = gh(f"/repos/{repo}/pulls/{pr['number']}", token)
@@ -433,7 +438,8 @@ def conflict_finding(pr: dict) -> dict:
 
 
 def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | None) -> list[dict]:
-    """팀 일정 마감 알림. 시각이 고정이라 구간 계산이 필요 없다.
+    """팀 일정 마감 알림. 고정 시각이지만 `slot_due()` 로 본다 — cron 이 그 시각에
+    안 돌 수 있어서, "그 시각이 이번 구간 안에 들어왔는가" 로 봐야 안 사라진다.
 
     수 18:00 1차 PR · 토 10:00 2차 재리뷰 요청 · 일 23:59 main 머지
     (`_local/주차별_PR/README.md` 의 일정표)
@@ -441,8 +447,6 @@ def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | 
     - 이른 경고(3·2·4시간 전)는 멘션 없이 채널에만 띄운다.
     - 1시간 전에는 테크리더를 직접 멘션한다. 마감을 넘긴 적이 있어서 생긴 알림이다.
     """
-    k = now.astimezone(KST)
-    weekday, hour = k.weekday(), k.hour  # 월=0
     out: list[dict] = []
 
     if slot_due(now, 15, 2) and main_pr is None:
@@ -733,7 +737,10 @@ def main() -> int:
     # cron 이 적힌 대로 돌지 않는다(5~7시간에 한 번). "지난 한 시간" 대신 "직전 실행 이후"를
     # 구간으로 써야 건너뛴 시각의 알림이 사라지지 않는다. load_since() 주석 참고.
     global SINCE
-    if not CATCH_UP:
+    # --now 는 "그 시각인 것처럼" 굴려 보는 디버깅 수단이다. 그때 실제 직전 실행 시각을
+    # 읽으면 구간이 **거꾸로 뒤집힌다**(직전 실행이 미래) — 아무것도 안 잡혀서 재현이 안 된다.
+    # 그래서 --now 를 주면 구간을 안 쓰고 "지난 한 시간"으로 본다. 예전과 같은 동작이다.
+    if not CATCH_UP and not args.now:
         SINCE = load_since(repo, token, now)
         if SINCE:
             gap = (now - SINCE).total_seconds() / 3600
@@ -741,6 +748,8 @@ def main() -> int:
                   f"이후 구간을 봅니다")
         else:
             print("직전 실행을 못 찾아 지난 한 시간만 봅니다")
+    elif args.now:
+        print("--now 로 굴리는 중이라 구간 대신 '지난 한 시간'으로 봅니다")
 
     try:
         findings = build_findings(repo, token, now)
