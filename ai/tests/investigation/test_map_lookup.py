@@ -171,3 +171,48 @@ class TestLookups:
         monkeypatch.delenv("KAKAO_COMPARE_ENABLED", raising=False)
 
         assert MapLookup.from_env() is None
+
+
+class StubAgent:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def continue_from(self, target, maps):
+        self.calls.append(maps)
+        return classify(target, ResearchResult(maps))
+
+
+class TestHybrid:
+    """혼합 방식 — 지도로 확정되면 규칙으로 끝내고, 아니면 에이전트가 이어서 조사한다."""
+
+    CONFIRMED = [map_obs(ChangeField.NAME, "빠레뜨치킨"), map_obs(ChangeField.ADDRESS, "대구 서구 국채보상로67길 38"),
+                 map_obs(ChangeField.PHONE, "053-567-3050")]
+
+    def test_지도로_전부_확인되면_에이전트를_부르지_않는다(self):
+        agent = StubAgent()
+
+        WebInvestigator(Research(), map_lookup=Maps(self.CONFIRMED), agent=agent).investigate(TARGET)
+
+        assert agent.calls == []
+
+    def test_저장할_수_있는_값으로_변화가_확인되면_에이전트를_부르지_않는다(self):
+        agent = StubAgent()
+        maps = [map_obs(ChangeField.ADDRESS, "대구 서구 국채보상로67길 40", "map.naver.com", storable=True)]
+
+        WebInvestigator(Research(), map_lookup=Maps(maps), agent=agent).investigate(TARGET)
+
+        assert agent.calls == []
+
+    def test_카카오에만_다른_값이면_에이전트가_이어서_조사한다(self):
+        agent, research = StubAgent(), Research()
+
+        WebInvestigator(research, map_lookup=Maps([map_obs(ChangeField.PHONE, "053-567-3080")]), agent=agent).investigate(TARGET)
+
+        assert len(agent.calls) == 1 and research.calls == 0
+
+    def test_에이전트가_없으면_카카오에만_다른_값도_지도로_끝낸다(self):
+        research = Research()
+
+        WebInvestigator(research, map_lookup=Maps([map_obs(ChangeField.PHONE, "053-567-3080")])).investigate(TARGET)
+
+        assert research.calls == 0

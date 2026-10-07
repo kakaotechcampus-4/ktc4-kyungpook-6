@@ -189,14 +189,18 @@ class _CapturingMaps:
 
 
 def _investigator(mode: str, provider: _Capturing, maps: _CapturingMaps):
-    """web: 지금 운영(웹검색만) · fixed: 지도 먼저, 안 되면 웹(규칙) · agent: 에이전트가 도구 선택."""
+    """web: 웹검색만 · fixed: 지도 먼저, 안 되면 웹(규칙) · agent: 에이전트가 처음부터 ·
+    hybrid: 지도 먼저, 확정 안 되면 에이전트가 이어서."""
     if mode == "web":
         return WebInvestigator(provider, place_checker=KakaoPlaceChecker())
     if mode == "fixed":
         return WebInvestigator(provider, map_lookup=maps)  # 카카오는 값 대조 한 경로만(운영과 같게)
     from src.investigation.agent import AgentInvestigator, OpenAIDecider
     # AGENT_MODEL 이 있으면 그 모델(OpenAI 호환, 카테캠 프록시 등)이 판단하고, 없으면 Vertex Gemini 가 판단한다.
-    return AgentInvestigator(provider, map_lookup=maps, decider=OpenAIDecider.from_env())
+    agent = AgentInvestigator(provider, map_lookup=maps, decider=OpenAIDecider.from_env())
+    if mode == "hybrid":
+        return WebInvestigator(provider, map_lookup=maps, agent=agent)
+    return agent
 
 
 def run(tag: str, mode: str = "web") -> int:
@@ -218,10 +222,14 @@ def run(tag: str, mode: str = "web") -> int:
         out = {"storeId": row["storeId"], "사업장명": row["truth_name"], "case": row["bench_case"],
                "field": row["bench_field"] or "", "truth": row["bench_truth"] or "", "injected": row["bench_injected"] or ""}
         provider.last, provider.queries, provider.calls, maps.last = None, [], 0, []
+        agent = investigator if mode == "agent" else getattr(investigator, "_agent", None)
+        if agent is not None:
+            from src.investigation.agent import Trace
+            agent.last_trace, agent.last_observations = Trace(), []  # 혼합 방식에서 에이전트가 안 불린 가게는 빈 기록
         started = time.time()
         try:
             found = investigator.investigate(target)
-            trace = getattr(investigator, "last_trace", None)
+            trace = agent.last_trace if agent is not None else None
             web = provider.last.observations if provider.last else []
             # 카카오 값(storable=False)은 시트에 남기지 않는다 — 실시간 비교 후 폐기만 허용(약관).
             kept_obs = [o for o in maps.last + web if o.sources and o.storable]
@@ -229,8 +237,8 @@ def run(tag: str, mode: str = "web") -> int:
                 "AI판정": found.classification.value,
                 "수정안": json.dumps(found.proposed_changes, ensure_ascii=False),
                 "신호항목": json.dumps([s.field.value for s in found.signals if s.field]),
-                "덩어리": coverage(target, investigator.last_observations if mode == "agent" else maps.last + web),
-                "LLM호출": str(trace.llm_calls if trace else provider.calls),
+                "덩어리": coverage(target, (agent.last_observations or maps.last) if agent is not None else maps.last + web),
+                "LLM호출": str(trace.llm_calls if trace is not None else provider.calls),
                 "관측": json.dumps(
                     [{"field": o.field.value, "value": o.value, "observed_at": o.observed_at,
                       "domains": sorted(o.domains)} for o in kept_obs],
@@ -339,7 +347,7 @@ def main() -> int:
     sub.add_parser("build").add_argument("--n", type=int, default=60)
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--tag", required=True)
-    run_parser.add_argument("--mode", choices=("web", "fixed", "agent"), default="web")
+    run_parser.add_argument("--mode", choices=("web", "fixed", "agent", "hybrid"), default="web")
     sub.add_parser("grade").add_argument("--tag", required=True)
     args = parser.parse_args()
     if args.command == "build":

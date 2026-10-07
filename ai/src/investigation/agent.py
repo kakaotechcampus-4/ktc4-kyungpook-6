@@ -84,6 +84,32 @@ def build_agent_prompt(target: InvestigationTarget) -> str:
 - 값이 바뀌었는지는 네가 판단하지 않는다. 찾기만 해라"""
 
 
+def build_continue_prompt(target: InvestigationTarget, maps_summary: str) -> str:
+    """지도 대조를 마친 뒤 이어서 조사하는 프롬프트(혼합 방식). 지도로 확정되지 않은 가게만 여기 온다."""
+    return f"""너는 가게 정보를 확인하는 담당자를 돕는 조사원이다. 우리 DB 의 아래 값이 지금도 맞는지 확인하고 있다.
+
+상호: {target.name}
+주소: {target.address or "(없음)"}
+전화: {target.phone or "(없음)"}
+
+지도 대조는 이미 했다. 결과(항목: DB 와의 관계(출처)):
+{maps_summary}
+
+지도만으로는 확정되지 않았다. 웹에서 무엇을 더 찾을지 정해라.
+
+도구:
+- web_search(field, goal): 웹에서 찾는다. field 는 name·address·phone·status 중 하나, 또는 all.
+  goal 에는 무엇을 확인하려는지 적어라
+- finish(reason): 조사를 끝낸다
+
+방법:
+- 카카오맵에서만 "다름" 인 항목은 그 항목을 웹에서 찾아 실제 값을 확인해라(카카오 값은 수정안에 쓸 수 없다)
+- 지도에서 **아무 항목도 못 찾았으면** web_search("all") 한 번으로 전부 찾아라
+- "못 찾음"·"판단 보류" 인 항목만 찾아라. 이미 일치한 항목은 다시 찾지 마라
+- 웹검색은 많아야 {MAX_WEB_SEARCHES}번이다. 더 찾을 것이 없으면 끝내라
+- 값이 바뀌었는지는 네가 판단하지 않는다. 찾기만 해라"""
+
+
 def build_focused_prompt(target: InvestigationTarget, change_field: ChangeField, goal: str) -> str:
     """한 항목만 찾는 웹검색 프롬프트. 줄 형식·규칙은 기본 조사(`build_research_prompt`)와 같다."""
     item = {ChangeField.NAME: "name: 현재 상호명. 상호를 바꿨다면 바뀐 이름",
@@ -140,10 +166,11 @@ class OpenAIDecider:
         base = os.environ.get("AGENT_BASE_URL") or (os.environ.get("GOOGLE_PROXY_URL", "").rstrip("/") + "/v1")
         return cls(model, base, os.environ.get("AGENT_API_KEY") or os.environ.get("GOOGLE_API_KEY", ""))
 
-    def respond(self, items: list[dict]) -> list[dict]:
+    def respond(self, items: list[dict], tool_names: list[str] | None = None) -> list[dict]:
         """지금까지의 입력·출력 항목을 주고 이번 출력 항목(추론·함수 호출·문장)을 받는다."""
+        tools = [t for t in OPENAI_TOOLS if tool_names is None or t["name"] in tool_names]
         response = self._http.post(self._url, json={
-            "model": self.model, "input": items, "tools": OPENAI_TOOLS,
+            "model": self.model, "input": items, "tools": tools,
             "store": False, "include": ["reasoning.encrypted_content"],
         })
         response.raise_for_status()
@@ -228,10 +255,18 @@ class AgentInvestigator:
     # ------------------------------------------------------------ 조사
 
     def investigate(self, target: InvestigationTarget) -> StoreFinding:
+        """처음부터 조사한다 — 지도 대조도 에이전트가 고른다."""
+        return self._investigate(target, [], maps_done=False)
+
+    def continue_from(self, target: InvestigationTarget, maps: list[Observation]) -> StoreFinding:
+        """지도 대조를 마친 가게를 이어서 조사한다(혼합 방식) — 지도로 확정되지 않은 가게만 온다."""
+        return self._investigate(target, list(maps), maps_done=True)
+
+    def _investigate(self, target: InvestigationTarget, start: list[Observation], *, maps_done: bool) -> StoreFinding:
         trace = self.last_trace = Trace()
-        observations: list[Observation] = []
+        observations: list[Observation] = start
         self.last_observations = observations
-        checked_maps = False
+        checked_maps = maps_done
 
         def check_maps() -> str:
             """네이버 지도·카카오맵에 등록된 정보와 DB 를 항목별로 대조한다."""
@@ -276,11 +311,18 @@ class AgentInvestigator:
             trace.steps.append(f"finish → {reason}")
             return "끝"
 
-        tools = {"check_maps": check_maps, "web_search": web_search, "finish": finish}
-        if self._decider is not None:
-            self._run_openai(build_agent_prompt(target), tools, trace)
+        if maps_done:
+            summary = self._summarize(target, observations, (ChangeField.NAME, ChangeField.ADDRESS, ChangeField.PHONE))
+            trace.steps.append("지도 대조(규칙) → " + summary.replace("\n", " / "))
+            prompt = build_continue_prompt(target, summary)
+            tools = {"web_search": web_search, "finish": finish}
         else:
-            self._run_gemini(build_agent_prompt(target), tools, trace)
+            prompt = build_agent_prompt(target)
+            tools = {"check_maps": check_maps, "web_search": web_search, "finish": finish}
+        if self._decider is not None:
+            self._run_openai(prompt, tools, trace)
+        else:
+            self._run_gemini(prompt, tools, trace)
 
         place = self._place_checker.check(target) if self._place_checker else None
         logger.info("조사 과정 (storeId=%s): %s", target.store_id, " | ".join(trace.steps))
@@ -291,7 +333,7 @@ class AgentInvestigator:
         calls = 0
         while calls < MAX_STEPS:
             trace.llm_calls += 1
-            output = self._decider.respond(items)
+            output = self._decider.respond(items, list(tools))
             items += output  # 추론(암호화)·함수 호출을 그대로 되돌려 줘야 다음 턴이 이어진다
             tool_calls = [o for o in output if o.get("type") == "function_call"]
             if not tool_calls:

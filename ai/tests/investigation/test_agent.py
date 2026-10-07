@@ -25,7 +25,8 @@ class ScriptedDecider:
     def __init__(self, *turns: list[dict]) -> None:
         self.turns, self.seen = list(turns), []
 
-    def respond(self, items: list[dict]) -> list[dict]:
+    def respond(self, items: list[dict], tool_names: list[str] | None = None) -> list[dict]:
+        self.tool_names = tool_names
         self.seen.append(json.dumps(items, ensure_ascii=False))
         calls = self.turns.pop(0) if self.turns else []
         return calls or [{"type": "message", "content": [{"type": "output_text", "text": "끝"}]}]
@@ -98,3 +99,30 @@ def test_판정은_규칙이_한다_도구를_안_불러도_결과가_나온다(
     found = agent.investigate(TARGET)
 
     assert found.classification.value == "NO_CHANGE" and found.signals == []
+
+
+class TestContinueFrom:
+    """혼합 방식 — 지도 대조를 마친 가게를 에이전트가 이어서 조사한다."""
+
+    def test_지도_결과를_받아_check_maps_없이_시작한다(self):
+        decider = ScriptedDecider([call("web_search", field="name", goal="카카오에만 다른 상호 확인")],
+                                  [call("finish", reason="확인")])
+        research = Research(ResearchResult([web(ChangeField.NAME, "빠레뜨치킨 본점")]))
+        agent = AgentInvestigator(research, decider=decider, client=object())
+
+        agent.continue_from(TARGET, [kakao(ChangeField.NAME, "빠레또치킨")])
+
+        assert decider.tool_names == ["web_search", "finish"]
+        first_prompt = decider.seen[0]
+        assert "지도 대조는 이미 했다" in first_prompt and "빠레또치킨" not in first_prompt
+        assert agent.last_trace.steps[0].startswith("지도 대조(규칙)")
+
+    def test_웹에서_확인한_값으로_수정안을_채운다(self):
+        decider = ScriptedDecider([call("web_search", field="phone", goal="카카오에만 다른 전화 확인")],
+                                  [call("finish", reason="확인")])
+        research = Research(ResearchResult([web(ChangeField.PHONE, "053-567-3080")]))
+        agent = AgentInvestigator(research, decider=decider, client=object())
+
+        found = agent.continue_from(TARGET, [kakao(ChangeField.PHONE, "053-567-3080")])
+
+        assert found.proposed_changes == {"phone": "053-567-3080"}
