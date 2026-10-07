@@ -32,6 +32,8 @@ jobs:
       - name: Delete messages
         env:
           DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
+          # 보낼 때와 같은 스레드를 봐야 지울 메시지를 찾는다. 안 맞으면 404.
+          DISCORD_THREAD_ID: ${{ vars.DISCORD_THREAD_ID }}
           MESSAGE_IDS: ${{ inputs.message_ids }}
         # 🔒 입력은 외부 문자열이다. run: 안에 ${{ }} 로 펼치지 않고 env 로 넘긴다.
         run: python3 .github/scripts/delete_discord_messages.py $MESSAGE_IDS

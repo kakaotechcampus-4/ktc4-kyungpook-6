@@ -36,6 +36,12 @@ jobs:
           DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
           # 멘션 대상 매핑 (형식: .github/discord-members.example.json)
           DISCORD_MEMBERS: ${{ secrets.DISCORD_MEMBERS }}
+          # 알림을 채널이 아니라 그 안의 스레드 하나로 보낸다 (📋 PR 현황판).
+          # 비워 두면 지금까지처럼 채널로 간다.
+          # 스레드 ID 는 비밀이 아니라서 시크릿이 아닌 저장소 변수(Variables)에 둔다.
+          # 변수는 값을 다시 읽을 수 있다 — 시크릿은 넣고 나면 못 읽어서, 빈 값이
+          # 들어가도 성공한 것처럼 조용히 넘어간다. 실제로 두 번 겪었다.
+          DISCORD_THREAD_ID: ${{ vars.DISCORD_THREAD_ID }}
         run: |
           python3 .github/scripts/remind_discord.py \
             ${{ inputs.catch_up && '--catch-up' || '' }}

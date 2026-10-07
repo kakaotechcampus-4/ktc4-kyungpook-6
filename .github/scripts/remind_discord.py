@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discord_members as dm  # noqa: E402
+import discord_webhook as dw  # noqa: E402
 
 KST = timezone(timedelta(hours=9))
 API = "https://api.github.com"
@@ -501,10 +502,9 @@ def to_payload(findings: list[dict]) -> dict:
     return {"content": body[:1900], "allowed_mentions": {"parse": ["users"]}}
 
 
-def post(webhook: str, payload: dict) -> None:
-    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
+def _send(url: str, payload: dict) -> None:
     req = urllib.request.Request(
-        webhook,
+        url,
         data=json.dumps(payload).encode(),
         headers={
             "Content-Type": "application/json",
@@ -514,13 +514,24 @@ def post(webhook: str, payload: dict) -> None:
         },
         method="POST",
     )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        print(f"디스코드 응답: {resp.status}")
+
+
+def post(webhook: str, payload: dict) -> None:
+    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
+    url = dw.with_thread(webhook)
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            print(f"디스코드 응답: {resp.status}")
+        _send(url, payload)
     except urllib.error.HTTPError as e:
         # 웹훅 URL 은 절대 찍지 않는다. 응답 본문만 남겨야 원인을 안다.
         print(f"디스코드 전송 실패: {e.code} {e.reason}\n{e.read().decode(errors='replace')[:400]}")
-        raise
+        # 스레드가 지워졌거나 잠겼으면 **알림이 통째로 사라진다.** 묻히는 것보다 나쁘다.
+        if url == webhook:
+            raise
+        print(f"::warning::{dw.THREAD_ENV} 로 보내지 못해 채널로 보냅니다. "
+              "스레드가 지워졌거나 잠긴 건 아닌지 확인하세요.")
+        _send(webhook, payload)
 
 
 def main() -> int:

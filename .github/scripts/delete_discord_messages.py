@@ -21,12 +21,17 @@ import sys
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import discord_webhook as dw  # noqa: E402
+
 UA = "ktc4-kyungpook-6-notifier (https://github.com/kakaotechcampus-4/ktc4-kyungpook-6)"
 
 
 def delete(webhook: str, message_id: str) -> str:
+    # 스레드 안의 메시지는 thread_id 없이는 찾지 못한다 — 404 가 나고, 그러면
+    # "이 웹훅이 보낸 게 아니다"로 잘못 읽게 된다. 보낼 때와 같은 값을 붙인다.
     req = urllib.request.Request(
-        f"{webhook.rstrip('/')}/messages/{message_id}",
+        dw.with_thread(f"{webhook.rstrip('/')}/messages/{message_id}"),
         headers={"User-Agent": UA},   # UA 를 빼면 Cloudflare 가 403 으로 막는다
         method="DELETE",
     )
