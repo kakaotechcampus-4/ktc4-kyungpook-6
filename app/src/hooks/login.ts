@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import { login } from "../services/auth";
 import type { LoginRequest } from "../services/auth";
 import { saveAuthToken } from "../services/authToken";
+import { toLoginErrorMessage } from "../utils/loginError";
 
 /*
   로그인 뒤·회원가입·계정 찾기를 누른 뒤 넘어갈 화면.
@@ -13,36 +13,6 @@ import { saveAuthToken } from "../services/authToken";
 const AFTER_LOGIN_PATH = "/";
 const SIGNUP_PATH = "/";
 const FIND_ACCOUNT_PATH = "/";
-
-/*
-  서버 에러 type 의 끝부분(docs/에러_처리_가이드.md 의 "현재 나가는 type 값")별 화면 문구.
-  서버 title 은 "이메일 또는 …" 처럼 화면 라벨(아이디)과 말투가 달라서 앱 문구로 바꿔 보여 준다.
-*/
-const LOGIN_ERROR_MESSAGES: Record<string, string> = {
-  "invalid-credentials": "아이디 또는 비밀번호가 맞지 않아요.",
-  // 로그인 요청에서 400 은 아이디가 이메일 형식이 아닐 때뿐이다(빈 칸은 버튼에서 막는다).
-  "invalid-request": "아이디는 이메일 형식으로 입력해 주세요.",
-  "owner-pending-approval": "관리자 승인을 기다리고 있어요. 승인되면 로그인할 수 있어요.",
-  "owner-rejected": "가입이 승인되지 않은 계정이에요.",
-};
-
-/**
- * 로그인 실패를 화면 문구로 바꾼다.
- *
- * 에러 처리 가이드대로 type 으로 나눈다. 모르는 type 이면 서버 title 을,
- * 서버에 닿지 못했거나 title 도 없으면 기본 문구를 쓴다.
- */
-export function toLoginErrorMessage(error: unknown): string {
-  if (isAxiosError(error)) {
-    if (!error.response) return "서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-    const { type, title } = (error.response.data ?? {}) as { type?: unknown; title?: unknown };
-    const typeName = typeof type === "string" ? type.split("/").pop() : undefined;
-    if (typeName && LOGIN_ERROR_MESSAGES[typeName]) return LOGIN_ERROR_MESSAGES[typeName];
-    if (typeof title === "string" && title) return title;
-  }
-  return "로그인하지 못했어요. 잠시 후 다시 시도해 주세요.";
-}
 
 export type UseOwnerLoginResult = {
   email: string;
@@ -77,7 +47,8 @@ export const useOwnerLogin = (): UseOwnerLoginResult => {
     onSuccess: () => navigate(AFTER_LOGIN_PATH, { replace: true }),
   });
 
-  const canSubmit = email.trim() !== "" && password !== "" && !loginMutation.isPending;
+  // 백엔드 LoginRequest 가 둘 다 @NotBlank 라서 공백만 있는 값도 빈 칸으로 본다.
+  const canSubmit = email.trim() !== "" && password.trim() !== "" && !loginMutation.isPending;
 
   const submit = () => {
     if (!canSubmit) return;

@@ -44,6 +44,8 @@ function OwnerLoginPage() {
           onChange={(event) => setEmail(event.target.value)}
           autoComplete="username"
           inputMode="email"
+          // 백엔드 LoginRequest 의 @Size(max = 254)
+          maxLength={254}
           autoCapitalize="none"
         />
         <TextField
