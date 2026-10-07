@@ -2,6 +2,10 @@ package com.ktc4.backend.global.security;
 
 import com.ktc4.backend.domain.auth.controller.AuthController;
 import com.ktc4.backend.domain.auth.service.AuthService;
+import com.ktc4.backend.domain.investigation.service.InvestigationRunner;
+import com.ktc4.backend.domain.job.controller.JobController;
+import com.ktc4.backend.domain.job.service.JobQueryService;
+import com.ktc4.backend.domain.job.service.JobService;
 import com.ktc4.backend.domain.member.controller.OwnerAdminController;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.service.OwnerApprovalService;
@@ -34,7 +38,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 권한 검사 스위치를 끈 상태(auth.enforce=false) 확인 — 프론트·AI 가 준비되기 전 개발 서버의 동작이다.
  * 켠 상태의 규칙은 {@link SecurityConfigTest} 가 맡는다.
  */
-@WebMvcTest({StoreController.class, AuthController.class, OwnerAdminController.class, QrCredentialController.class})
+@WebMvcTest({StoreController.class, AuthController.class, OwnerAdminController.class, QrCredentialController.class,
+        JobController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = "auth.enforce=false")
 @DisplayName("API 접근 권한 — 검사 꺼짐")
@@ -54,6 +59,15 @@ class SecurityConfigNotEnforcedTest {
 
     @MockitoBean
     private QrCredentialService qrCredentialService;
+
+    @MockitoBean
+    private JobService jobService;
+
+    @MockitoBean
+    private JobQueryService jobQueryService;
+
+    @MockitoBean
+    private InvestigationRunner investigationRunner;
 
     @Autowired
     private JwtProvider jwtProvider;
@@ -127,6 +141,18 @@ class SecurityConfigNotEnforcedTest {
         mockMvc.perform(post("/api/children/7/qr-token")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.ADMIN).value()))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("조사 API 는 꺼져 있어도 관리자만 — AI 호출 비용이 드는 API 라 아무나 돌릴 수 없게")
+    void jobApiAlwaysRequiresAdmin() throws Exception {
+        mockMvc.perform(post("/api/jobs").contentType(MediaType.APPLICATION_JSON).content("{\"storeIds\":[1]}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/jobs/1")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/jobs/latest")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/jobs/1")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.OWNER).value()))
+                .andExpect(status().isForbidden());
     }
 
     @Test

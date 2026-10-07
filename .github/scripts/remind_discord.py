@@ -51,6 +51,12 @@ DEADLINES = [
     (6, 23, "오늘 23:59 main 머지 마감"),
 ]
 
+# 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
+# 메시지마다 덮어쓸 수 있어서 봇과 같은 이름·아바타로 맞춘다.
+WEBHOOK_NAME = "사랑이"
+WEBHOOK_AVATAR = ("https://cdn.discordapp.com/avatars/1555129530186731520/"
+                  "add6bacc3fd09363b755ef9dbe1bced6.webp?size=128")
+
 COLOR_WARN = 16753920   # 주황
 COLOR_INFO = 3447003    # 파랑
 COLOR_DEADLINE = 15548997  # 빨강
@@ -279,14 +285,26 @@ def to_payload(findings: list[dict]) -> dict:
 
 
 def post(webhook: str, payload: dict) -> None:
+    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
     req = urllib.request.Request(
         webhook,
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # 🚨 UA 를 빼면 디스코드(Cloudflare)가 403 으로 막는다.
+            #    urllib 기본값 "Python-urllib/3.x" 가 차단 목록에 걸린다.
+            "User-Agent": "ktc4-kyungpook-6-notifier (https://github.com/kakaotechcampus-4/ktc4-kyungpook-6)",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        print(f"디스코드 응답: {resp.status}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            print(f"디스코드 응답: {resp.status}")
+    except urllib.error.HTTPError as e:
+        # 웹훅 URL 은 절대 찍지 않는다. 응답 본문만 남겨야 원인을 안다.
+        print(f"디스코드 전송 실패: {e.code} {e.reason}\n"
+              f"{e.read().decode(errors='replace')[:400]}")
+        raise
 
 
 def main() -> int:

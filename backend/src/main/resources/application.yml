@@ -63,3 +63,13 @@ external:
   nts:
     base-url: https://api.odcloud.kr/api/nts-businessman/v1/status
     service-key: ${NTS_SERVICE_KEY:}
+
+ai:
+  # AI 조사 서버(FastAPI). 로컬은 uvicorn 기본 포트, 배포는 환경변수로 덮어쓴다.
+  base-url: ${AI_BASE_URL:http://localhost:8000}
+  connect-timeout-ms: 3000
+  # AI 는 가게 한 곳에 최대 60초를 쓰고, 그 안에 못 끝내면 200 + failure 로 답한다(멘토 Q4).
+  # 그보다 넉넉히 기다려 "AI 가 아예 답하지 않음"(AiReadTimeout)만 여기에 걸리게 한다.
+  read-timeout-ms: ${AI_READ_TIMEOUT_MS:75000}
+  # AI 일시 오류(5xx·연결 실패)를 다시 시도하기 전 기다리는 시간. 두 번째 시도 전 한 번만 기다린다.
+  retry-backoff-ms: 2000

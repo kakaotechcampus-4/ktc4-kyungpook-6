@@ -24,14 +24,26 @@ import argparse
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discord_members as dm  # noqa: E402
 
-# 이 시간 안에 만들어진 PR 의 review_requested 는 opened 와 겹치므로 보내지 않는다
-FRESH_SECONDS = 120
+# PR 을 올릴 때 리뷰어를 같이 지정하면 GitHub 이 opened 와 review_requested 를 둘 다
+# 보낸다. opened 가 이미 멘션했으므로 그 건은 건너뛴다.
+#
+# ⏱️ 짧게 잡아야 한다. 두 이벤트는 **1~2초 안에** 같이 오는데, 사람이 올린 뒤 손으로
+#    리뷰어를 고르는 것도 1분 안쪽이다. 120초로 뒀다가 PR #70 에서 56초 뒤에 지정한
+#    리뷰어 알림이 통째로 묻혔다.
+FRESH_SECONDS = 20
+
+# 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
+# 메시지마다 덮어쓸 수 있어서 봇과 같은 이름·아바타로 맞춘다.
+WEBHOOK_NAME = "사랑이"
+WEBHOOK_AVATAR = ("https://cdn.discordapp.com/avatars/1555129530186731520/"
+                  "add6bacc3fd09363b755ef9dbe1bced6.webp?size=128")
 
 COLOR_NEW = 3447003       # 파랑
 COLOR_MERGED = 5763719    # 초록
@@ -170,14 +182,26 @@ def _table_tech_leads() -> list[str]:
 def post(webhook: str, payload: dict) -> None:
     # parse 를 users 로 좁힌다. @everyone·@here·역할 멘션이 본문에 섞여도 울리지 않는다.
     payload["allowed_mentions"] = {"parse": ["users"]}
+    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
     req = urllib.request.Request(
         webhook,
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # 🚨 UA 를 빼면 디스코드(Cloudflare)가 403 으로 막는다.
+            #    urllib 기본값 "Python-urllib/3.x" 가 차단 목록에 걸린다.
+            "User-Agent": "ktc4-kyungpook-6-notifier (https://github.com/kakaotechcampus-4/ktc4-kyungpook-6)",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        print(f"디스코드 응답: {resp.status}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            print(f"디스코드 응답: {resp.status}")
+    except urllib.error.HTTPError as e:
+        # 웹훅 URL 은 절대 찍지 않는다. 응답 본문만 남겨야 원인을 안다.
+        print(f"디스코드 전송 실패: {e.code} {e.reason}\n"
+              f"{e.read().decode(errors='replace')[:400]}")
+        raise
 
 
 def main() -> int:

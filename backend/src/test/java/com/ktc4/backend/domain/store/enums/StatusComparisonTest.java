@@ -7,6 +7,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("StatusComparison")
@@ -59,5 +61,40 @@ class StatusComparisonTest {
     @DisplayName("국세청 미등록은 상태 불일치로 보지 않는다")
     void notRegisteredIsNotMismatch() {
         assertThat(StatusComparison.NTS_NOT_REGISTERED.isMismatch()).isFalse();
+    }
+
+    @ParameterizedTest(name = "[{index}] {0} → {1}")
+    @CsvSource({
+            "OPEN_BUT_SUSPENDED,   SUSPENDED",
+            "OPEN_BUT_CLOSED,      CLOSED",
+            "SUSPENDED_BUT_ACTIVE, OPEN",
+            "SUSPENDED_BUT_CLOSED, CLOSED",
+            "CLOSED_BUT_ACTIVE,    OPEN",
+            "CLOSED_BUT_SUSPENDED, SUSPENDED"
+    })
+    @DisplayName("상태가 다르면 국세청 상태로 바꾸자고 제안한다")
+    void proposesNtsStatus(StatusComparison comparison, StoreStatus expected) {
+        assertThat(comparison.proposedStatus()).contains(expected);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = StatusComparison.class, names = {"MATCH", "NTS_NOT_REGISTERED", "NOT_COMPARABLE"})
+    @DisplayName("상태가 같거나, 비교할 수 없거나, 국세청에 없는 번호면 제안하지 않는다")
+    void proposesNothing(StatusComparison comparison) {
+        assertThat(comparison.proposedStatus()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(StatusComparison.class)
+    @DisplayName("불일치인 값만 제안이 있다 — AI 조사 대상과 1차 수정안 대상이 어긋나지 않는다")
+    void proposalExistsOnlyForMismatch(StatusComparison comparison) {
+        assertThat(comparison.proposedStatus().isPresent()).isEqualTo(comparison.isMismatch());
+    }
+
+    @ParameterizedTest
+    @EnumSource(StatusComparison.class)
+    @DisplayName("미확인(UNKNOWN)으로 바꾸자고 제안하는 경우는 없다")
+    void neverProposesUnknown(StatusComparison comparison) {
+        assertThat(comparison.proposedStatus()).isNotEqualTo(Optional.of(StoreStatus.UNKNOWN));
     }
 }
