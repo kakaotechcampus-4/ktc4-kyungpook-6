@@ -19,12 +19,16 @@ import com.ktc4.backend.domain.task.dto.ProposedChangeResponse;
 import com.ktc4.backend.domain.task.dto.TaskResultResponse;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.service.TaskService;
+import com.ktc4.backend.domain.verification.enums.VerificationAction;
+import com.ktc4.backend.domain.verification.service.VerificationService;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 
@@ -42,7 +46,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
 @Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class,
-        InvestigationTargetSelector.class})
+        InvestigationTargetSelector.class, VerificationService.class})
+@ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("조사 결과 조회 (JobQueryService)")
 class JobQueryServiceTest extends PostgresContainerTest {
 
@@ -53,6 +58,9 @@ class JobQueryServiceTest extends PostgresContainerTest {
 
     @Autowired
     private TaskService taskService;
+
+    @Autowired
+    private VerificationService verificationService;
 
     @Autowired
     private TestEntityManager entityManager;
@@ -123,6 +131,58 @@ class JobQueryServiceTest extends PostgresContainerTest {
         assertThat(fail.failureReason()).isEqualTo("AI 응답 시간이 초과됐습니다");
         assertThat(fail.proposedChanges()).isEmpty();
         assertThat(fail.evidences()).isEmpty();
+        // 아직 아무도 확인하지 않았다
+        assertThat(result.tasks()).extracting(TaskResultResponse::verification).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("확인한 결과에는 확인 기록이 붙고, 확인하지 않은 결과는 null — taskId 순서는 그대로")
+    void mergesVerificationByTask() {
+        Job job = job(JobStatus.IN_PROGRESS, 3);
+        Store applied = store("반영가게");
+        Store untouched = store("그대로가게");
+        Store confirmed = store("확인가게");
+        taskService.saveNts(job.getJobId(),
+                new NtsTarget(applied.getStoreId(), StatusComparison.OPEN_BUT_CLOSED, BusinessState.CLOSED));
+        taskService.saveNts(job.getJobId(),
+                new NtsTarget(untouched.getStoreId(), StatusComparison.OPEN_BUT_CLOSED, BusinessState.CLOSED));
+        taskService.saveFailure(job.getJobId(), confirmed.getStoreId(), "AI 응답 시간이 초과됐습니다");
+        flushAndClear();
+        List<Long> taskIds = jobQueryService.getJob(job.getJobId()).tasks().stream()
+                .map(TaskResultResponse::taskId).toList();
+
+        verificationService.confirm(taskIds.get(2), 7L);
+        verificationService.apply(taskIds.get(0), 7L);
+        flushAndClear();
+
+        JobResultResponse result = jobQueryService.getJob(job.getJobId());
+
+        assertThat(result.tasks()).extracting(TaskResultResponse::taskId).containsExactlyElementsOf(taskIds);
+        TaskResultResponse first = result.tasks().get(0);
+        assertThat(first.verification().action()).isEqualTo(VerificationAction.CHANGE_STATUS);
+        assertThat(first.verification().verifiedAt()).isEqualTo(first.lastCheckedAt());
+        assertThat(first.storeStatus()).isEqualTo(StoreStatus.CLOSED);
+        assertThat(result.tasks().get(1).verification()).isNull();
+        assertThat(result.tasks().get(2).verification().action()).isEqualTo(VerificationAction.NO_ACTION);
+    }
+
+    @Test
+    @DisplayName("가장 최근 조사(/latest)도 확인 기록과 만든 시각을 같은 모양으로 내려준다 — 화면이 조사 ID 없이 여는 경로")
+    void latestHasVerificationAndCreatedAt() {
+        Job job = job(JobStatus.IN_PROGRESS, 1);
+        Store store = store("최근가게");
+        taskService.saveNts(job.getJobId(),
+                new NtsTarget(store.getStoreId(), StatusComparison.OPEN_BUT_CLOSED, BusinessState.CLOSED));
+        flushAndClear();
+        verificationService.confirm(jobQueryService.getLatest().tasks().get(0).taskId(), 7L);
+        flushAndClear();
+
+        JobResultResponse result = jobQueryService.getLatest();
+
+        assertThat(result.tasks().get(0).verification().action()).isEqualTo(VerificationAction.NO_ACTION);
+        // 진행 중이라 끝난 시각이 없어도 화면이 상단 날짜로 쓴다
+        assertThat(result.finishedAt()).isNull();
+        assertThat(result.createdAt()).isEqualTo(entityManager.find(Job.class, job.getJobId()).getCreatedAt());
     }
 
     @Test
