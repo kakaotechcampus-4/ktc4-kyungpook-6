@@ -24,6 +24,9 @@ import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
+import com.ktc4.backend.domain.verification.enums.VerificationAction;
+import com.ktc4.backend.domain.verification.repository.VerificationRepository;
+import com.ktc4.backend.domain.verification.service.VerificationService;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.security.JwtProvider;
 import com.ktc4.backend.support.PostgresContainerTest;
@@ -130,6 +133,12 @@ class InvestigationFlowIntegrationTest {
 
     @Autowired
     private SignalRepository signalRepository;
+
+    @Autowired
+    private VerificationService verificationService;
+
+    @Autowired
+    private VerificationRepository verificationRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -254,6 +263,76 @@ class InvestigationFlowIntegrationTest {
         assertThat(outcomes).filteredOn("CREATED"::equals).hasSize(1);
         assertThat(outcomes).filteredOn("JOB_ALREADY_RUNNING"::equals).hasSize(requests - 1);
         assertThat(jobRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("조사 결과 카드에서 즉시 반영하면 가게 값이 바뀌고, 다시 불러온 결과에서 그 카드가 확인 완료로 나온다")
+    void appliesTaskFromResultCard() throws Exception {
+        Long closedByNts = store("폐업가게", BusinessState.CLOSED);
+        long jobId = startJob(closedByNts);
+        await().atMost(WAIT).until(() -> "DONE".equals(job(jobId).path("status").asText()));
+        long taskId = job(jobId).path("tasks").get(0).path("taskId").asLong();
+
+        mockMvc.perform(post("/api/tasks/" + taskId + "/apply").header(HttpHeaders.AUTHORIZATION, adminToken()))
+                .andExpect(status().isOk());
+
+        JsonNode card = job(jobId).path("tasks").get(0);
+        assertThat(card.path("storeStatus").asText()).isEqualTo("CLOSED");
+        assertThat(card.path("verification").path("action").asText()).isEqualTo("CHANGE_STATUS");
+        assertThat(card.path("verification").path("verifiedAt").asText()).isEqualTo(card.path("lastCheckedAt").asText());
+        assertThat(storeRepository.findById(closedByNts)).get().extracting(Store::getStatus).isEqualTo(StoreStatus.CLOSED);
+        // 같은 카드를 다시 눌러도 두 번 반영하지 않는다
+        mockMvc.perform(post("/api/tasks/" + taskId + "/confirm").header(HttpHeaders.AUTHORIZATION, adminToken()))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("같은 카드에 반영·확인이 동시에 여러 번 와도 하나만 처리되고 확인 기록은 한 줄이다")
+    void reviewsTaskOnlyOnceUnderConcurrentRequests() throws Exception {
+        Long closedByNts = store("동시반영가게", BusinessState.CLOSED);
+        long jobId = startJob(closedByNts);
+        await().atMost(WAIT).until(() -> "DONE".equals(job(jobId).path("status").asText()));
+        long taskId = job(jobId).path("tasks").get(0).path("taskId").asLong();
+        int requests = 8;
+        CountDownLatch ready = new CountDownLatch(requests);
+        CountDownLatch go = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(requests);
+        try {
+            List<Future<String>> results = new ArrayList<>();
+            for (int i = 0; i < requests; i++) {
+                boolean apply = i % 2 == 0;
+                results.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    try {
+                        if (apply) {
+                            verificationService.apply(taskId, 1L);
+                        } else {
+                            verificationService.confirm(taskId, 1L);
+                        }
+                        return "REVIEWED";
+                    } catch (CustomException e) {
+                        return e.getErrorCode().name();
+                    }
+                }));
+            }
+            ready.await();
+            go.countDown();  // 연타·여러 탭을 흉내 낸다 — "확인 기록 있나?"와 "기록 저장" 사이에 다른 요청이 끼어들 틈을 만든다
+            List<String> outcomes = new ArrayList<>();
+            for (Future<String> result : results) {
+                outcomes.add(result.get(10, TimeUnit.SECONDS));
+            }
+
+            assertThat(outcomes).filteredOn("REVIEWED"::equals).hasSize(1);
+            assertThat(outcomes).filteredOn("TASK_ALREADY_CONFIRMED"::equals).hasSize(requests - 1);
+            assertThat(verificationRepository.count()).isEqualTo(1);
+            // 이긴 쪽에 맞게 가게가 남는다 — 반영이 이겼으면 폐업, 확인만 했으면 그대로
+            VerificationAction action = verificationRepository.findAll().get(0).getAction();
+            StoreStatus expected = action == VerificationAction.CHANGE_STATUS ? StoreStatus.CLOSED : StoreStatus.OPEN;
+            assertThat(storeRepository.findById(closedByNts)).get().extracting(Store::getStatus).isEqualTo(expected);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

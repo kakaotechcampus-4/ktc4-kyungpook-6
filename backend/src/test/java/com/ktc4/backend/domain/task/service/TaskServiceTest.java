@@ -21,6 +21,7 @@ import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
+import com.ktc4.backend.domain.verification.service.VerificationService;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 
@@ -43,7 +46,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
 @Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class,
-        InvestigationTargetSelector.class})
+        InvestigationTargetSelector.class, VerificationService.class})
+@ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("조사 결과 저장 (TaskService)")
 class TaskServiceTest extends PostgresContainerTest {
 

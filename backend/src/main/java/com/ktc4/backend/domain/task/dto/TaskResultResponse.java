@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.task.dto;
 
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
+import com.ktc4.backend.domain.verification.dto.VerificationResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
@@ -41,6 +42,16 @@ public record TaskResultResponse(
         List<ProposedChangeResponse> proposedChanges,
 
         @Schema(description = "수정안의 근거. 변화가 없거나 실패면 빈 목록")
-        List<EvidenceResponse> evidences
+        List<EvidenceResponse> evidences,
+
+        @Schema(description = "담당자의 확인 기록. **있으면 카드가 \"확인 완료됨\"**, 아직 확인하지 않았으면 null",
+                nullable = true)
+        VerificationResponse verification
 ) {
+
+    /** 확인 기록만 바꾼 새 응답을 만든다. 조사 결과와 확인 기록은 서로 다른 서비스가 읽어 마지막에 합친다. */
+    public TaskResultResponse withVerification(VerificationResponse verification) {
+        return new TaskResultResponse(taskId, storeId, storeName, storeAddress, storeStatus, storePhone, lastCheckedAt,
+                classification, failureReason, proposedChanges, evidences, verification);
+    }
 }
