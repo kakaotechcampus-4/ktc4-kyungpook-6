@@ -209,6 +209,9 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         dev.append((pr, reviews))
         opened_hours = (now - parse_ts(pr["created_at"])).total_seconds() / 3600
         state = latest_review_state(reviews)
+        # 이 PR 에 대해 할 말을 따로 모은다. 충돌이면 통째로 갈아끼운다(아래).
+        # 이 PR 에 대해 할 말. 충돌이면 통째로 갈아끼운다(아래).
+        pr_findings: list[dict] = []
 
         created = parse_ts(pr["created_at"])
         assigned = reviewers(pr)
@@ -216,7 +219,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         if not assigned:
             # 리뷰어가 없으면 아무도 안 본다. 리뷰 독촉 대신 "정해 달라"고 한다.
             if due_now(created, NO_REVIEWER_HOURS, now):
-                findings.append({
+                pr_findings.append({
                     "color": COLOR_DEADLINE,
                     "headline": "🔴 리뷰어가 아직 없습니다",
                     "pr": pr,
@@ -230,7 +233,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             # 리뷰어는 있는데 아직 안 봤다. 두 번까지만 깨운다.
             second = due_now(created, NO_REVIEW_SECOND_HOURS, now)
             if due_now(created, NO_REVIEW_FIRST_HOURS, now) and not (CATCH_UP and second):
-                findings.append({
+                pr_findings.append({
                     "color": COLOR_INFO,
                     "headline": "🕐 리뷰를 기다리고 있습니다",
                     "pr": pr,
@@ -239,7 +242,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "mention": dm.mentions(assigned),
                 })
             if second:
-                findings.append({
+                pr_findings.append({
                     "color": COLOR_WARN,
                     "headline": f"🟠 {NO_REVIEW_SECOND_HOURS}시간째 리뷰가 없습니다",
                     "pr": pr,
@@ -251,7 +254,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         # 마감 1시간 전에 아직 리뷰가 하나도 없는 PR — 작성자와 리뷰어를 같이 부른다.
         # 멘토 리뷰 PR(base=main)은 위에서 이미 걸러져 여기 오지 않는다.
         if deadline_label and not reviews:
-            findings.append({
+            pr_findings.append({
                 "color": COLOR_DEADLINE,
                 "headline": f"⏰ 1시간 뒤 {deadline_label} — 아직 리뷰가 없습니다",
                 "pr": pr,
@@ -263,7 +266,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         if state == "APPROVED":
             since = approved_at(reviews)
             if since and in_band((now - since).total_seconds() / 3600, APPROVED_UNMERGED_HOURS):
-                findings.append({
+                pr_findings.append({
                     "color": COLOR_INFO,
                     "headline": "🟢 승인됐는데 아직 머지되지 않았습니다",
                     "pr": pr,
@@ -272,34 +275,45 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "mention": dm.mention(pr["user"]["login"]),
                 })
 
-        if k.hour == CONFLICT_CHECK_HOUR:
-            findings.extend(conflict_finding(repo, token, pr))
+        # 🧨 **충돌이면 위에서 모은 말을 전부 버리고 충돌만 알린다.**
+        #    충돌난 PR 은 GitHub 이 merge ref 를 만들지 못해 **워크플로를 아예 돌리지 않는다**
+        #    — 테스트도, 알림도 안 온다(#76 에서 체크 0개였다). 볼 것이 없는데 리뷰어를
+        #    부르면 엉뚱한 사람을 부르는 꼴이다. 움직여야 할 사람은 작성자다.
+        #
+        #    예전에는 하루 한 번(10시)만 봤다. 그러면 오후에 깨진 PR 을 다음 날까지 아무도
+        #    모른다. 할 말이 생긴 시각에 같이 확인해서, 늦어도 그 PR 의 첫 독촉과 함께 잡는다.
+        if pr_findings or k.hour == CONFLICT_CHECK_HOUR:
+            if is_conflicted(repo, token, pr):
+                pr_findings = [conflict_finding(pr)]
+        findings.extend(pr_findings)
 
     findings.extend(weekly_deadlines(now, main_pr, deadline_label))
     findings.extend(readiness_report(repo, token, now, main_pr, dev))
     return findings
 
 
-def conflict_finding(repo: str, token: str, pr: dict) -> list[dict]:
-    """충돌난 PR. `mergeable` 은 목록 API 에 없고 개별 조회에서만 나온다.
+def is_conflicted(repo: str, token: str, pr: dict) -> bool:
+    """충돌인가. `mergeable` 은 목록 API 에 없고 개별 조회에서만 나온다.
 
-    GitHub 이 아직 계산 전이면 null 이 온다. 그때는 아무 말도 하지 않는다
-    (없는 걸 있다고 하는 쪽보다 한 번 거르는 쪽이 낫다 — 다음 날 10시에 다시 본다).
+    GitHub 이 아직 계산 전이면 null 이 온다. 그때는 **아니라고 본다** — 없는 걸 있다고
+    말하는 쪽보다 한 번 거르는 쪽이 낫다. 매시간 다시 보므로 다음 시간에 잡힌다.
     """
     try:
         detail = gh(f"/repos/{repo}/pulls/{pr['number']}", token)
     except urllib.error.HTTPError:
-        return []
-    if detail.get("mergeable") is not False:
-        return []
-    return [{
+        return False
+    return detail.get("mergeable") is False
+
+
+def conflict_finding(pr: dict) -> dict:
+    return {
         "color": COLOR_WARN,
-        "headline": "🧨 충돌이 나서 머지할 수 없습니다",
+        "headline": "🧨 충돌이 나서 CI 가 돌지 않았습니다",
         "pr": pr,
-        "detail": "develop 와 겹치는 변경이 있습니다",
-        "action": "develop 를 머지해 충돌을 푼 뒤 다시 올려 주세요",
+        "detail": "충돌나면 GitHub 이 테스트도 알림도 아예 돌리지 않습니다 (체크 0개)",
+        "action": "develop 를 머지해 충돌을 푸세요. 그때 CI 가 다시 돕니다",
         "mention": dm.mention(pr["user"]["login"]),
-    }]
+    }
 
 
 def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | None) -> list[dict]:
