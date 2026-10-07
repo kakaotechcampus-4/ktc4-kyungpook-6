@@ -32,27 +32,54 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discord_members as dm  # noqa: E402
+import discord_webhook as dw  # noqa: E402
 
 KST = timezone(timedelta(hours=9))
 API = "https://api.github.com"
 
-# 리뷰가 하나도 없이 이만큼 지나면 알린다 (시간)
-NO_REVIEW_HOURS = 24
+# 팀 내부 리뷰 기한은 "PR 작성 후 24시간"이다(코드 리뷰 가이드 · 팀원 간 리뷰 규칙).
+# 24시간에 처음 알리면 그때가 이미 기한이라 늦다. 그래서 두 단계로 나눈다.
+NO_REVIEW_FIRST_HOURS = 1    # 1차 독촉 — 지정된 리뷰어를 깨운다
+NO_REVIEW_SECOND_HOURS = 4   # 2차 독촉 — 작성자도 같이 부른다
+# 리뷰어가 **아무도 지정되지 않은** PR 은 아무의 일도 아닌 상태다. 리뷰가 늦는 것보다
+# 이쪽이 더 막힌 상태라, 여기서만 테크리더를 부른다.
+NO_REVIEWER_HOURS = 2
 # 승인됐는데 머지되지 않고 이만큼 지나면 알린다 (시간)
 APPROVED_UNMERGED_HOURS = 6
 # 충돌난 PR 을 점검하는 시각 (KST). 충돌은 "언제 깨졌는지" 타임스탬프가 없어서
 # 구간 계산을 못 한다. 그래서 하루 한 번 고정 시각에만 본다.
 CONFLICT_CHECK_HOUR = 10
 
-# (요일, 1시간 전 시각, 마감 설명). 월=0.  `_local/주차별_PR/README.md` 의 일정표
+# 조용한 시간 (KST). 이 사이에 임계값을 넘긴 건은 울리지 않고 QUIET_END 로 미뤄서
+# 한 번에 보낸다. 1시간 독촉을 넣으면서 새벽 3시에 멘션이 가는 일이 생겨서 둔다.
+QUIET_START_HOUR = 0
+QUIET_END_HOUR = 8
+
+# 멘토 리뷰 사이클 (`_local/코드 리뷰 가이드.md`). 월=0
+#   수 18:00 1차 PR · 목 22:00 멘토 1차 리뷰 · 토 10:00 재리뷰 요청
+#   일 10:00 멘토 approve · 일 23:59 main 머지
+# (요일, 1시간 전 시각, 마감 설명)
 DEADLINES = [
-    (2, 17, "오늘 18:00 1차 PR 마감"),
     (5, 9, "오늘 10:00 2차 재리뷰 요청 마감"),
     (6, 23, "오늘 23:59 main 머지 마감"),
 ]
 
+# 점검 리포트를 보내는 시각. "마감이다"가 아니라 **지금 뭐가 됐고 뭐가 안 됐는지**를
+# 찍어 준다. 수요일은 1차 PR 을 쓰기 직전, 일요일 아침은 머지까지 남은 것을 본다.
+# (요일, 시각): (제목, 마감 설명)
+READINESS = {
+    (2, 17): ("1차 PR 마감 1시간 전", "오늘 18:00 까지 develop → main PR"),
+    (6, 9): ("main 머지 준비 점검", "오늘 23:59 까지 main 머지"),
+}
+# 멘토 쪽은 시각으로 보지 않는다. 리뷰가 언제 올지 정해져 있지 않고, 재촉할 일도 아니다.
+# 멘토가 남긴 리뷰·코멘트는 **이 채널로 아예 알리지 않는다** — 운영진 워크플로
+# (notify-discord.yml)가 #pr-alert-경북대 로 이미 보내서 두 번 울린다.
+# 거르는 쪽은 pr_event_notify.py 의 is_outsider() 다.
+
 # 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
-# 메시지마다 덮어쓸 수 있어서 봇과 같은 이름·아바타로 맞춘다.
+# 메시지마다 덮어쓸 수 있어서, 봇과 같은 이름·아바타로 맞춘다. 채널에서 보면
+# 알림과 /예약 응답이 같은 "사랑이"로 보인다.
+# 아바타를 바꾸면 해시도 바뀐다 — 그때 이 URL 을 같이 고칠 것.
 WEBHOOK_NAME = "사랑이"
 WEBHOOK_AVATAR = ("https://cdn.discordapp.com/avatars/1555129530186731520/"
                   "add6bacc3fd09363b755ef9dbe1bced6.webp?size=128")
@@ -83,6 +110,44 @@ def parse_ts(value: str) -> datetime:
 def in_band(hours_elapsed: float, threshold: int) -> bool:
     """임계값을 이번 한 시간 안에 넘었는가. 매시간 실행이면 PR 하나당 한 번만 참이다."""
     return threshold <= hours_elapsed < threshold + 1
+
+
+def wake_at(crossed: datetime) -> datetime:
+    """임계값을 넘은 시각을 조용한 시간 밖으로 민다.
+
+    새벽에 넘긴 건은 그 시각이 아니라 QUIET_END_HOUR 에 한꺼번에 알린다.
+    여러 건이 몰려도 payload 가 묶어서 한 메시지로 나간다.
+
+    ⚠️ **통과 시각이 아니라 "실제로 나가는 cron 시각"을 보고 민다.** cron 은 정각에만
+    도니까, 23:23 에 넘긴 건은 00:00 에 나간다 — 통과 시각(23시)만 보면 조용한 시간이
+    아니라서 안 밀리고, 결국 자정에 멘션이 울린다. 실제로 PR #66(21:23 생성, 리뷰어
+    미지정 2시간)이 00:00 에 울렸다. 23:00~23:59 에 넘기는 건은 전부 이렇게 된다.
+    """
+    k = crossed.astimezone(KST)
+    # 통과 직후의 정각 = 이 건을 실어 나를 cron. 정각에 딱 맞춰 넘겼으면 그 정각이다.
+    slot = k.replace(minute=0, second=0, microsecond=0)
+    if slot != k:
+        slot += timedelta(hours=1)
+    if QUIET_START_HOUR <= slot.hour < QUIET_END_HOUR:
+        # slot 의 날짜를 그대로 쓴다 — 자정을 넘긴 건은 그 다음 날 아침이 맞다.
+        return slot.replace(hour=QUIET_END_HOUR)
+    return k
+
+
+CATCH_UP = False   # --catch-up 이면 시간 구간을 무시하고 "이미 넘긴 것"을 전부 본다
+
+
+def due_now(created: datetime, threshold: int, now: datetime) -> bool:
+    """`created + threshold` 를 (조용한 시간을 피해서) 지금 이 시간대에 넘겼는가.
+
+    `in_band` 를 쓰지 않는 이유 — 조용한 시간에 넘긴 건을 아침으로 미루면
+    "지난 시간"이 아니라 "밀린 시각"을 기준으로 봐야 하기 때문이다.
+    """
+    wake = wake_at(created + timedelta(hours=threshold))
+    k = now.astimezone(KST)
+    if CATCH_UP:
+        return wake <= k      # 밀린 건을 한 번에 — 워크플로가 멈췄다 돌아왔을 때
+    return wake <= k < wake + timedelta(hours=1)
 
 
 def latest_review_state(reviews: list[dict]) -> str | None:
@@ -129,6 +194,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
     pulls = gh(f"/repos/{repo}/pulls?state=open&per_page=100", token)
 
     main_pr = None
+    dev: list[tuple[dict, list]] = []   # 열린 develop PR 과 그 리뷰 — 점검 리포트에서 쓴다
     for pr in pulls:
         if pr.get("draft"):
             continue
@@ -140,17 +206,47 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             continue
 
         reviews = gh(f"/repos/{repo}/pulls/{pr['number']}/reviews?per_page=100", token)
+        dev.append((pr, reviews))
         opened_hours = (now - parse_ts(pr["created_at"])).total_seconds() / 3600
         state = latest_review_state(reviews)
 
-        if not reviews and in_band(opened_hours, NO_REVIEW_HOURS):
-            findings.append({
-                "color": COLOR_WARN,
-                "headline": "🕐 리뷰 없이 하루가 지났습니다",
-                "pr": pr,
-                "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
-                "mention": dm.mentions(reviewers(pr) or [pr["user"]["login"]]),
-            })
+        created = parse_ts(pr["created_at"])
+        assigned = reviewers(pr)
+
+        if not assigned:
+            # 리뷰어가 없으면 아무도 안 본다. 리뷰 독촉 대신 "정해 달라"고 한다.
+            if due_now(created, NO_REVIEWER_HOURS, now):
+                findings.append({
+                    "color": COLOR_DEADLINE,
+                    "headline": "🔴 리뷰어가 아직 없습니다",
+                    "pr": pr,
+                    "detail": f"열린 지 {int(opened_hours)}시간 · 아무도 보고 있지 않습니다",
+                    "action": "같은 파트 팀원 1명 이상을 리뷰어로 지정해 주세요",
+                    # 부를 사람은 PR 을 올린 본인이다. 리뷰어를 정하는 것도 본인 몫이라
+                    # 테크리더까지 부르면 매번 같은 세 명이 울려 알림이 무뎌진다.
+                    "mention": dm.mention(pr["user"]["login"]),
+                })
+        elif not reviews:
+            # 리뷰어는 있는데 아직 안 봤다. 두 번까지만 깨운다.
+            second = due_now(created, NO_REVIEW_SECOND_HOURS, now)
+            if due_now(created, NO_REVIEW_FIRST_HOURS, now) and not (CATCH_UP and second):
+                findings.append({
+                    "color": COLOR_INFO,
+                    "headline": "🕐 리뷰를 기다리고 있습니다",
+                    "pr": pr,
+                    "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
+                    "action": "리뷰 부탁드립니다",
+                    "mention": dm.mentions(assigned),
+                })
+            if second:
+                findings.append({
+                    "color": COLOR_WARN,
+                    "headline": f"🟠 {NO_REVIEW_SECOND_HOURS}시간째 리뷰가 없습니다",
+                    "pr": pr,
+                    "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
+                    "action": "오늘 안에 보기 어려우면 다른 분께 넘겨 주세요",
+                    "mention": dm.mentions(assigned + [pr["user"]["login"]]),
+                })
 
         # 마감 1시간 전에 아직 리뷰가 하나도 없는 PR — 작성자와 리뷰어를 같이 부른다.
         # 멘토 리뷰 PR(base=main)은 위에서 이미 걸러져 여기 오지 않는다.
@@ -160,6 +256,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                 "headline": f"⏰ 1시간 뒤 {deadline_label} — 아직 리뷰가 없습니다",
                 "pr": pr,
                 "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건",
+                "action": "이번 주 PR 에 넣을 거면 지금 리뷰해야 합니다",
                 "mention": dm.mentions(people(pr)),
             })
 
@@ -171,6 +268,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "headline": "🟢 승인됐는데 아직 머지되지 않았습니다",
                     "pr": pr,
                     "detail": f"승인 후 {APPROVED_UNMERGED_HOURS}시간 경과",
+                    "action": "머지하셔도 됩니다",
                     "mention": dm.mention(pr["user"]["login"]),
                 })
 
@@ -178,6 +276,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
             findings.extend(conflict_finding(repo, token, pr))
 
     findings.extend(weekly_deadlines(now, main_pr, deadline_label))
+    findings.extend(readiness_report(repo, token, now, main_pr, dev))
     return findings
 
 
@@ -195,9 +294,10 @@ def conflict_finding(repo: str, token: str, pr: dict) -> list[dict]:
         return []
     return [{
         "color": COLOR_WARN,
-        "headline": "⚔️ 충돌이 나 머지할 수 없는 PR 이 있습니다",
+        "headline": "🧨 충돌이 나서 머지할 수 없습니다",
         "pr": pr,
-        "detail": "develop 를 머지해 충돌을 푼 뒤 다시 올려 주세요",
+        "detail": "develop 와 겹치는 변경이 있습니다",
+        "action": "develop 를 머지해 충돌을 푼 뒤 다시 올려 주세요",
         "mention": dm.mention(pr["user"]["login"]),
     }]
 
@@ -218,23 +318,23 @@ def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | 
     if (weekday, hour) == (2, 15) and main_pr is None:
         out.append({
             "color": COLOR_DEADLINE,
-            "headline": "⏰ 3시간 뒤 1차 PR 마감입니다 (수 18:00) — main PR 이 아직 없습니다",
+            "headline": "⏰ 3시간 뒤 1차 PR 마감입니다 (수 18:00)",
             "pr": None,
-            "detail": "develop → main PR 을 올려야 멘토 리뷰가 시작됩니다",
+            "detail": "멘토 PR 이 아직 없습니다. develop → main PR 을 올려야 리뷰가 시작됩니다",
         })
     if (weekday, hour) == (5, 8) and main_pr is not None:
         out.append({
             "color": COLOR_DEADLINE,
             "headline": "⏰ 2시간 뒤 2차 재리뷰 요청 마감입니다 (토 10:00)",
             "pr": main_pr,
-            "detail": "재리뷰 코멘트 + 멘토 리뷰 재요청",
+            "detail": "반영한 refactor PR 링크를 멘토 코멘트에 답글로 남기고 재리뷰를 요청합니다",
         })
     if (weekday, hour) == (6, 20) and main_pr is not None:
         out.append({
             "color": COLOR_DEADLINE,
             "headline": "⏰ 오늘 23:59 이 main 머지 마감입니다",
             "pr": main_pr,
-            "detail": "멘토 승인 여부 확인 후 머지",
+            "detail": "멘토 승인을 확인하고 머지해 주세요",
         })
 
     if deadline_label:
@@ -249,45 +349,174 @@ def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | 
     return out
 
 
+def readiness_report(repo: str, token: str, now: datetime,
+                     main_pr: dict | None, dev: list[tuple[dict, list]]) -> list[dict]:
+    """수 17:00 · 일 09:00 — "다 됐는지" 를 항목별로 찍어 준다.
+
+    재촉이 아니라 상태 보고다. 수요일에는 1차 PR 을 쓰기 직전에 무엇이 남았는지,
+    일요일 아침에는 머지까지 무엇이 남았는지 본다.
+    """
+    k = now.astimezone(KST)
+    slot = READINESS.get((k.weekday(), k.hour))
+    if not slot:
+        return []
+    title, deadline = slot
+    lines = [f"마감: {deadline}", ""]
+    ok = True
+
+    if (k.weekday(), k.hour) == (2, 17):
+        lines.append(f"{'✅' if main_pr else '❌'} 멘토 PR: "
+                     + (f"#{main_pr['number']} 올라와 있음" if main_pr else "아직 없음"))
+        ok = ok and bool(main_pr)
+
+        try:
+            cmp_ = gh(f"/repos/{repo}/compare/main...develop", token)
+            lines.append(f"ℹ️ develop 이 main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있음")
+        except urllib.error.HTTPError:
+            pass
+
+        unreviewed = [pr for pr, rv in dev if not rv]
+        if dev:
+            lines.append(f"{'⚠️' if unreviewed else '✅'} 열린 develop PR {len(dev)}건"
+                         + (f" · 그중 리뷰 0건이 {len(unreviewed)}건" if unreviewed else ""))
+            for pr, _ in dev[:5]:
+                lines.append(f"      #{pr['number']} {pr['title'][:40]}")
+            lines.append("      → 이번 주 PR 에 포함할지 먼저 정하세요")
+            ok = False
+        else:
+            lines.append("✅ 열린 develop PR 없음")
+
+        lines.append(check_state(repo, token, "develop"))
+    else:
+        if not main_pr:
+            lines.append("❌ 멘토 PR 이 없습니다")
+            ok = False
+        else:
+            reviews = gh(f"/repos/{repo}/pulls/{main_pr['number']}/reviews?per_page=100", token)
+            team = set(dm._table().get("members", {}))
+            outside = [r for r in reviews if (r.get("user") or {}).get("login") not in team]
+            approved = any(r.get("state") == "APPROVED" for r in outside)
+            lines.append(f"{'✅' if approved else '❌'} 멘토 approve: "
+                         + ("받음" if approved else "아직 없음"))
+            ok = ok and approved
+
+            waiting = unanswered(repo, token, main_pr["number"], team)
+            lines.append(f"{'⚠️' if waiting else '✅'} 답변이 필요한 멘토 코멘트: "
+                         + (f"{waiting}건" if waiting else "없음"))
+            ok = ok and not waiting
+
+            try:
+                detail = gh(f"/repos/{repo}/pulls/{main_pr['number']}", token)
+                m = detail.get("mergeable")
+                lines.append({True: "✅ 머지 가능", False: "❌ 충돌 — 풀어야 합니다"}
+                             .get(m, "ℹ️ 머지 가능 여부 계산 중"))
+                ok = ok and (m is not False)
+            except urllib.error.HTTPError:
+                pass
+
+    return [{
+        "color": COLOR_INFO if ok else COLOR_DEADLINE,
+        "headline": ("✅ 준비됐습니다 — " if ok else "📋 ") + title,
+        "pr": None,
+        "title": title,
+        "detail": "\n".join(lines),
+        "mention": dm.tech_leads(),
+    }]
+
+
+def check_state(repo: str, token: str, ref: str) -> str:
+    """브랜치 머리의 체크 결과 한 줄."""
+    try:
+        runs = gh(f"/repos/{repo}/commits/{ref}/check-runs", token).get("check_runs", [])
+    except urllib.error.HTTPError:
+        return "ℹ️ CI 상태를 읽지 못했습니다"
+    if not runs:
+        return "ℹ️ CI 기록 없음"
+    bad = [r["name"] for r in runs
+           if r.get("status") == "completed" and r.get("conclusion") not in ("success", "neutral", "skipped")]
+    return f"❌ {ref} CI 실패: {', '.join(bad[:3])}" if bad else f"✅ {ref} CI 통과"
+
+
+def needs_reply(comment: dict) -> bool:
+    """답이 필요해 보이는가. 물음표가 있는 것만 센다.
+
+    8주차 멘토의 마지막 코멘트는 "맞습니다 ㅎㅎ 이번주도 화이팅입니다!" 였다.
+    "마지막 말이 멘토 것이면 미응답"으로 세면 이런 인사까지 잡혀서, 매주 일요일
+    아침마다 가짜 경고가 뜬다. 되물음에는 물음표가 있다.
+    """
+    return "?" in (comment.get("body") or "") or "？" in (comment.get("body") or "")
+
+
+def unanswered(repo: str, token: str, number: int, team: set) -> int:
+    """멘토가 **물어본 뒤** 팀이 아무 말도 안 한 스레드 수.
+
+    코드 코멘트는 `in_reply_to_id` 로 스레드를 묶는다. 일반 코멘트는 스레드가 없어서
+    **마지막 한 건만** 본다 — 그 뒤에 팀 코멘트가 없으면 미응답 1건으로 센다.
+    """
+    def login(c):
+        return (c.get("user") or {}).get("login")
+
+    waiting = 0
+    try:
+        rc = gh(f"/repos/{repo}/pulls/{number}/comments?per_page=100", token)
+        threads: dict[int, list] = {}
+        for c in rc:
+            threads.setdefault(c.get("in_reply_to_id") or c["id"], []).append(c)
+        for items in threads.values():
+            items.sort(key=lambda c: c["created_at"])
+            if login(items[-1]) not in team and needs_reply(items[-1]):
+                waiting += 1
+
+        ic = gh(f"/repos/{repo}/issues/{number}/comments?per_page=100", token)
+        if ic and login(ic[-1]) not in team and needs_reply(ic[-1]):
+            waiting += 1
+    except urllib.error.HTTPError:
+        return 0
+    return waiting
+
+
 def to_payload(findings: list[dict]) -> dict:
-    embeds = []
-    for f in findings[:10]:  # 디스코드 embed 상한
+    """PR 하나당 "무슨 일 · 누가 · 링크" 를 한 묶음으로 쓴다.
+
+    embed 를 쓰지 않는다. 여러 건이 한 메시지로 나갈 때 embed 는 멘션과 PR 이
+    따로 놀아서 "누가 뭘 해야 하는지"가 안 보인다. 멘션은 content 에 있어야
+    울리기도 한다.
+
+    링크는 `<...>` 로 감싼다. 그래야 디스코드가 미리보기 카드를 안 붙여서,
+    3건이 한 번에 와도 화면이 길어지지 않는다.
+    """
+    shown = findings[:10]
+    blocks = []
+    for f in shown:
         pr = f["pr"]
-        fields = [{"name": "상황", "value": f["detail"], "inline": False}]
+        lines = [f["headline"]]
         if pr:
-            fields.insert(0, {
-                "name": "작성자", "value": dm.name_of(pr["user"]["login"]), "inline": True,
-            })
-            fields.insert(1, {
-                "name": "브랜치", "value": pr["head"]["ref"], "inline": True,
-            })
-        embed = {
-            "title": f"#{pr['number']} {pr['title']}" if pr else "main PR 없음",
-            "color": f["color"],
-            "fields": fields,
-        }
-        if pr:  # url 을 null 로 보내면 디스코드가 400 을 낸다. 없으면 키째로 뺀다.
-            embed["url"] = pr["html_url"]
-        embeds.append(embed)
+            lines.append(f"**#{pr['number']} {pr['title']}** · {f['detail']}")
+        elif f.get("detail"):
+            lines.append(f["detail"])
+        if f.get("action"):
+            lines.append(f["action"])
+        tail = []
+        if f.get("mention"):
+            tail.append(f["mention"])
+        if pr:
+            tail.append(f"<{pr['html_url']}>")
+        if tail:
+            lines.append(" · ".join(tail))
+        blocks.append("\n".join(lines))
 
-    head = findings[0]["headline"] if len(findings) == 1 else f"확인이 필요한 PR {len(findings)}건"
+    body = "\n\n".join(blocks)
+    if len(shown) > 1:
+        body = f"확인이 필요한 PR {len(shown)}건\n\n" + body
+    if len(findings) > len(shown):
+        body += f"\n\n…외 {len(findings) - len(shown)}건"
 
-    # 멘션은 content 에 있어야 울린다. embed 안의 <@id> 는 알림이 가지 않는다.
-    seen, mention_parts = set(), []
-    for f in findings[:10]:
-        for token in (f.get("mention") or "").split():
-            if token not in seen:
-                seen.add(token)
-                mention_parts.append(token)
-    content = head + ("\n" + " ".join(mention_parts) if mention_parts else "")
-    return {"content": content, "embeds": embeds,
-            "allowed_mentions": {"parse": ["users"]}}
+    return {"content": body[:1900], "allowed_mentions": {"parse": ["users"]}}
 
 
-def post(webhook: str, payload: dict) -> None:
-    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
+def _send(url: str, payload: dict) -> None:
     req = urllib.request.Request(
-        webhook,
+        url,
         data=json.dumps(payload).encode(),
         headers={
             "Content-Type": "application/json",
@@ -297,21 +526,75 @@ def post(webhook: str, payload: dict) -> None:
         },
         method="POST",
     )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        print(f"디스코드 응답: {resp.status}")
+
+
+def post(webhook: str, payload: dict) -> None:
+    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
+    url = dw.with_thread(webhook)
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            print(f"디스코드 응답: {resp.status}")
+        _send(url, payload)
     except urllib.error.HTTPError as e:
         # 웹훅 URL 은 절대 찍지 않는다. 응답 본문만 남겨야 원인을 안다.
-        print(f"디스코드 전송 실패: {e.code} {e.reason}\n"
-              f"{e.read().decode(errors='replace')[:400]}")
-        raise
+        print(f"디스코드 전송 실패: {e.code} {e.reason}\n{e.read().decode(errors='replace')[:400]}")
+        # 스레드가 지워졌거나 잠겼으면 **알림이 통째로 사라진다.** 묻히는 것보다 나쁘다.
+        if url == webhook:
+            raise
+        print(f"::warning::{dw.THREAD_ENV} 로 보내지 못해 채널로 보냅니다. "
+              "스레드가 지워졌거나 잠긴 건 아닌지 확인하세요.")
+        _send(webhook, payload)
+
+
+def send_test(dry_run: bool = False) -> int:
+    """점검용 한 줄을 보낸다. **누른 사람만** 멘션한다.
+
+    왜 있나 — 이 저장소에서 보내 봐야만 드러난 것이 두 번 있었다. 디스코드(Cloudflare)가
+    기본 User-Agent 를 403 으로 막은 것, embed 안의 멘션이 울리지 않은 것. 둘 다
+    `--dry-run` 으로는 멀쩡해 보였다. 그래서 **실제로 한 번 보내 보는 통로**를 둔다.
+
+    멘션 대상을 입력으로 받지 않는 이유 — 이 저장소는 공개다. 디스코드 ID 를 워크플로
+    입력으로 넘기면 Actions 실행 기록에 그대로 남는다. 깃허브 로그인(공개 정보)만 받고
+    ID 는 시크릿 매핑에서 찾는다.
+    """
+    actor = os.environ.get("GITHUB_ACTOR", "").strip()
+    who = dm.mention(actor) if actor else ""
+    body = ("🧪 점검용 메시지입니다. 이 줄이 스레드 안에 보이면 전송 경로가 살아 있습니다.\n"
+            "누른 사람만 멘션했습니다 — 다른 분께는 알림이 가지 않습니다.")
+    if who:
+        body += f"\n{who}"
+    payload = {"content": body, "allowed_mentions": {"parse": ["users"]}}
+
+    if dry_run:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    webhook = os.environ.get("DISCORD_WEBHOOK_TEAM")
+    if not webhook:
+        print("DISCORD_WEBHOOK_TEAM 이 없어 전송을 건너뜁니다")
+        return 0
+    tid = dw.thread_id()
+    print(f"보내는 곳: {'스레드 ' + tid if tid else '채널 (DISCORD_THREAD_ID 비어 있음)'}")
+    post(webhook, payload)
+    return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="보내지 않고 payload 만 출력")
     ap.add_argument("--now", help="이 시각인 것처럼 굴린다 (ISO8601). 테스트용")
+    ap.add_argument("--catch-up", action="store_true",
+                    help="시간 구간을 무시하고 이미 임계값을 넘긴 건을 한 번에 알린다")
+    ap.add_argument("--test", action="store_true",
+                    help="PR 을 보지 않고 점검용 메시지 한 줄만 보낸다. "
+                         "누른 사람(GITHUB_ACTOR)만 멘션한다")
     args = ap.parse_args()
+
+    if args.test:
+        return send_test(dry_run=args.dry_run)
+
+    global CATCH_UP
+    CATCH_UP = args.catch_up
 
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")

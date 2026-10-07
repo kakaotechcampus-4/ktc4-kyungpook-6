@@ -18,7 +18,8 @@ import {
     InteractionType,
     sendToChannel,
 } from "./discord.ts";
-import { handleCancel, handleList, handlePrStatus, handleReserve, type Db, type Reservation } from "./handlers.ts";
+import { handleCancel, handleDeadline, handleList, handleMyTurn, handlePrStatus, handleReserve, type Db, type Reservation } from "./handlers.ts";
+import { table } from "./schedule.ts";
 import { verifyDiscordRequest } from "./verify.ts";
 
 export interface Env {
@@ -27,6 +28,8 @@ export interface Env {
     DISCORD_BOT_TOKEN?: string;
     DISCORD_APP_ID?: string;
     GITHUB_TOKEN?: string;
+    /** 디스코드 ID ↔ 깃허브 로그인 매핑(JSON). /내차례 가 쓴다 */
+    DISCORD_MEMBERS?: string;
     GITHUB_REPO: string;
 }
 
@@ -134,13 +137,24 @@ export default {
             case "예약취소":
                 return ephemeral(await handleCancel(db, userId, Number(opt("번호")), now));
 
-            case "pr상태": {
-                // GitHub 조회가 3초를 넘길 수 있다. 먼저 "생각 중"을 돌려주고 뒤이어 채운다.
+            case "일정":
+                return ephemeral(["주간 코드 리뷰 사이클입니다.", "", table()].join("\n"));
+
+            // GitHub 조회가 3초를 넘길 수 있다. 먼저 "생각 중"을 돌려주고 뒤이어 채운다.
+            case "pr상태":
+            case "내차례":
+            case "마감": {
                 const appId = env.DISCORD_APP_ID;
                 const token: string = body.token;
                 if (!appId) return ephemeral("`DISCORD_APP_ID` 가 설정되지 않아 조회하지 못했습니다.");
+                const work =
+                    name === "pr상태"
+                        ? handlePrStatus(env.GITHUB_REPO, env.GITHUB_TOKEN, fetch, now)
+                        : name === "내차례"
+                          ? handleMyTurn(env.GITHUB_REPO, env.GITHUB_TOKEN, env.DISCORD_MEMBERS, userId, fetch, now)
+                          : handleDeadline(env.GITHUB_REPO, env.GITHUB_TOKEN, fetch, now);
                 ctx.waitUntil(
-                    handlePrStatus(env.GITHUB_REPO, env.GITHUB_TOKEN)
+                    work
                         .then((text) => followUp(appId, token, text))
                         .catch((e) => followUp(appId, token, `조회 중 오류가 났습니다: ${e}`)),
                 );
