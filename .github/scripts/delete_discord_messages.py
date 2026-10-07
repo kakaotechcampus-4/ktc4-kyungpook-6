@@ -27,21 +27,38 @@ import discord_webhook as dw  # noqa: E402
 UA = "ktc4-kyungpook-6-notifier (https://github.com/kakaotechcampus-4/ktc4-kyungpook-6)"
 
 
-def delete(webhook: str, message_id: str) -> str:
-    # 스레드 안의 메시지는 thread_id 없이는 찾지 못한다 — 404 가 나고, 그러면
-    # "이 웹훅이 보낸 게 아니다"로 잘못 읽게 된다. 보낼 때와 같은 값을 붙인다.
+def _try_delete(url: str) -> tuple[bool, str]:
     req = urllib.request.Request(
-        dw.with_thread(f"{webhook.rstrip('/')}/messages/{message_id}"),
+        url,
         headers={"User-Agent": UA},   # UA 를 빼면 Cloudflare 가 403 으로 막는다
         method="DELETE",
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
-            return f"지웠습니다 ({resp.status})"
+            return True, f"지웠습니다 ({resp.status})"
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return "없는 메시지이거나 이 웹훅이 보낸 것이 아닙니다 (404)"
-        return f"실패 {e.code} {e.reason}: {e.read().decode(errors='replace')[:200]}"
+            return False, "없는 메시지이거나 이 웹훅이 보낸 것이 아닙니다 (404)"
+        return False, f"실패 {e.code} {e.reason}: {e.read().decode(errors='replace')[:200]}"
+
+
+def delete(webhook: str, message_id: str) -> str:
+    """스레드 → 채널 순으로 찾는다.
+
+    메시지가 **어디 있는지는 ID 만 보고 알 수 없다.** 스레드 안의 것은 thread_id 를
+    붙여야 찾히고, 채널에 바로 쓴 것은 붙이면 못 찾는다. 알림을 스레드로 옮기기 전에
+    채널로 나간 것들이 남아 있어서, 둘 다 시도한다. 양쪽에서 404 면 진짜 없는 것이다.
+    """
+    base = f"{webhook.rstrip('/')}/messages/{message_id}"
+    threaded = dw.with_thread(base)
+    if threaded != base:
+        ok, msg = _try_delete(threaded)
+        if ok:
+            return f"{msg} · 스레드"
+        if "404" not in msg:
+            return msg          # 404 가 아니면 채널로 재시도해도 같은 결과다
+    ok, msg = _try_delete(base)
+    return f"{msg} · 채널" if ok else msg
 
 
 def main() -> int:
