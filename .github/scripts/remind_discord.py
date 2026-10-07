@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+import time as time_mod
 import urllib.error
 import urllib.request
 from datetime import datetime, time, timedelta, timezone
@@ -154,6 +155,13 @@ MAX_WINDOW_HOURS = 24
 
 WORKFLOW_FILE = "remind-discord-team.yml"
 
+# 구간을 앞당기는 실행 종류. 수동 실행(workflow_dispatch)은 빼둔다 — 점검 발송 한 번이
+# 구간을 삼켜 그 사이 알림이 사라지면 안 된다.
+WINDOW_EVENTS = {"schedule", "workflow_run"}
+
+# 건별로 쪼개 보내므로 연속 전송이 생긴다. 디스코드 웹훅은 초당 5건쯤에서 429 를 준다.
+SEND_GAP_SECONDS = 0.4
+
 
 def load_since(repo: str, token: str, now: datetime) -> datetime | None:
     """직전 **성공한 예약 실행**의 시각.
@@ -170,17 +178,23 @@ def load_since(repo: str, token: str, now: datetime) -> datetime | None:
     그 사이에 임계값을 넘긴 건이 전부 잡히고, 구간이 겹치지 않으니 여전히 한 번만 나간다.
 
     이번 실행은 아직 성공이 아니라서 `status=success` 로 거르면 자연히 빠진다.
-    예약 실행만 본다 — 수동 실행이 구간을 앞당겨 버리면 그 사이 건이 사라진다.
+
+    🚨 **보내는 실행만 센다** (`WINDOW_EVENTS`). cron 이 모자라서 `workflow_run` 으로도
+    도는데, 예약 실행만 기준으로 삼으면 그 사이 여러 번 돌 때 **같은 구간을 반복해서
+    보낸다.** 반대로 `workflow_dispatch` 까지 세면 점검 발송 한 번이 구간을 앞당겨
+    그 사이 건을 삼킨다 — 그래서 둘 다 아닌 것만 고른다.
     """
     try:
         runs = gh(f"/repos/{repo}/actions/workflows/{WORKFLOW_FILE}/runs"
-                  f"?event=schedule&status=success&per_page=1", token)
+                  f"?status=success&per_page=20", token)
     except urllib.error.HTTPError as e:
         print(f"::notice::직전 실행 시각을 못 읽었습니다({e.code}). 한 시간 구간으로 돕니다.")
         return None
-    items = runs.get("workflow_runs") or []
+    items = [r for r in (runs.get("workflow_runs") or [])
+             if r.get("event") in WINDOW_EVENTS]
     if not items:
         return None
+    items.sort(key=lambda r: r["created_at"], reverse=True)
     since = parse_ts(items[0]["created_at"])
     floor = now - timedelta(hours=MAX_WINDOW_HOURS)
     if since < floor:
@@ -591,43 +605,39 @@ def unanswered(repo: str, token: str, number: int, team: set) -> int:
     return waiting
 
 
-def to_payload(findings: list[dict]) -> dict:
-    """PR 하나당 "무슨 일 · 누가 · 링크" 를 한 묶음으로 쓴다.
+def to_payloads(findings: list[dict]) -> list[dict]:
+    """**건마다 메시지 하나.** 멘션은 content 에, 무슨 일·어느 PR 은 embed 에.
 
-    embed 를 쓰지 않는다. 여러 건이 한 메시지로 나갈 때 embed 는 멘션과 PR 이
-    따로 놀아서 "누가 뭘 해야 하는지"가 안 보인다. 멘션은 content 에 있어야
-    울리기도 한다.
+    예전에는 여러 건을 한 메시지에 묶고 embed 를 안 썼다. 이유가 둘이었다 —
+    embed 안의 멘션은 울리지 않고, 묶어서 보내면 멘션이 맨 위에 뭉쳐 누가 어느 PR 을
+    봐야 하는지 안 보였다.
 
-    링크는 `<...>` 로 감싼다. 그래야 디스코드가 미리보기 카드를 안 붙여서,
-    3건이 한 번에 와도 화면이 길어지지 않는다.
+    **건별로 쪼개면 둘 다 풀린다.** 한 메시지에 멘션 하나, embed 하나니까 멘션을
+    content 에 올려도 뭉치지 않는다. 스레드에서 메시지가 묶여 보이던 것도 embed
+    왼쪽 색 막대가 갈라 준다 — 이벤트 알림(`pr_event_notify.py`)과 같은 모양이 된다.
+
+    한 번에 10건까지. 그보다 많으면 마지막에 남은 수만 적는다.
     """
     shown = findings[:10]
-    blocks = []
+    out = []
     for f in shown:
         pr = f["pr"]
-        lines = [f["headline"]]
+        embed: dict = {"title": f["headline"][:256], "color": f.get("color", COLOR_INFO)}
+        desc = []
         if pr:
-            lines.append(f"**#{pr['number']} {pr['title']}** · {f['detail']}")
-        elif f.get("detail"):
-            lines.append(f["detail"])
-        if f.get("action"):
-            lines.append(f["action"])
-        tail = []
-        if f.get("mention"):
-            tail.append(f["mention"])
-        if pr:
-            tail.append(f"<{pr['html_url']}>")
-        if tail:
-            lines.append(" · ".join(tail))
-        blocks.append("\n".join(lines))
+            desc.append(f"**#{pr['number']} {pr['title']}**")
+            embed["url"] = pr["html_url"]
+        if f.get("detail"):
+            desc.append(f["detail"])
+        embed["description"] = "\n".join(desc)[:4000]
+        content = " ".join(t for t in (f.get("mention", ""), f.get("action", "")) if t)
+        out.append({"content": content[:1900], "embeds": [embed],
+                    "allowed_mentions": {"parse": ["users"]}})
 
-    body = "\n\n".join(blocks)
-    if len(shown) > 1:
-        body = f"확인이 필요한 PR {len(shown)}건\n\n" + body
     if len(findings) > len(shown):
-        body += f"\n\n…외 {len(findings) - len(shown)}건"
-
-    return {"content": body[:1900], "allowed_mentions": {"parse": ["users"]}}
+        out.append({"content": f"…외 {len(findings) - len(shown)}건",
+                    "allowed_mentions": {"parse": []}})
+    return out
 
 
 def _send(url: str, payload: dict) -> None:
@@ -742,9 +752,9 @@ def main() -> int:
         print(f"알릴 것 없음 ({now.astimezone(KST):%Y-%m-%d %H:%M} KST)")
         return 0
 
-    payload = to_payload(findings)
+    payloads = to_payloads(findings)
     if args.dry_run:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(payloads, ensure_ascii=False, indent=2))
         return 0
 
     webhook = os.environ.get("DISCORD_WEBHOOK_TEAM")
@@ -752,7 +762,24 @@ def main() -> int:
         # 운영진 공용 웹훅으로 흘러가는 사고를 막기 위해 다른 웹훅을 대신 쓰지 않는다.
         print("DISCORD_WEBHOOK_TEAM 이 없어 전송을 건너뜁니다")
         return 0
-    post(webhook, payload)
+    # 하나가 실패해도 **나머지는 보낸다.** 중간에 멈추면 뒤쪽 건이 조용히 사라진다.
+    #
+    # 그러고 나서 **실행은 실패로 끝낸다.** 그래야 "직전 성공 실행" 시각이 안 올라가고,
+    # 다음 실행이 같은 구간을 다시 본다. 일부가 두 번 가는 건 감수한다 —
+    # 이 저장소에서 반복해서 아팠던 건 중복이 아니라 **유실**이었다.
+    failed = 0
+    for i, payload in enumerate(payloads):
+        if i:
+            time_mod.sleep(SEND_GAP_SECONDS)   # 웹훅 속도 제한을 건드리지 않게 띄운다
+        try:
+            post(webhook, payload)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            failed += 1
+            print(f"::error::{i + 1}번째 메시지 전송 실패: {e}")
+    if failed:
+        print(f"::error::{len(payloads)}건 중 {failed}건 실패. "
+              f"구간을 넘기지 않고 다음 실행에서 다시 봅니다.")
+        return 1
     return 0
 
 
