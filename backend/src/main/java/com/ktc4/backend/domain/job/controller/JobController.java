@@ -27,11 +27,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDateTime;
+
 @Tag(name = "조사", description = "담당자가 고른 가게를 조사하는 API (관리자 전용)")
 @RestController
 @RequestMapping("/api/jobs")
 @RequiredArgsConstructor
 public class JobController {
+
+    static final String ERROR_NOT_STARTED = "조사를 시작하지 못했습니다";
 
     private final JobService jobService;
     private final JobQueryService jobQueryService;
@@ -49,12 +53,16 @@ public class JobController {
                     - 조사할 수 없는 가게 → `excluded` 에 이유와 함께 담습니다 (조사 대상 수에 세지 않습니다)
 
                     같은 가게 ID 가 여러 번 와도 한 번만 다루고, 중복을 뺀 뒤 100곳까지 받습니다.
+                    **조사는 한 번에 하나**입니다. 대기·진행 중인 조사가 있으면 409 로 거절하니, 끝난 뒤 다시 시작하세요.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "202", description = "접수됨 — 조사는 뒤에서 진행됩니다"),
             @ApiResponse(responseCode = "400",
                     description = "가게 목록이 비었거나 잘못된 ID 가 있음, 100곳 초과(invalid-request), "
                             + "모두 제외돼 조사할 가게가 없음(no-investigation-target)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "진행 중인 조사가 있음 (job-already-running)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "401", description = "로그인하지 않음",
@@ -71,7 +79,13 @@ public class JobController {
 
         CreatedJob created = jobService.create(request.storeIds(), admin.memberId());
         // create() 의 트랜잭션이 커밋된 뒤에 부른다 — 서비스 안에서 부르면 실행기 스레드가 아직 커밋 안 된 Job 을 못 읽는다.
-        investigationRunner.run(created.plan());
+        try {
+            investigationRunner.run(created.plan());
+        } catch (RuntimeException e) {
+            // 실행기에 넘기지 못하면(서버 종료 중 거절 등) Job 이 대기로 남아 새 조사를 모두 409 로 막는다 — 실패로 끝내 둔다
+            jobService.fail(created.jobId(), ERROR_NOT_STARTED, LocalDateTime.now());
+            throw e;
+        }
         return ResponseEntity.accepted().body(JobCreateResponse.from(created));
     }
 

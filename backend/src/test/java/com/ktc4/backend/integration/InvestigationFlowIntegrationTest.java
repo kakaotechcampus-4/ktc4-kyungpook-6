@@ -10,6 +10,7 @@ import com.ktc4.backend.domain.investigation.dto.InvestigationTarget;
 import com.ktc4.backend.domain.job.entity.Job;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.repository.JobRepository;
+import com.ktc4.backend.domain.job.service.JobService;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.signal.enums.SignalType;
@@ -23,6 +24,7 @@ import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
+import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.security.JwtProvider;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.AfterEach;
@@ -46,11 +48,17 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
@@ -115,6 +123,9 @@ class InvestigationFlowIntegrationTest {
     private JobRepository jobRepository;
 
     @Autowired
+    private JobService jobService;
+
+    @Autowired
     private TaskRepository taskRepository;
 
     @Autowired
@@ -136,8 +147,12 @@ class InvestigationFlowIntegrationTest {
     void tearDown() {
         // 실행기에 남은 조사가 다음 테스트 데이터와 섞이지 않게, 막아 둔 가짜 AI 를 풀고 모든 조사가 끝나길 기다린다
         fakeAi.releaseAll();
-        await().atMost(WAIT).until(() -> jobRepository.findAll().stream().allMatch(Job::isFinished));
-        clearTables();
+        try {
+            await().atMost(WAIT).until(() -> jobRepository.findAll().stream().allMatch(Job::isFinished));
+        } finally {
+            // 기다리다 실패해도 비운다 — 남은 대기 Job 이 같은 DB 를 쓰는 다음 테스트를 409 로 막지 않게
+            clearTables();
+        }
     }
 
     @Test
@@ -170,26 +185,75 @@ class InvestigationFlowIntegrationTest {
     }
 
     @Test
-    @DisplayName("조사는 한 번에 하나만 돈다 — 나중 조사는 앞 조사가 끝날 때까지 대기한다")
-    void runsOneJobAtATime() throws Exception {
+    @DisplayName("조사가 진행 중이면 새 조사 시작은 409 로 거절되고, 끝나면 다시 시작할 수 있다")
+    void rejectsNewJobWhileRunning() throws Exception {
         Long a = store("가게A", BusinessState.ACTIVE);
         Long b = store("가게B", BusinessState.ACTIVE);
         fakeAi.block();
 
         long firstJob = startJob(a);
         await().atMost(WAIT).until(() -> fakeAi.waiting() == 1);
-        long secondJob = startJob(b);
 
-        assertThat(job(secondJob).path("status").asText()).isEqualTo("PENDING");
+        // 같은 가게든 다른 가게든 진행 중인 조사가 끝날 때까지 받지 않는다 (새로고침 후 다시 시작 등)
+        mockMvc.perform(post("/api/jobs")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.writeValueAsString(Map.of("storeIds", List.of(a, b)))))
+                .andExpect(status().isConflict());
+        assertThat(jobRepository.count()).isEqualTo(1);
 
         fakeAi.release(1);
         await().atMost(WAIT).until(() -> "DONE".equals(job(firstJob).path("status").asText()));
-        await().atMost(WAIT).until(() -> fakeAi.waiting() == 1);
-        assertThat(job(secondJob).path("status").asText()).isEqualTo("IN_PROGRESS");
 
+        long secondJob = startJob(b);
+        await().atMost(WAIT).until(() -> fakeAi.waiting() == 1);
         fakeAi.release(1);
         await().atMost(WAIT).until(() -> "DONE".equals(job(secondJob).path("status").asText()));
         assertThat(fakeAi.maxConcurrent()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("조사 시작이 동시에 여러 번 들어와도(버튼 연타) 하나만 만들어지고 나머지는 거절된다")
+    void createsOnlyOneJobUnderConcurrentRequests() throws Exception {
+        Long store = store("동시가게", BusinessState.ACTIVE);
+        int requests = 8;
+        CountDownLatch ready = new CountDownLatch(requests);
+        CountDownLatch go = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(requests);
+        try {
+            assertOnlyOneCreated(store, requests, ready, go, pool);
+        } finally {
+            pool.shutdownNow();
+            // 실행기 없이 서비스만 불렀으니 Job 이 대기 중으로 남는다 — 단언이 실패해도 정리가 기다리지 않게 지운다
+            clearTables();
+        }
+    }
+
+    private void assertOnlyOneCreated(Long store, int requests, CountDownLatch ready, CountDownLatch go,
+                                      ExecutorService pool) throws Exception {
+        List<Future<String>> results = new ArrayList<>();
+        for (int i = 0; i < requests; i++) {
+            results.add(pool.submit(() -> {
+                ready.countDown();
+                go.await();
+                try {
+                    jobService.create(List.of(store), 1L);
+                    return "CREATED";
+                } catch (CustomException e) {
+                    return e.getErrorCode().name();
+                }
+            }));
+        }
+        ready.await();
+        go.countDown();  // 모든 요청을 한꺼번에 출발시킨다 — "확인"과 "저장" 사이에 다른 요청이 끼어들 틈을 만든다
+        List<String> outcomes = new ArrayList<>();
+        for (Future<String> result : results) {
+            outcomes.add(result.get(10, TimeUnit.SECONDS));
+        }
+
+        assertThat(outcomes).filteredOn("CREATED"::equals).hasSize(1);
+        assertThat(outcomes).filteredOn("JOB_ALREADY_RUNNING"::equals).hasSize(requests - 1);
+        assertThat(jobRepository.count()).isEqualTo(1);
     }
 
     @Test

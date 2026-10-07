@@ -34,6 +34,11 @@ public class JobService {
     /** 한 번에 조사할 수 있는 가게 수(중복을 뺀 뒤). 가게마다 AI 가 수십 초를 쓰므로 한 번에 너무 많이 고르지 않게 한다. */
     public static final int MAX_STORES = 100;
 
+    private static final List<JobStatus> UNFINISHED = List.of(JobStatus.PENDING, JobStatus.IN_PROGRESS);
+
+    // 조사 생성을 한 줄로 세우는 DB 잠금 키. 값 자체는 의미 없고 다른 잠금과 겹치지만 않으면 된다.
+    private static final long JOB_CREATION_LOCK_KEY = 106_001L;
+
     private final JobRepository jobRepository;
     private final InvestigationTargetSelector targetSelector;
 
@@ -44,10 +49,16 @@ public class JobService {
      * <p>가게는 1차 조사(국세청 대조) 결과로 나눈다({@link InvestigationTargetSelector}). 국세청과 상태가 다른 가게는
      * AI 없이 1차 수정안으로 끝나고, 같은 가게만 AI 로 간다. 대상 수는 둘을 합친 수다.
      *
+     * <p>끝나지 않은 조사(대기·진행 중)가 있으면 만들지 않는다. 조사 대상 가게는 실행기 메모리에만 있어 겹치는지 알 수 없고,
+     * 그대로 받으면 같은 가게를 AI 가 다시 조사한다(새로고침 후 다시 시작 등). 실행기가 스레드 하나라 줄을 세워도 빨라지지 않는다.
+     * 확인하고 만드는 사이에 다른 요청이 끼어들지 않게(버튼 연타) 맨 앞에서 DB 잠금을 걸어 생성을 한 줄로 세운다 — 잠금은
+     * 커밋 때 풀리므로 뒤에 온 요청은 앞 요청이 만든 Job 을 보고 거절된다.
+     *
      * @param storeIds    담당자가 고른 가게 ID. 같은 ID 가 여러 번 와도 한 번만 다룬다
      * @param requestedBy 조사를 시작한 관리자의 회원 ID
      * @return 만든 조사와 실행기에 넘길 할 일
      * @throws CustomException 중복을 뺀 가게가 {@value #MAX_STORES}곳을 넘으면 {@code INVALID_REQUEST},
+     *                         끝나지 않은 조사가 있으면 {@code JOB_ALREADY_RUNNING},
      *                         제외하고 나니 조사할 가게가 없으면 {@code NO_INVESTIGATION_TARGET}
      */
     @Transactional
@@ -56,6 +67,10 @@ public class JobService {
         if (distinctIds.size() > MAX_STORES) {
             log.warn("조사 요청 가게 수가 최대치를 넘어 거부함 - 요청 {}곳, 최대 {}곳", distinctIds.size(), MAX_STORES);
             throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
+        jobRepository.lockJobCreation(JOB_CREATION_LOCK_KEY);
+        if (jobRepository.existsByStatusIn(UNFINISHED)) {
+            throw new CustomException(ErrorCode.JOB_ALREADY_RUNNING);
         }
 
         InvestigationTargets targets = targetSelector.select(distinctIds);
@@ -147,8 +162,7 @@ public class JobService {
      */
     @Transactional
     public int failUnfinishedBefore(LocalDateTime bootedAt, String errorMessage, LocalDateTime failedAt) {
-        return jobRepository.failUnfinishedCreatedBefore(
-                List.of(JobStatus.PENDING, JobStatus.IN_PROGRESS), bootedAt, errorMessage, failedAt);
+        return jobRepository.failUnfinishedCreatedBefore(UNFINISHED, bootedAt, errorMessage, failedAt);
     }
 
     private Job findJob(Long jobId) {

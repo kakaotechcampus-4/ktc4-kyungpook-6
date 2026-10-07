@@ -1,5 +1,7 @@
 package com.ktc4.backend.domain.investigation.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ktc4.backend.domain.investigation.dto.AiFinding;
 import com.ktc4.backend.domain.investigation.dto.AiSignal;
 import com.ktc4.backend.domain.investigation.dto.InvestigationTarget;
@@ -25,7 +27,6 @@ import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -44,7 +45,9 @@ import java.util.Map;
 public class AiApiClient implements AiClient {
 
     private static final String INVESTIGATIONS_PATH = "/investigations";
-    private static final int ERROR_BODY_LIMIT = 500;
+    private static final int ERROR_BODY_READ_LIMIT = 8_192;
+    private static final int ERROR_SUMMARY_LIMIT = 300;
+    private static final ObjectMapper ERROR_JSON = new ObjectMapper();
 
     private final RestClient restClient;
 
@@ -83,7 +86,7 @@ public class AiApiClient implements AiClient {
                     .body(List.of(AiInvestigationRequest.from(target)))
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, httpResponse) -> {
-                        throw translateStatus(httpResponse.getStatusCode(), readBodySnippet(httpResponse));
+                        throw translateStatus(httpResponse.getStatusCode(), summarizeErrorBody(httpResponse));
                     })
                     .body(AiInvestigationResponse.class);
         } catch (AiException e) {
@@ -97,11 +100,10 @@ public class AiApiClient implements AiClient {
         return toFinding(response, target.storeId());
     }
 
-    // 예외 메시지는 로그에만 남는다(화면에는 실행기가 정해 둔 문구를 쓴다). AI 가 왜 거절했는지(FastAPI 의 detail 등)를
-    // 알 수 있게 응답 본문 앞부분을 함께 담는다.
-    private static AiException translateStatus(HttpStatusCode status, String body) {
+    // 예외 메시지는 로그에만 남는다(화면에는 실행기가 정해 둔 문구를 쓴다). AI 가 왜 거절했는지 알 수 있게 응답 본문의 요약을 담는다.
+    private static AiException translateStatus(HttpStatusCode status, String bodySummary) {
         int code = status.value();
-        String suffix = " (HTTP " + code + ")" + (body.isEmpty() ? "" : " - 본문: " + body);
+        String suffix = " (HTTP " + code + ")" + (bodySummary.isEmpty() ? "" : " - " + bodySummary);
         if (code == 503) {
             return new AiUnavailable("AI 조사 구현을 쓸 수 없습니다" + suffix);
         }
@@ -114,13 +116,38 @@ public class AiApiClient implements AiClient {
         return new AiContractError("AI 가 요청을 거절했습니다" + suffix);
     }
 
-    private static String readBodySnippet(ClientHttpResponse response) {
+    // 본문을 그대로 남기지 않는다 — FastAPI 검증 오류(422)는 우리가 보낸 값을 input 으로 그대로 돌려줘, 전화번호·사업자번호가
+    // 로그에 섞인다. detail 이 문자열(AI 서버가 직접 쓴 이유)이면 그대로, 목록(검증 오류)이면 항목마다 type·loc·msg 만 남기고,
+    // 그 밖의 본문(HTML·모르는 모양)은 무엇이 들어 있을지 몰라 버린다.
+    private static String summarizeErrorBody(ClientHttpResponse response) {
         try (InputStream body = response.getBody()) {
-            return new String(body.readNBytes(ERROR_BODY_LIMIT), StandardCharsets.UTF_8).strip();
+            JsonNode root = ERROR_JSON.readTree(body.readNBytes(ERROR_BODY_READ_LIMIT));
+            JsonNode detail = root == null ? null : root.get("detail");
+            if (detail == null) {
+                return "";
+            }
+            if (detail.isTextual()) {
+                return truncate(detail.asText());
+            }
+            if (detail.isArray()) {
+                List<String> parts = new ArrayList<>();
+                for (JsonNode error : detail) {
+                    List<String> loc = new ArrayList<>();
+                    error.path("loc").forEach(part -> loc.add(part.asText()));
+                    parts.add(error.path("type").asText() + " @ " + String.join(".", loc) + ": " + error.path("msg").asText());
+                }
+                return truncate(String.join("; ", parts));
+            }
+            return "";
         } catch (IOException e) {
-            // 본문을 못 읽어도 상태코드 번역은 그대로 한다
+            // JSON 이 아니거나 너무 길면 남기지 않는다. 상태코드 번역은 그대로 한다
             return "";
         }
+    }
+
+    private static String truncate(String text) {
+        String stripped = text.strip();
+        return stripped.length() <= ERROR_SUMMARY_LIMIT ? stripped : stripped.substring(0, ERROR_SUMMARY_LIMIT) + "…";
     }
 
     // HttpConnectTimeoutException 은 HttpTimeoutException 의 하위 타입이라 연결 쪽을 먼저 본다.

@@ -13,6 +13,20 @@ import java.util.Optional;
 
 public interface JobRepository extends JpaRepository<Job, Long> {
 
+    boolean existsByStatusIn(Collection<JobStatus> statuses);
+
+    /**
+     * 트랜잭션이 끝날 때까지 유지되는 PostgreSQL 잠금(advisory lock)을 건다. 같은 키로 부른 다른 트랜잭션은 이 트랜잭션이
+     * 커밋·롤백될 때까지 기다린다.
+     *
+     * <p>{@code pg_advisory_xact_lock} 은 결과가 void 라 그대로 받으면 매핑할 타입이 없어, 바깥에서 1 을 고른다.
+     *
+     * @param key 잠금 키 — 같은 일을 줄 세울 호출끼리 같은 값을 쓴다
+     * @return 항상 1
+     */
+    @Query(value = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(:key)) AS locked", nativeQuery = true)
+    int lockJobCreation(@Param("key") long key);
+
     /** 가장 최근에 만든 조사 — ID 가 만든 순서대로 커진다. */
     Optional<Job> findFirstByOrderByJobIdDesc();
 

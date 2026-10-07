@@ -241,6 +241,42 @@ class AiApiClientTest {
                     .hasMessageContaining("at most 100 items");
         }
 
+        @Test
+        @DisplayName("FastAPI 검증 오류는 어느 칸·왜만 남기고, 우리가 보낸 값(input)은 남기지 않는다 — 전화번호·사업자번호가 로그에 가지 않게")
+        void dropsEchoedInputFromValidationError() {
+            // FastAPI 0.141 / pydantic 2 가 실제로 돌려주는 모양 (ai 서버에 잘못된 요청을 보내 확인함)
+            server.expect(requestTo(INVESTIGATIONS_URL)).andRespond(withStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("""
+                            {"detail": [{"type": "too_long", "loc": ["body"],
+                                         "msg": "List should have at most 100 items after validation, not 101",
+                                         "input": [{"storeId": 44, "name": "예시분식", "phone": "053-111-1111",
+                                                    "bizNo": "1234567890"}],
+                                         "ctx": {"max_length": 100}}]}
+                            """));
+
+            assertThatThrownBy(() -> client.investigate(TARGET))
+                    .isInstanceOf(AiContractError.class)
+                    .hasMessageContaining("too_long")
+                    .hasMessageContaining("at most 100 items")
+                    .hasMessageNotContaining("053-111-1111")
+                    .hasMessageNotContaining("1234567890")
+                    .hasMessageNotContaining("예시분식");
+        }
+
+        @Test
+        @DisplayName("JSON 이 아닌 오류 본문은 남기지 않는다 — 무엇이 들어 있을지 모른다")
+        void dropsNonJsonErrorBody() {
+            server.expect(requestTo(INVESTIGATIONS_URL)).andRespond(withStatus(HttpStatus.BAD_GATEWAY)
+                    .contentType(MediaType.TEXT_HTML)
+                    .body("<html>proxy error for 053-111-1111</html>"));
+
+            assertThatThrownBy(() -> client.investigate(TARGET))
+                    .isInstanceOf(AiTransientError.class)
+                    .hasMessageContaining("HTTP 502")
+                    .hasMessageNotContaining("053-111-1111");
+        }
+
         @ParameterizedTest
         @ValueSource(ints = {400, 404, 422})
         @DisplayName("그 밖의 4xx 는 다시 보내도 같아서 AiContractError")
