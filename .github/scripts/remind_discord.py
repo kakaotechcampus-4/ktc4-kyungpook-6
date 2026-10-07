@@ -534,13 +534,52 @@ def post(webhook: str, payload: dict) -> None:
         _send(webhook, payload)
 
 
+def send_test(dry_run: bool = False) -> int:
+    """점검용 한 줄을 보낸다. **누른 사람만** 멘션한다.
+
+    왜 있나 — 이 저장소에서 보내 봐야만 드러난 것이 두 번 있었다. 디스코드(Cloudflare)가
+    기본 User-Agent 를 403 으로 막은 것, embed 안의 멘션이 울리지 않은 것. 둘 다
+    `--dry-run` 으로는 멀쩡해 보였다. 그래서 **실제로 한 번 보내 보는 통로**를 둔다.
+
+    멘션 대상을 입력으로 받지 않는 이유 — 이 저장소는 공개다. 디스코드 ID 를 워크플로
+    입력으로 넘기면 Actions 실행 기록에 그대로 남는다. 깃허브 로그인(공개 정보)만 받고
+    ID 는 시크릿 매핑에서 찾는다.
+    """
+    actor = os.environ.get("GITHUB_ACTOR", "").strip()
+    who = dm.mention(actor) if actor else ""
+    body = ("🧪 점검용 메시지입니다. 이 줄이 스레드 안에 보이면 전송 경로가 살아 있습니다.\n"
+            "누른 사람만 멘션했습니다 — 다른 분께는 알림이 가지 않습니다.")
+    if who:
+        body += f"\n{who}"
+    payload = {"content": body, "allowed_mentions": {"parse": ["users"]}}
+
+    if dry_run:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    webhook = os.environ.get("DISCORD_WEBHOOK_TEAM")
+    if not webhook:
+        print("DISCORD_WEBHOOK_TEAM 이 없어 전송을 건너뜁니다")
+        return 0
+    tid = dw.thread_id()
+    print(f"보내는 곳: {'스레드 ' + tid if tid else '채널 (DISCORD_THREAD_ID 비어 있음)'}")
+    post(webhook, payload)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="보내지 않고 payload 만 출력")
     ap.add_argument("--now", help="이 시각인 것처럼 굴린다 (ISO8601). 테스트용")
     ap.add_argument("--catch-up", action="store_true",
                     help="시간 구간을 무시하고 이미 임계값을 넘긴 건을 한 번에 알린다")
+    ap.add_argument("--test", action="store_true",
+                    help="PR 을 보지 않고 점검용 메시지 한 줄만 보낸다. "
+                         "누른 사람(GITHUB_ACTOR)만 멘션한다")
     args = ap.parse_args()
+
+    if args.test:
+        return send_test(dry_run=args.dry_run)
 
     global CATCH_UP
     CATCH_UP = args.catch_up

@@ -16,6 +16,10 @@ on:
         description: "밀린 건을 한 번에 알립니다 (시간 구간 무시). 워크플로가 멈췄다 돌아왔거나, 규칙을 바꿔 소급 적용할 때."
         type: boolean
         default: false
+      test_send:
+        description: "점검용 한 줄만 보냅니다. PR 은 보지 않고, 누른 사람만 멘션합니다(다른 분께는 알림이 가지 않습니다)."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,4 +48,5 @@ jobs:
           DISCORD_THREAD_ID: ${{ vars.DISCORD_THREAD_ID }}
         run: |
           python3 .github/scripts/remind_discord.py \
+            ${{ inputs.test_send && '--test' || '' }} \
             ${{ inputs.catch_up && '--catch-up' || '' }}
