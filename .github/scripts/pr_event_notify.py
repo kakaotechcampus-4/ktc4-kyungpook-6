@@ -78,13 +78,34 @@ def is_outsider(login: str | None) -> bool:
     return bool(login) and login not in dm._table().get("members", {})
 
 
-def say(headline: str, subject: str, action: str = "", url: str = "") -> dict:
-    """무슨 일 / 어느 PR / 그래서 뭘. 링크는 <> 로 감싸 미리보기 카드를 막는다."""
-    lines = [headline, subject]
-    tail = [t for t in (action, f"<{url}>" if url else "") if t]
-    if tail:
-        lines.append(" · ".join(tail))
-    return {"content": "\n".join(lines)[:1900],
+# embed 왼쪽 세로바 색. 종류를 색으로 구분해, 스크롤하며 훑어도 무슨 알림인지 보이게 한다.
+COLOR_NEW = 0x5865F2       # 파랑 — 새 PR
+COLOR_REVIEW = 0xFEE75C    # 노랑 — 리뷰어 지정
+COLOR_GOOD = 0x57F287      # 초록 — 승인 · 머지
+COLOR_CHANGES = 0xED4245   # 빨강 — 변경 요청
+COLOR_COMMENT = 0x99AAB5   # 회색 — 코멘트
+
+
+def say(headline: str, subject: str, action: str = "", url: str = "",
+        *, mention: str = "", color: int = COLOR_COMMENT) -> dict:
+    """부를 사람과 할 일은 content 에, 무슨 일·어느 PR 은 embed 에.
+
+    🚨 **멘션은 반드시 content 에 둔다.** embed 안의 `<@id>` 는 링크로 보이기만 하고
+       알림이 가지 않는다 — `--dry-run` 으로는 멀쩡해 보여서 실제로 보내 보고야 알았다.
+
+    **왜 embed 를 쓰나** — 알림을 채널이 아니라 스레드(「📋 PR 현황판」)로 보내면서
+    메시지 구분이 사라졌다. 같은 웹훅이 연달아 보내면 디스코드가 메시지를 묶어서 이름·시각을
+    맨 위 한 번만 보여주기 때문에, 여러 건이 한 덩어리로 읽힌다. 채널에서는 GitHub 링크
+    미리보기 카드가 칸막이 노릇을 했는데, 미리보기를 끄면서(`<>`) 그것도 없어졌다.
+    embed 는 왼쪽에 색상 세로바가 붙어 건마다 경계가 생긴다.
+
+    제목에 `url` 을 걸어 링크를 따로 적지 않는다 — 미리보기 카드가 다시 붙지 않는다.
+    """
+    embed: dict = {"title": headline[:256], "description": subject[:4000], "color": color}
+    if url:
+        embed["url"] = url
+    content = " ".join(t for t in (mention, action) if t)
+    return {"content": content[:1900], "embeds": [embed],
             "allowed_mentions": {"parse": ["users"]}}
 
 
@@ -114,24 +135,28 @@ def build(event_name: str, event: dict) -> dict | None:
     if pr.get("draft"):
         return None  # 초안은 알리지 않는다
 
-    if action in ("opened", "ready_for_review"):
+    if action in ("opened", "ready_for_review", "reopened"):
+        # reopened 를 넣은 이유 — GitHub 이 이벤트를 흘려 워크플로가 하나도 안 돈 PR 이 있었다
+        # (#76, 체크 0개). 닫았다 다시 열면 CI 는 되살아나는데, 그때 알림까지 와야 한다.
         return on_opened(pr)
     if action == "review_requested":
         return on_review_requested(event, pr)
     if action == "closed" and pr.get("merged"):
-        return say("✅ develop 에 머지됐습니다", subject_of(pr), url=pr["html_url"])
+        return say("✅ develop 에 머지됐습니다", subject_of(pr), url=pr["html_url"],
+                   color=COLOR_GOOD)
     return None
 
 
 def on_opened(pr: dict) -> dict:
     reviewers = reviewer_logins(pr)
     if reviewers:
-        action = f"리뷰 부탁드립니다 — {dm.mentions(reviewers)}"
+        action, who = "리뷰 부탁드립니다", dm.mentions(reviewers)
     else:
         # 리뷰어 없이 올라간 PR 은 아무의 일도 아니다. 바로 짚는다.
-        action = ("⚠️ 리뷰어가 없습니다. 같은 파트 팀원을 지정해 주세요 — "
-                  + dm.mention(pr["user"]["login"]))
-    return say("🔵 새 PR 이 올라왔습니다", subject_of(pr), action, pr["html_url"])
+        action = "⚠️ 리뷰어가 없습니다. 같은 파트 팀원을 지정해 주세요"
+        who = dm.mention(pr["user"]["login"])
+    return say("🔵 새 PR 이 올라왔습니다", subject_of(pr), action, pr["html_url"],
+               mention=who, color=COLOR_NEW)
 
 
 def on_review_requested(event: dict, pr: dict) -> dict | None:
@@ -144,8 +169,8 @@ def on_review_requested(event: dict, pr: dict) -> dict | None:
     age = (datetime.now(timezone.utc) - parse_ts(pr["created_at"])).total_seconds()
     if age < FRESH_SECONDS:
         return None  # 방금 opened 가 이미 멘션했다
-    return say("👀 리뷰어로 지정되셨습니다", subject_of(pr),
-               f"확인 부탁드립니다 — {dm.mention(reviewer)}", pr["html_url"])
+    return say("👀 리뷰어로 지정되셨습니다", subject_of(pr), "확인 부탁드립니다",
+               pr["html_url"], mention=dm.mention(reviewer), color=COLOR_REVIEW)
 
 
 def on_review(event: dict, pr: dict) -> dict | None:
@@ -169,15 +194,16 @@ def on_review(event: dict, pr: dict) -> dict | None:
     if is_outsider(reviewer):
         return None
 
-    headline, action = {
-        "APPROVED": ("🟢 승인됐습니다", "머지하셔도 됩니다"),
-        "CHANGES_REQUESTED": ("🔴 변경 요청이 왔습니다", "반영한 뒤 다시 리뷰를 요청해 주세요"),
-        "COMMENTED": ("💬 리뷰 코멘트가 달렸습니다", "확인해 주세요"),
-    }.get(state, (None, None))
+    headline, action, color = {
+        "APPROVED": ("🟢 승인됐습니다", "머지하셔도 됩니다", COLOR_GOOD),
+        "CHANGES_REQUESTED": ("🔴 변경 요청이 왔습니다", "반영한 뒤 다시 리뷰를 요청해 주세요",
+                              COLOR_CHANGES),
+        "COMMENTED": ("💬 리뷰 코멘트가 달렸습니다", "확인해 주세요", COLOR_COMMENT),
+    }.get(state, (None, None, None))
     if not headline:
         return None
-    return say(f"{headline} ({dm.name_of(reviewer)})", subject_of(pr),
-               f"{action} — {dm.mention(author)}", pr["html_url"])
+    return say(f"{headline} ({dm.name_of(reviewer)})", subject_of(pr), action,
+               pr["html_url"], mention=dm.mention(author), color=color)
 
 
 def comment_message(number: int, title: str, url: str, author: str | None,
@@ -185,8 +211,8 @@ def comment_message(number: int, title: str, url: str, author: str | None,
     """팀원이 남긴 코멘트 알림. 멘토·운영진 것은 여기까지 오지 않는다(위에서 걸러진다)."""
     excerpt = " ".join((body or "").split())[:200]
     subject = f"**#{number} {title}**" + (f"\n> {excerpt}" if excerpt else "")
-    return say(f"💬 코멘트가 달렸습니다 ({dm.name_of(commenter)})", subject,
-               f"확인해 주세요 — {dm.mention(author)}", url)
+    return say(f"💬 코멘트가 달렸습니다 ({dm.name_of(commenter)})", subject, "확인해 주세요",
+               url, mention=dm.mention(author), color=COLOR_COMMENT)
 
 
 def on_issue_comment(event: dict) -> dict | None:
@@ -263,10 +289,43 @@ def post(webhook: str, payload: dict) -> None:
         _send(webhook, payload)
 
 
+def sample() -> dict:
+    """점검용 한 건. 실제 알림과 **같은 say() 를 거쳐** 만든다 — 모양이 어긋나면 의미가 없다.
+
+    멘션은 버튼을 누른 사람만. 이 저장소는 공개라 디스코드 ID 를 워크플로 입력으로 받지 않고
+    깃허브 로그인(공개 정보)만 받아 시크릿 매핑에서 찾는다.
+    """
+    actor = os.environ.get("GITHUB_ACTOR", "").strip()
+    return say(
+        "🧪 점검용 알림입니다",
+        "**#0 이 줄이 왼쪽 색 막대와 함께 보이면 구분이 되는 것입니다**\n"
+        "눌러주신 분만 멘션했습니다 — 다른 분께는 알림이 가지 않습니다.",
+        "확인만 해주세요",
+        mention=dm.mention(actor) if actor else "",
+        color=COLOR_NEW,
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="보내지 않고 payload 만 출력")
+    ap.add_argument("--test", action="store_true",
+                    help="PR 이벤트 없이 점검용 알림 한 건만 보낸다. 누른 사람만 멘션한다")
     args = ap.parse_args()
+
+    if args.test:
+        payload = sample()
+        if args.dry_run:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+        webhook = os.environ.get("DISCORD_WEBHOOK_TEAM")
+        if not webhook:
+            print("::notice::DISCORD_WEBHOOK_TEAM 시크릿이 없어 건너뜁니다.")
+            return 0
+        tid = dw.thread_id()
+        print(f"보내는 곳: {'스레드 ' + tid if tid else '채널 (DISCORD_THREAD_ID 비어 있음)'}")
+        post(webhook, payload)
+        return 0
 
     path = os.environ.get("GITHUB_EVENT_PATH")
     if not path or not os.path.exists(path):

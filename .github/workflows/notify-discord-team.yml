@@ -24,7 +24,9 @@ on:
   pull_request:
     # review_requested — 올린 뒤에 리뷰어를 바꾸거나 추가했을 때. 올리자마자 오는 건은
     # opened 가 이미 멘션했으므로 스크립트가 걸러낸다.
-    types: [opened, ready_for_review, closed, review_requested]
+    # reopened — GitHub 이 이벤트를 흘려 워크플로가 하나도 안 돈 PR 이 있었다(#76).
+    #            닫았다 다시 열어 되살리는 복구를 하면 그때 알림도 같이 와야 한다.
+    types: [opened, ready_for_review, reopened, closed, review_requested]
     branches: [develop]
   pull_request_review:
     # 리뷰가 달렸는데 작성자가 모르는 일을 막는다 (승인 / 변경 요청 / 코멘트)
@@ -38,6 +40,15 @@ on:
     # 리뷰 제출이 한 번에 알리므로, 여기까지 다 알리면 리뷰 한 번에 열 번 울린다.
     types: [created]
 
+  # 점검용. PR 이벤트를 기다리지 않고 한 건 보내 본다 — 403·embed 멘션처럼
+  # --dry-run 으로는 안 보이고 실제로 보내야 드러나는 것들이 있었다.
+  workflow_dispatch:
+    inputs:
+      test_send:
+        description: "점검용 알림 한 건만 보냅니다. 누른 사람만 멘션합니다(다른 분께는 알림이 가지 않습니다)."
+        type: boolean
+        default: true
+
 permissions:
   contents: read
 
@@ -50,6 +61,7 @@ jobs:
     # issue_comment 에는 pull_request 필드가 없어서 draft 비교가 null 이 된다.
     # 그 이벤트는 여기서 거르지 않고 스크립트가 "PR 인가"부터 판단한다.
     if: >-
+      github.event_name == 'workflow_dispatch' ||
       github.event_name == 'issue_comment' ||
       (github.event.pull_request.draft == false &&
        (github.event.action != 'closed' || github.event.pull_request.merged == true))
@@ -70,4 +82,6 @@ jobs:
           # 변수는 값을 다시 읽을 수 있다 — 시크릿은 넣고 나면 못 읽어서, 빈 값이
           # 들어가도 성공한 것처럼 조용히 넘어간다. 실제로 두 번 겪었다.
           DISCORD_THREAD_ID: ${{ vars.DISCORD_THREAD_ID }}
-        run: python3 .github/scripts/pr_event_notify.py
+        run: |
+          python3 .github/scripts/pr_event_notify.py \
+            ${{ github.event_name == 'workflow_dispatch' && '--test' || '' }}
