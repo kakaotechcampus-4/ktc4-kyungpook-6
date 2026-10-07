@@ -11,6 +11,8 @@ import com.ktc4.backend.domain.task.dto.EvidenceResponse;
 import com.ktc4.backend.domain.task.dto.ProposedChangeResponse;
 import com.ktc4.backend.domain.task.dto.TaskResultResponse;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
+import com.ktc4.backend.domain.verification.dto.VerificationResponse;
+import com.ktc4.backend.domain.verification.enums.VerificationAction;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.JwtProvider;
@@ -49,6 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("조사 조회 API")
 class JobControllerQueryTest {
 
+    private static final LocalDateTime CREATED_AT = LocalDateTime.of(2026, 10, 6, 12, 0);
     private static final LocalDateTime FINISHED_AT = LocalDateTime.of(2026, 10, 6, 12, 30);
 
     @Autowired
@@ -75,12 +78,13 @@ class JobControllerQueryTest {
         return new TaskResultResponse(1L, 5L, "폐업가게", "대구광역시 북구 대학로 80", StoreStatus.OPEN, "053-111-1111",
                 LocalDateTime.of(2026, 7, 1, 9, 0), TaskClassification.PRIORITY_CHECK, null,
                 List.of(new ProposedChangeResponse("status", "CLOSED")),
-                List.of(new EvidenceResponse("status", "NTS", "국세청 사업자 상태: 폐업자", null, null)));
+                List.of(new EvidenceResponse("status", "NTS", "국세청 사업자 상태: 폐업자", null, null)),
+                new VerificationResponse(VerificationAction.CHANGE_STATUS, LocalDateTime.of(2026, 10, 7, 9, 0)));
     }
 
     private static TaskResultResponse failedTask() {
         return new TaskResultResponse(2L, 6L, "실패가게", "대구광역시 북구 대학로 81", StoreStatus.OPEN, null,
-                null, null, "AI 응답 시간이 초과됐습니다", List.of(), List.of());
+                null, null, "AI 응답 시간이 초과됐습니다", List.of(), List.of(), null);
     }
 
     @ParameterizedTest
@@ -88,7 +92,7 @@ class JobControllerQueryTest {
     @DisplayName("상태마다 진행도·결과 필드 이름이 같다")
     void sameShapeForEveryStatus(JobStatus jobStatus) throws Exception {
         boolean finished = jobStatus == JobStatus.DONE || jobStatus == JobStatus.FAILED;
-        given(jobQueryService.getJob(42L)).willReturn(new JobResultResponse(42L, jobStatus, 2, finished ? 2 : 1,
+        given(jobQueryService.getJob(42L)).willReturn(new JobResultResponse(42L, jobStatus, 2, finished ? 2 : 1, CREATED_AT,
                 finished ? FINISHED_AT : null, jobStatus == JobStatus.FAILED ? "AI 조사를 쓸 수 없어 조사를 멈췄습니다" : null,
                 List.of(priorityTask(), failedTask())));
 
@@ -98,6 +102,7 @@ class JobControllerQueryTest {
                 .andExpect(jsonPath("$.status").value(jobStatus.name()))
                 .andExpect(jsonPath("$.targetCount").value(2))
                 .andExpect(jsonPath("$.completedCount").value(finished ? 2 : 1))
+                .andExpect(jsonPath("$.createdAt").value("2026-10-06T12:00:00"))
                 .andExpect(finished ? jsonPath("$.finishedAt").value("2026-10-06T12:30:00")
                         : jsonPath("$.finishedAt").value(nullValue()))
                 .andExpect(jsonPath("$.tasks[0].taskId").value(1))
@@ -116,17 +121,21 @@ class JobControllerQueryTest {
                 .andExpect(jsonPath("$.tasks[0].evidences[0].description").value("국세청 사업자 상태: 폐업자"))
                 .andExpect(jsonPath("$.tasks[0].evidences[0].sourceLabel").value(nullValue()))
                 .andExpect(jsonPath("$.tasks[0].evidences[0].sourceUrl").value(nullValue()))
+                // 확인 기록이 있으면 카드가 "확인 완료됨", null 이면 버튼을 보여 준다
+                .andExpect(jsonPath("$.tasks[0].verification.action").value("CHANGE_STATUS"))
+                .andExpect(jsonPath("$.tasks[0].verification.verifiedAt").value("2026-10-07T09:00:00"))
                 // 분류가 null 이면 조사 실패 — 프론트가 이 값으로 실패 섹션을 나눈다
                 .andExpect(jsonPath("$.tasks[1].classification").value(nullValue()))
                 .andExpect(jsonPath("$.tasks[1].failureReason").value("AI 응답 시간이 초과됐습니다"))
                 .andExpect(jsonPath("$.tasks[1].proposedChanges").isEmpty())
-                .andExpect(jsonPath("$.tasks[1].evidences").isEmpty());
+                .andExpect(jsonPath("$.tasks[1].evidences").isEmpty())
+                .andExpect(jsonPath("$.tasks[1].verification").value(nullValue()));
     }
 
     @Test
     @DisplayName("실패한 조사는 멈춘 이유를 내려준다")
     void failedJobHasErrorMessage() throws Exception {
-        given(jobQueryService.getJob(42L)).willReturn(new JobResultResponse(42L, JobStatus.FAILED, 2, 1,
+        given(jobQueryService.getJob(42L)).willReturn(new JobResultResponse(42L, JobStatus.FAILED, 2, 1, CREATED_AT,
                 FINISHED_AT, "AI 조사를 쓸 수 없어 조사를 멈췄습니다", List.of(priorityTask())));
 
         getAsAdmin("/api/jobs/42")
@@ -137,7 +146,7 @@ class JobControllerQueryTest {
     @DisplayName("/latest 는 조사 ID 로 읽히지 않고 가장 최근 조사를 내려준다")
     void latestIsNotParsedAsJobId() throws Exception {
         given(jobQueryService.getLatest()).willReturn(new JobResultResponse(
-                43L, JobStatus.DONE, 1, 1, FINISHED_AT, null, List.of(priorityTask())));
+                43L, JobStatus.DONE, 1, 1, CREATED_AT, FINISHED_AT, null, List.of(priorityTask())));
 
         getAsAdmin("/api/jobs/latest")
                 .andExpect(status().isOk())

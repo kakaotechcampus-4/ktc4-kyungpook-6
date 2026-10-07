@@ -26,6 +26,9 @@ public record JobResultResponse(
         @Schema(description = "끝난 가게 수 (성공·실패 모두)", example = "12")
         int completedCount,
 
+        @Schema(description = "조사를 만든 시각. 끝나지 않아 finishedAt 이 없을 때 화면이 날짜로 쓴다")
+        LocalDateTime createdAt,
+
         @Schema(description = "끝난 시각. 끝나지 않았으면 null", nullable = true)
         LocalDateTime finishedAt,
 
@@ -39,6 +42,6 @@ public record JobResultResponse(
     /** 조사와 그 결과로 응답을 만든다. */
     public static JobResultResponse of(Job job, List<TaskResultResponse> tasks) {
         return new JobResultResponse(job.getJobId(), job.getStatus(), job.getTargetCount(), job.getCompletedCount(),
-                job.getFinishedAt(), job.getErrorMessage(), List.copyOf(tasks));
+                job.getCreatedAt(), job.getFinishedAt(), job.getErrorMessage(), List.copyOf(tasks));
     }
 }

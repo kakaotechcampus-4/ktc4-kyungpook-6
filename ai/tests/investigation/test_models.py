@@ -10,10 +10,19 @@ import pytest
 from pydantic import ValidationError
 
 from src.investigation import (
-    Evidence,
     InvestigationResponse,
     InvestigationTarget,
     StoreFinding,
+)
+from src.investigation.models import (
+    ChangeField,
+    Failure,
+    FailureCode,
+    PlaceCheck,
+    PlaceStatus,
+    Signal,
+    SignalType,
+    TaskClassification,
 )
 
 
@@ -66,51 +75,53 @@ class TestInvestigationTarget:
 class TestStoreFinding:
     def test_실패_결과는_storeId_만으로_만든다(self):
         """조사가 실패해도 결과에서 빼지 않는다 — 최소한의 형태가 성립해야 한다."""
-        found = StoreFinding(storeId=1, failure="근거를 찾지 못했습니다")
+        found = StoreFinding(storeId=1, failure=Failure(code=FailureCode.ERROR, message="실패"))
 
-        assert found.evidences == []
+        assert found.classification is None
+        assert found.signals == []
 
-    def test_성공_결과는_alias_로_직렬화된다(self):
-        """응답 필드명이 백엔드와 같은 캐멀케이스로 나가야 한다."""
+    def test_응답은_백엔드_Task_Signal_칸만_담는다(self):
+        """백엔드가 바꾸지 않고 저장할 수 있어야 한다 — 칸이 없는 값은 응답에서 뺀다."""
         found = StoreFinding(
             storeId=1,
-            evidences=[Evidence(source="비즈노", detail="상호명 검색 결과 1건")],
+            classification=TaskClassification.PRIORITY_CHECK,
+            proposedChanges={"phone": "053-111-2222"},
+            signals=[
+                Signal(
+                    signalType=SignalType.SIGNAL_HIGH,
+                    evidenceText="전화번호: 053-111-2222 (출처 2곳)",
+                    evidenceUrl="https://example.test",
+                    field=ChangeField.PHONE,
+                    observed="053-111-2222",
+                    sourceCount=2,
+                )
+            ],
+            mapCheck=PlaceCheck(status=PlaceStatus.FOUND, placeUrl="http://place.map.kakao.com/1"),
         )
 
         dumped = found.model_dump(by_alias=True)
 
-        assert dumped["storeId"] == 1
-        assert dumped["failure"] is None
-        assert dumped["evidences"][0]["source"] == "비즈노"
+        assert set(dumped) == {"storeId", "classification", "proposedChanges", "signals", "failure"}
+        assert dumped["signals"] == [
+            {
+                "signalType": "SIGNAL_HIGH",
+                "confidence": None,
+                "evidenceText": "전화번호: 053-111-2222 (출처 2곳)",
+                "evidenceUrl": "https://example.test",
+                "field": "phone",
+            }
+        ]
 
-    def test_근거는_여러_건_담긴다(self):
-        found = StoreFinding(
-            storeId=1,
-            evidences=[
-                Evidence(source="비즈노", detail="상호명 일치"),
-                Evidence(source="웹검색", detail="같은 주소", url="https://example.test"),
-            ],
-        )
+    def test_응답에서_뺀_값도_규칙에서는_쓴다(self):
+        signal = Signal(signalType=SignalType.SIGNAL_HIGH, evidenceText="t", field=ChangeField.PHONE, sourceCount=2)
 
-        assert [e.source for e in found.evidences] == ["비즈노", "웹검색"]
-        assert found.evidences[1].url == "https://example.test"
-
-
-class TestEvidence:
-    def test_출처가_없으면_거부한다(self):
-        """출처 없는 근거는 사람이 검증할 수 없다."""
-        with pytest.raises(ValidationError):
-            Evidence(detail="어디서 왔는지 모르는 근거")
-
-    def test_링크는_없어도_된다(self):
-        """자체 데이터로 판단한 근거에는 외부 링크가 없다."""
-        assert Evidence(source="국세청 대조", detail="폐업 상태").url is None
+        assert signal.field is ChangeField.PHONE and signal.source_count == 2
 
 
 def test_응답은_요청_수와_성공_수를_함께_담는다():
     """부르는 쪽이 무엇이 빠졌는지 셀 수 있어야 한다."""
     response = InvestigationResponse(
-        results=[StoreFinding(storeId=1), StoreFinding(storeId=2, failure="실패")],
+        results=[StoreFinding(storeId=1), StoreFinding(storeId=2, failure=Failure(code=FailureCode.TIMEOUT, message="실패"))],
         requested=2,
         succeeded=1,
     )

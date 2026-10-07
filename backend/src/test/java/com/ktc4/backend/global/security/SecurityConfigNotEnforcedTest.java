@@ -13,6 +13,8 @@ import com.ktc4.backend.domain.qr.controller.QrCredentialController;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.controller.StoreController;
 import com.ktc4.backend.domain.store.service.StoreService;
+import com.ktc4.backend.domain.task.controller.TaskController;
+import com.ktc4.backend.domain.verification.service.VerificationService;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 켠 상태의 규칙은 {@link SecurityConfigTest} 가 맡는다.
  */
 @WebMvcTest({StoreController.class, AuthController.class, OwnerAdminController.class, QrCredentialController.class,
-        JobController.class})
+        JobController.class, TaskController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = "auth.enforce=false")
 @DisplayName("API 접근 권한 — 검사 꺼짐")
@@ -68,6 +70,9 @@ class SecurityConfigNotEnforcedTest {
 
     @MockitoBean
     private InvestigationRunner investigationRunner;
+
+    @MockitoBean
+    private VerificationService verificationService;
 
     @Autowired
     private JwtProvider jwtProvider;
@@ -151,6 +156,16 @@ class SecurityConfigNotEnforcedTest {
         mockMvc.perform(get("/api/jobs/1")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/jobs/latest")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/jobs/1")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.OWNER).value()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("수정안 반영·확인 API 는 꺼져 있어도 관리자만 — 가게 정보를 바꾸는 API 라 아무나 부를 수 없게")
+    void taskApiAlwaysRequiresAdmin() throws Exception {
+        mockMvc.perform(post("/api/tasks/1/apply")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/tasks/1/confirm")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/tasks/1/apply")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.OWNER).value()))
                 .andExpect(status().isForbidden());
     }

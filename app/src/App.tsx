@@ -1,5 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
+import SplashPage from "./pages/SplashPage";
+import RoleSelectPage from "./pages/RoleSelectPage";
 import OwnerLoginPage from "./pages/OwnerLoginPage";
 import OwnerSignupLayout from "./pages/OwnerSignupLayout";
 import OwnerSignupAccountPage from "./pages/OwnerSignupAccountPage";
@@ -21,6 +23,8 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/splash" element={<SplashPage />} />
+        <Route path="/role-select" element={<RoleSelectPage />} />
         <Route path="/owner/login" element={<OwnerLoginPage />} />
         <Route path="/owner/signup" element={<OwnerSignupLayout />}>
           <Route index element={<OwnerSignupAccountPage />} />

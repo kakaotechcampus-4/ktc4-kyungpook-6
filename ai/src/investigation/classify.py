@@ -222,7 +222,8 @@ def _judge_field(
     conflicted = len(groups) > 1
 
     shown = _representative(best)
-    text = f"{_FIELD_LABELS[change_field]}: {shown.evidence}"
+    # 백엔드 Signal 에는 출처 수 칸이 없어 문구에 적는다 — 담당자가 근거의 무게를 가늠하는 값이다.
+    text = f"{_FIELD_LABELS[change_field]}: {shown.evidence} (출처 {len(domains(best))}곳)"
     if conflicted:
         text += " (다른 값을 가리키는 출처도 있음)"
     if found_on_map and _contradicts_map(target, change_field, shown.value):

@@ -20,8 +20,11 @@ import com.ktc4.backend.domain.task.dto.TaskResultResponse;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
+import com.ktc4.backend.global.error.CustomException;
+import com.ktc4.backend.global.error.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -167,6 +170,36 @@ public class TaskService {
                 .toList();
     }
 
+    /**
+     * 조사 결과 한 건을 가게·근거와 함께 읽는다 — 반영·확인 뒤 화면이 그 카드 하나만 다시 그릴 때 쓴다.
+     *
+     * @param taskId Task ID
+     * @return 결과 조회의 task 한 건과 같은 모양 (확인 기록은 비어 있다 — 부르는 쪽이 붙인다)
+     * @throws CustomException Task 가 없으면 {@code TASK_NOT_FOUND}
+     */
+    @Transactional(readOnly = true)
+    public TaskResultResponse findResult(Long taskId) {
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new CustomException(ErrorCode.TASK_NOT_FOUND));
+        return toResult(task, signalRepository.findByTask_TaskIdInOrderBySignalIdAsc(List.of(taskId)));
+    }
+
+    /**
+     * 담당자가 반영·확인할 Task 를 행 잠금으로 읽는다. 같은 카드에 요청이 동시에 와도 먼저 잠근 쪽이 끝날 때까지
+     * 나머지가 기다려, 확인 기록이 있는지를 하나씩 보게 된다.
+     *
+     * <p>잠금은 트랜잭션이 끝날 때 풀리므로 이미 열린 트랜잭션 안에서만 부를 수 있다 — 혼자 부르면 잠그자마자 풀려 의미가 없다.
+     *
+     * @param taskId Task ID
+     * @return 잠근 Task (가게는 아직 읽지 않은 채)
+     * @throws CustomException Task 가 없으면 {@code TASK_NOT_FOUND}
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Task lockForReview(Long taskId) {
+        return taskRepository.findByIdForUpdate(taskId)
+                .orElseThrow(() -> new CustomException(ErrorCode.TASK_NOT_FOUND));
+    }
+
     private static TaskResultResponse toResult(Task task, List<Signal> signals) {
         Store store = task.getStore();
         return new TaskResultResponse(
@@ -187,7 +220,8 @@ public class TaskService {
                                 signal.getEvidenceText(),
                                 null,
                                 signal.getEvidenceUrl()))
-                        .toList());
+                        .toList(),
+                null);
     }
 
     // 저장 순서와 상관없이 항목 순서(ChangeField 선언 순)로 내보낸다. 모르는 키는 버리지 않고 맨 뒤에 둔다.

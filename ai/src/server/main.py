@@ -11,13 +11,16 @@
 
 from __future__ import annotations
 
+import os
+import secrets
 from functools import lru_cache
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Response, status
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response, status
 
 from src.backend_client import (
     MAX_LIMIT,
@@ -32,6 +35,10 @@ from src.investigation import (
     StoreFinding,
     UnavailableInvestigator,
 )
+from src.investigation.failure import failure_of
+from src.investigation.kakao_map import KakaoPlaceChecker
+from src.investigation.web import WebInvestigator
+from src.investigation.web_research import VertexResearchProvider
 
 #: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
 MAX_TARGETS = MAX_LIMIT
@@ -72,20 +79,124 @@ def get_client() -> BackendClient:
     return _client()
 
 
-def get_investigator() -> Investigator:
-    """조사 구현이 꽂히는 자리.
+#: 조사 구현을 고르는 환경변수.
+#:   web   — 실제 웹검색 조사 (`WebInvestigator`). GOOGLE_CLOUD_PROJECT 가 있어야 한다
+#:   mock  — 알려진 사례만 답하는 가짜. **연동 흐름만** 확인할 때 (외부 호출 없음)
+#:   off   — 항상 503. 붙이기 전 상태를 일부러 유지할 때
+#: 비워 두면 GOOGLE_CLOUD_PROJECT 유무로 정한다 — 지금까지의 동작 그대로다.
+INVESTIGATOR_MODE = "INVESTIGATOR"
 
-에이전트 1차 조사 구현이 생기면 여기 한 줄만 바꾸면 된다.
-    그전까지는 `UnavailableInvestigator` 가 503 을 만든다.
+
+@lru_cache(maxsize=1)
+def _web_investigator() -> Investigator:
+    """Vertex 클라이언트를 프로세스당 하나만 만든다. 카카오 키가 있으면 지도 확인도 붙인다."""
+    checker = KakaoPlaceChecker() if os.environ.get("KAKAO_REST_API_KEY") else None
+    return WebInvestigator(VertexResearchProvider(), place_checker=checker)
+
+
+def get_investigator() -> Investigator:
+    """조사 구현이 꽂히는 자리 — 웹검색 2차 조사.
+
+    Vertex 를 쓸 GCP 프로젝트(`GOOGLE_CLOUD_PROJECT`)가 없으면 `UnavailableInvestigator` 가
+    503 을 만든다. 자격증명이 없다는 사실을 건별 실패 100개로 흩뿌리지 않는다.
+
+    PR #57 머지(08c5244)에서 이 분기가 빠져 GCP 설정이 있어도 항상 503 이었다 — 테스트가
+    "없으면 503" 만 보고 "있으면 웹검색 조사" 는 보지 않아 못 잡았다.
+
+    `INVESTIGATOR` 로 덮어쓸 수 있다. 자격증명 없이 **연동 흐름만** 확인해야 할 때
+    (`mock`)와, 붙이기 전 상태를 일부러 유지해야 할 때(`off`) 쓴다. 지금 무엇이 꽂혀
+    있는지는 `GET /health` 가 알려 준다.
     """
-    return UnavailableInvestigator()
+    mode = os.environ.get(INVESTIGATOR_MODE, "").strip().lower()
+    if mode == "off":
+        return UnavailableInvestigator()
+    if mode == "mock":
+        from src.investigation.mock import MockInvestigator
+
+        return MockInvestigator()
+    if not mode and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return UnavailableInvestigator()
+    try:
+        return _web_investigator()
+    except Exception as e:  # noqa: BLE001 - 자격증명·의존성 어느 쪽이 빠져도 503 이어야 한다
+        logger.warning("조사기를 만들지 못했습니다: %s", e)
+        return UnavailableInvestigator()
+
+
+#: 백엔드와 **같은 값**을 쓴다. 백엔드는 이 키로 AI 를 알아보고(`ApiKeyAuthenticationFilter`),
+#: AI 는 이 키로 백엔드를 알아본다. 키를 두 개 두면 어느 쪽이 틀렸는지 찾기 어렵다.
+API_KEY_ENV = "INTERNAL_API_KEY"
+API_KEY_HEADER = "X-API-KEY"
+
+
+def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
+    """조사를 시작할 수 있는 건 백엔드뿐이다.
+
+    **키가 설정돼 있지 않으면 검사하지 않는다.** 로컬에서 띄워 보는 길을 막지 않기
+    위해서다 — compose 에서 AI 는 포트를 바깥으로 열지 않아, 키가 없어도 같은 도커
+    네트워크 안에서만 닿는다.
+
+    키가 있는데 틀리면 401 이다. 조사는 Vertex·카카오 쿼터를 쓰는 호출이라, 아무나
+    부를 수 있으면 돈과 한도가 샌다.
+    """
+    expected = os.environ.get(API_KEY_ENV, "").strip()
+    if not expected:
+        return
+    # 글자 수가 달라도 시간 차가 안 나게 비교한다.
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"{API_KEY_HEADER} 가 없거나 맞지 않습니다.",
+        )
+
+
+def investigator_mode() -> str:
+    """지금 어떤 조사기가 꽂혀 있는가. `/health` 가 쓴다."""
+    return type(get_investigator()).__name__
+
+
+#: 백엔드와 **같은 값**을 쓴다. 백엔드는 이 키로 AI 를 알아보고(`ApiKeyAuthenticationFilter`),
+#: AI 는 이 키로 백엔드를 알아본다. 키를 두 개 두면 어느 쪽이 틀렸는지 찾기 어렵다.
+API_KEY_ENV = "INTERNAL_API_KEY"
+API_KEY_HEADER = "X-API-KEY"
+
+
+def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
+    """조사를 시작할 수 있는 건 백엔드뿐이다.
+
+    **키가 설정돼 있지 않으면 검사하지 않는다.** 로컬에서 띄워 보는 길을 막지 않기
+    위해서다 — compose 에서 AI 는 포트를 바깥으로 열지 않아, 키가 없어도 같은 도커
+    네트워크 안에서만 닿는다.
+
+    키가 있는데 틀리면 401 이다. 조사는 Vertex·카카오 쿼터를 쓰는 호출이라, 아무나
+    부를 수 있으면 돈과 한도가 샌다.
+    """
+    expected = os.environ.get(API_KEY_ENV, "").strip()
+    if not expected:
+        return
+    # 글자 수가 달라도 시간 차가 안 나게 비교한다.
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"{API_KEY_HEADER} 가 없거나 맞지 않습니다.",
+        )
+
+
+def investigator_mode() -> str:
+    """지금 어떤 조사기가 꽂혀 있는가. `/health` 가 쓴다."""
+    impl = get_investigator()
+    return type(impl).__name__
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     """이 프로세스가 살아 있는가. 백엔드 상태는 보지 않는다 — 둘을 섞으면
-    백엔드가 죽었을 때 AI까지 죽은 것으로 보여 원인 파악이 늦어진다."""
-    return {"status": "ok"}
+    백엔드가 죽었을 때 AI까지 죽은 것으로 보여 원인 파악이 늦어진다.
+
+    **어떤 조사기가 꽂혀 있는지 같이 알려 준다.** 503 이 날 때 "자격증명이 없어서"인지
+    "코드가 안 꽂혀서"인지를 배포 환경에서 확인할 길이 이것뿐이다.
+    """
+    return {"status": "ok", "investigator": investigator_mode()}
 
 
 @app.get("/backend-health")
@@ -110,6 +221,7 @@ def backend_health(
 def investigate(
     targets: list[InvestigationTarget] = Body(..., min_length=1, max_length=MAX_TARGETS),
     investigator: Investigator = Depends(get_investigator),
+    _: None = Depends(require_api_key),
 ) -> InvestigationResponse:
     """가게 목록을 받아 조사한다 — 백엔드가 AI를 부르는 자리.
 
@@ -134,13 +246,13 @@ def investigate(
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
                 ) from e
-            results.extend(
-                StoreFinding(storeId=t.store_id, failure=str(e)) for t in targets[len(results):]
-            )
+            failure = failure_of(e)
+            results.extend(StoreFinding(storeId=t.store_id, failure=failure) for t in targets[len(results):])
             break
         except Exception as e:  # noqa: BLE001 - 한 건의 예외로 배치 전체를 죽이지 않는다
+            # 응답에는 종류(code)와 고정 문장만 나간다 — 원래 예외 문장은 여기 로그로만 남긴다.
             logger.warning("조사 실패 (storeId=%s): %s", target.store_id, e)
-            results.append(StoreFinding(storeId=target.store_id, failure=str(e)))
+            results.append(StoreFinding(storeId=target.store_id, failure=failure_of(e)))
 
     return InvestigationResponse(
         results=results,
