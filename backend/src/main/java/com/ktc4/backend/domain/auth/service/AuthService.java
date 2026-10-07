@@ -12,6 +12,7 @@ import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.IssuedToken;
 import com.ktc4.backend.global.security.JwtProvider;
 import com.ktc4.backend.global.util.BizNoNormalizer;
+import com.ktc4.backend.global.util.PhoneNormalizer;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -75,12 +76,14 @@ public class AuthService {
     /**
      * 점주 가입 신청을 받는다. 관리자가 승인하기 전까지 로그인할 수 없다.
      *
-     * <p>사업자등록번호는 숫자 10자리로 맞춰 저장한다. 국세청 진위확인은 가게 연결과 함께 다음 단계에서 붙인다.
+     * <p>사업자등록번호는 숫자 10자리로, 휴대폰 번호는 숫자만 남겨 저장한다. 둘 다 관리자가 가게를 정할 때
+     * 후보 가게를 찾는 단서가 된다. 국세청 진위확인은 다음 단계에서 붙인다.
      *
-     * @param request 이메일·비밀번호·사업자 정보
+     * @param request 이메일·비밀번호·사업자 정보·휴대폰 번호
      * @return 만들어진 계정(승인 대기)
      * @throws CustomException 비밀번호가 72바이트를 넘으면 {@code PASSWORD_TOO_LONG},
      *                         사업자등록번호가 10자리가 아니면 {@code INVALID_BIZ_NO},
+     *                         휴대폰 번호 형식이 아니면 {@code INVALID_PHONE},
      *                         이미 가입된 이메일이면 {@code DUPLICATE_EMAIL}
      */
     @Transactional
@@ -92,13 +95,17 @@ public class AuthService {
         if (!BizNoNormalizer.isValid(bizNo)) {
             throw new CustomException(ErrorCode.INVALID_BIZ_NO);
         }
+        String phone = PhoneNormalizer.normalize(request.phone());
+        if (!PhoneNormalizer.isValidMobile(phone)) {
+            throw new CustomException(ErrorCode.INVALID_PHONE);
+        }
         String email = Member.normalizeEmail(request.email());
         if (memberRepository.existsByEmail(email)) {
             throw new CustomException(ErrorCode.DUPLICATE_EMAIL);
         }
 
         Member applicant = Member.ownerApplicant(email, passwordEncoder.encode(request.password()),
-                new OwnerInfo(bizNo, request.storeName().strip(), request.representativeName().strip()));
+                new OwnerInfo(bizNo, request.storeName().strip(), request.representativeName().strip(), phone));
         try {
             return MemberResponse.from(memberRepository.saveAndFlush(applicant));
         } catch (DataIntegrityViolationException e) {

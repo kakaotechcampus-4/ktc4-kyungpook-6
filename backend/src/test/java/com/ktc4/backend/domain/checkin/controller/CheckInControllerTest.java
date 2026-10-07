@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ktc4.backend.domain.checkin.dto.CheckInResponse;
 import com.ktc4.backend.domain.checkin.service.CheckInService;
+import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import com.ktc4.backend.global.security.AuthMember;
 import com.ktc4.backend.global.security.SecurityConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -16,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -31,6 +34,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -70,7 +74,7 @@ class CheckInControllerTest {
         @Test
         @DisplayName("가게 번호와 QR 문자열을 서비스에 넘기고 201 을 반환한다")
         void createsCheckIn() throws Exception {
-            when(checkInService.checkIn(3L, "v1.token"))
+            when(checkInService.checkIn(eq(3L), eq("v1.token"), any()))
                     .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
 
             mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token")))
@@ -78,13 +82,28 @@ class CheckInControllerTest {
                     .andExpect(jsonPath("$.checkInId").value(10))
                     .andExpect(jsonPath("$.checkedInAt").value("2026-09-29T12:00:00"));
 
-            verify(checkInService).checkIn(3L, "v1.token");
+            verify(checkInService).checkIn(eq(3L), eq("v1.token"), any());
+        }
+
+        @Test
+        @DisplayName("로그인한 사용자를 서비스에 넘긴다 — 서비스가 그 점주의 가게인지 확인한다")
+        void passesLoggedInMember() throws Exception {
+            AuthMember owner = new AuthMember(7L, MemberRole.OWNER);
+            when(checkInService.checkIn(anyLong(), any(), any()))
+                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
+
+            mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token"))
+                            .with(authentication(
+                                    UsernamePasswordAuthenticationToken.authenticated(owner, null, owner.authorities()))))
+                    .andExpect(status().isCreated());
+
+            verify(checkInService).checkIn(3L, "v1.token", owner);
         }
 
         @Test
         @DisplayName("응답 필드는 checkInId, checkedInAt 두 개뿐이다 — 아동 식별 정보가 나가지 않는다")
         void exposesNoChildIdentity() throws Exception {
-            when(checkInService.checkIn(anyLong(), any()))
+            when(checkInService.checkIn(anyLong(), any(), any()))
                     .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
 
             String json = mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token")))
@@ -99,7 +118,7 @@ class CheckInControllerTest {
         @Test
         @DisplayName("QR 문자열이 정확히 100자면 통과한다 — 길이 제한 경계 안쪽")
         void acceptsPayloadAtMaxLength() throws Exception {
-            when(checkInService.checkIn(anyLong(), any()))
+            when(checkInService.checkIn(anyLong(), any(), any()))
                     .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
 
             mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v".repeat(100))))
@@ -119,7 +138,7 @@ class CheckInControllerTest {
                     .andExpect(jsonPath("$.type").value(ERROR_BASE + "invalid-request"))
                     .andExpect(jsonPath("$.errors[0].field").value("qrPayload"));
 
-            verify(checkInService, never()).checkIn(anyLong(), any());
+            verify(checkInService, never()).checkIn(anyLong(), any(), any());
         }
 
         @ParameterizedTest(name = "[{index}] \"{0}\"")
@@ -130,7 +149,7 @@ class CheckInControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.type").value(ERROR_BASE + "invalid-request"));
 
-            verify(checkInService, never()).checkIn(anyLong(), any());
+            verify(checkInService, never()).checkIn(anyLong(), any(), any());
         }
 
         @Test
@@ -140,7 +159,7 @@ class CheckInControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.type").value(ERROR_BASE + "invalid-request"));
 
-            verify(checkInService, never()).checkIn(anyLong(), any());
+            verify(checkInService, never()).checkIn(anyLong(), any(), any());
         }
 
         @Test
@@ -151,7 +170,7 @@ class CheckInControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.type").value(ERROR_BASE + "invalid-request"));
 
-            verify(checkInService, never()).checkIn(anyLong(), any());
+            verify(checkInService, never()).checkIn(anyLong(), any(), any());
         }
 
         @Test
@@ -170,7 +189,7 @@ class CheckInControllerTest {
         @Test
         @DisplayName("QR 이 맞지 않으면 400 invalid-qr-token")
         void mapsInvalidQrToken() throws Exception {
-            when(checkInService.checkIn(eq(3L), any())).thenThrow(new CustomException(ErrorCode.INVALID_QR_TOKEN));
+            when(checkInService.checkIn(eq(3L), any(), any())).thenThrow(new CustomException(ErrorCode.INVALID_QR_TOKEN));
 
             mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.wrong")))
                     .andExpect(status().isBadRequest())
@@ -180,9 +199,20 @@ class CheckInControllerTest {
         }
 
         @Test
+        @DisplayName("점주에게 연결되지 않은 가게면 403 forbidden")
+        void mapsNotLinkedStore() throws Exception {
+            when(checkInService.checkIn(eq(3L), any(), any())).thenThrow(new CustomException(ErrorCode.FORBIDDEN));
+
+            mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token")))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.type").value(ERROR_BASE + "forbidden"))
+                    .andExpect(jsonPath("$.status").value(403));
+        }
+
+        @Test
         @DisplayName("가게가 없으면 404 store-not-found")
         void mapsStoreNotFound() throws Exception {
-            when(checkInService.checkIn(eq(3L), any())).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
+            when(checkInService.checkIn(eq(3L), any(), any())).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
 
             mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token")))
                     .andExpect(status().isNotFound())
