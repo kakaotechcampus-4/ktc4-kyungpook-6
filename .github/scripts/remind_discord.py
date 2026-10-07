@@ -44,6 +44,15 @@ NO_REVIEW_SECOND_HOURS = 4   # 2차 독촉 — 작성자도 같이 부른다
 # 리뷰어가 **아무도 지정되지 않은** PR 은 아무의 일도 아닌 상태다. 리뷰가 늦는 것보다
 # 이쪽이 더 막힌 상태라, 여기서만 테크리더를 부른다.
 NO_REVIEWER_HOURS = 2
+# 코드 리뷰 가이드의 팀 규칙은 "리뷰 기한 PR 작성 후 24시간". 1·4시간 독촉을 지나고도
+# 리뷰가 없으면 그 뒤로는 아무 말이 없었다 — 실제로 24시간·19시간째 리뷰 0건인 PR 이 생겼다
+# (2026-10-07). 기한을 넘긴 PR 은 **하루 한 번 정해진 시각에** 다시 부른다.
+#
+# 매시간 보지 않는 이유 — 하루 종일 같은 PR 로 울리면 알림이 무뎌진다. 하루 한 번이면
+# 그 PR 당 정확히 한 번이라 중복도 없다.
+STALE_REVIEW_HOURS = 24
+STALE_CHECK_HOUR = 10   # KST. 조용한 시간 밖이라 따로 밀 필요가 없다
+
 # 승인됐는데 머지되지 않고 이만큼 지나면 알린다 (시간)
 APPROVED_UNMERGED_HOURS = 6
 # 충돌난 PR 을 점검하는 시각 (KST). 충돌은 "언제 깨졌는지" 타임스탬프가 없어서
@@ -232,7 +241,12 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         elif not reviews:
             # 리뷰어는 있는데 아직 안 봤다. 두 번까지만 깨운다.
             second = due_now(created, NO_REVIEW_SECOND_HOURS, now)
-            if due_now(created, NO_REVIEW_FIRST_HOURS, now) and not (CATCH_UP and second):
+            # 2차가 지금 울리면 1차는 보내지 않는다. 같은 PR 에 두 줄이 나가는 걸 막는다.
+            #
+            # 조용한 시간(00~08시)에 넘긴 건은 08:00 으로 밀리는데, **1차와 2차가 같이 밀리면
+            # 아침에 같은 PR 로 두 번 울린다** — 새벽 1시에 올라온 PR 이 그렇다(1시간→02:00,
+            # 4시간→05:00, 둘 다 08:00 행). 예전에는 --catch-up 일 때만 막아서 이 경우가 샜다.
+            if due_now(created, NO_REVIEW_FIRST_HOURS, now) and not second:
                 pr_findings.append({
                     "color": COLOR_INFO,
                     "headline": "🕐 리뷰를 기다리고 있습니다",
@@ -250,6 +264,24 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "action": "오늘 안에 보기 어려우면 다른 분께 넘겨 주세요",
                     "mention": dm.mentions(assigned + [pr["user"]["login"]]),
                 })
+
+        # 기한(24시간)을 넘기고도 리뷰가 없는 PR. **하루 한 번**만 부른다.
+        #
+        # 리뷰어가 있든 없든 본다 — 리뷰어가 없는 채로 묵은 PR 이 더 나쁜 상태인데,
+        # 그쪽은 2시간 독촉 뒤로 아무 말이 없었다.
+        # 1·4시간 독촉과 겹치지 않는다: 한 PR 이 4시간 미만이면서 24시간 초과일 수 없다.
+        if (not reviews and k.hour == STALE_CHECK_HOUR
+                and opened_hours >= STALE_REVIEW_HOURS):
+            days = int(opened_hours // 24)
+            pr_findings.append({
+                "color": COLOR_WARN,
+                "headline": f"⌛ {days}일째 리뷰가 없습니다",
+                "pr": pr,
+                "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건 "
+                          f"(팀 기준 리뷰 기한은 {STALE_REVIEW_HOURS}시간)",
+                "action": "오늘 보기 어려우면 다른 분께 넘기거나 PR 을 닫아 주세요",
+                "mention": dm.mentions(people(pr)),
+            })
 
         # 마감 1시간 전에 아직 리뷰가 하나도 없는 PR — 작성자와 리뷰어를 같이 부른다.
         # 멘토 리뷰 PR(base=main)은 위에서 이미 걸러져 여기 오지 않는다.
