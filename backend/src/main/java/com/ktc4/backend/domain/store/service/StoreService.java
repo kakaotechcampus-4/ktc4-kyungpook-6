@@ -123,9 +123,23 @@ public class StoreService {
      */
     @Transactional
     public StoreResponse confirmStore(Long storeId) {
+        return confirmStore(storeId, LocalDateTime.now());
+    }
+
+    /**
+     * 담당자가 가게 정보를 직접 확인했음을 넘겨받은 시각으로 기록한다. 확인 기록(Verification)과 가게 확인일을
+     * 같은 시각으로 맞출 때 쓴다.
+     *
+     * @param storeId     확인 완료 처리할 가게 ID
+     * @param confirmedAt 확인 완료로 기록할 시각
+     * @return 확인 시각이 갱신된 가게 정보
+     * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    @Transactional
+    public StoreResponse confirmStore(Long storeId, LocalDateTime confirmedAt) {
         Store store = findStore(storeId);
 
-        store.confirm(LocalDateTime.now());
+        store.confirm(confirmedAt);
 
         return StoreResponse.from(store);
     }

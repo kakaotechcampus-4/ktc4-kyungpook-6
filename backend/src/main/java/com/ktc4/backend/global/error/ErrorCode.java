@@ -47,6 +47,11 @@ public enum ErrorCode {
     JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "조사를 찾을 수 없습니다"),
     JOB_ALREADY_RUNNING(HttpStatus.CONFLICT, "진행 중인 조사가 있습니다"),
 
+    // 조사 결과 확인(Task → Verification)
+    TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "조사 결과를 찾을 수 없습니다"),
+    TASK_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확인한 조사 결과입니다"),
+    NOTHING_TO_APPLY(HttpStatus.CONFLICT, "반영할 수 있는 수정안이 없습니다"),
+
     // 아래 넷은 GlobalExceptionHandler.errorCodeFor 가 프레임워크 예외의 상태코드를 매핑할 때 쓴다.
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 경로를 찾을 수 없습니다"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식입니다"),
