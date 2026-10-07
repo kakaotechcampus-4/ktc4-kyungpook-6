@@ -3,6 +3,8 @@
  * 테스트에서 가짜 DB 를 넣을 수 있게 하려고 이렇게 나눴다.
  */
 
+import { fetchOpenPrs, line, type PrInfo } from "./github.ts";
+import { human, label, nextMilestone } from "./schedule.ts";
 import { formatKst, parseDueAt } from "./time.ts";
 
 /** 예약 한 건. DB 컬럼과 같은 모양이다. */
@@ -88,37 +90,119 @@ export async function handlePrStatus(
     repo: string,
     token: string | undefined,
     fetchImpl: typeof fetch = fetch,
+    nowMs: number = Date.now(),
 ): Promise<string> {
-    const headers: Record<string, string> = {
-        accept: "application/vnd.github+json",
-        "user-agent": "ktc4-discord-bot",
-    };
-    if (token) headers.authorization = `Bearer ${token}`;
+    let prs: PrInfo[];
+    try {
+        prs = await fetchOpenPrs(repo, token, fetchImpl);
+    } catch (e) {
+        return `${e}. 토큰이 없거나 만료됐을 수 있습니다.`;
+    }
+    if (prs.length === 0) return "열린 PR 이 없습니다. 🎉";
 
-    const res = await fetchImpl(
-        `https://api.github.com/repos/${repo}/pulls?state=open&sort=created&direction=asc&per_page=20`,
-        { headers },
-    );
-    if (!res.ok) {
-        return `GitHub 조회에 실패했습니다 (${res.status}). 토큰이 없거나 만료됐을 수 있습니다.`;
+    const stuck = prs.filter((p) => !p.draft && p.reviewers.length === 0).length;
+    const head = stuck
+        ? `열린 PR ${prs.length}건 · 그중 ${stuck}건은 리뷰어가 없습니다.`
+        : `열린 PR ${prs.length}건입니다.`;
+    return [head, "", ...prs.map((p) => line(p, nowMs))].join("\n");
+}
+
+/**
+ * 나와 관련된 PR 만. "내가 지금 뭘 해야 하지" 에 바로 답한다.
+ *
+ * 디스코드 사용자 ID 를 깃허브 로그인으로 바꿔야 해서 매핑이 필요하다. 매핑이 없으면
+ * 그 사실을 알려 주고 끝낸다 — 빈 목록을 보여주면 "할 일이 없다"로 오해한다.
+ */
+export async function handleMyTurn(
+    repo: string,
+    token: string | undefined,
+    membersJson: string | undefined,
+    discordUserId: string,
+    fetchImpl: typeof fetch = fetch,
+    nowMs: number = Date.now(),
+): Promise<string> {
+    const login = githubLoginOf(membersJson, discordUserId);
+    if (!login) {
+        return "디스코드 계정과 깃허브 계정이 연결돼 있지 않습니다.\n"
+            + "`DISCORD_MEMBERS` 시크릿에 추가해야 합니다 — PM 에게 말씀해 주세요.";
     }
 
-    const prs = (await res.json()) as Array<{
-        number: number;
-        title: string;
-        draft: boolean;
-        html_url: string;
-        user: { login: string };
-        base: { ref: string };
-        created_at: string;
-    }>;
-    if (prs.length === 0) return "열린 PR 이 없습니다.";
+    let prs: PrInfo[];
+    try {
+        prs = await fetchOpenPrs(repo, token, fetchImpl);
+    } catch (e) {
+        return `${e}`;
+    }
 
-    const lines = prs.map((pr) => {
-        const days = Math.floor((Date.now() - Date.parse(pr.created_at)) / (24 * 60 * 60 * 1000));
-        const age = days === 0 ? "오늘" : `${days}일`;
-        const draft = pr.draft ? " *(초안)*" : "";
-        return `- [#${pr.number}](${pr.html_url}) → \`${pr.base.ref}\` · ${pr.user.login} · ${age}${draft}\n  ${pr.title}`;
-    });
-    return [`열린 PR ${prs.length}건입니다.`, "", ...lines].join("\n");
+    const toReview = prs.filter((p) => !p.draft && p.reviewers.includes(login));
+    const mine = prs.filter((p) => p.author === login);
+    if (toReview.length === 0 && mine.length === 0) {
+        return `\`${login}\` 님이 볼 PR 도, 올린 PR 도 없습니다. 🎉`;
+    }
+
+    const out: string[] = [];
+    if (toReview.length) {
+        out.push(`**리뷰해 주셔야 할 PR ${toReview.length}건**`, "");
+        out.push(...toReview.map((p) => line(p, nowMs)), "");
+    }
+    if (mine.length) {
+        out.push(`**올리신 PR ${mine.length}건**`, "");
+        out.push(...mine.map((p) => line(p, nowMs)));
+    }
+    return out.join("\n").trim();
+}
+
+/** 다음 마감까지 남은 시간과, 지금 준비가 됐는지. */
+export async function handleDeadline(
+    repo: string,
+    token: string | undefined,
+    fetchImpl: typeof fetch = fetch,
+    nowMs: number = Date.now(),
+): Promise<string> {
+    const { m, leftMs } = nextMilestone(nowMs);
+    const out = [
+        `다음 마감은 **${label(m)} · ${m.what}** (${m.who}) 입니다.`,
+        `남은 시간 **${human(leftMs)}**`,
+        "",
+    ];
+
+    let prs: PrInfo[];
+    try {
+        prs = await fetchOpenPrs(repo, token, fetchImpl);
+    } catch (e) {
+        out.push(`${e}`);
+        return out.join("\n");
+    }
+
+    const mainPr = prs.find((p) => p.base === "main" && !p.draft);
+    out.push(mainPr ? `✅ 멘토 PR: #${mainPr.number}` : "❌ 멘토 PR 이 아직 없습니다");
+
+    const dev = prs.filter((p) => p.base === "develop" && !p.draft);
+    const noReviewer = dev.filter((p) => p.reviewers.length === 0);
+    const waiting = dev.filter((p) => p.reviewers.length > 0 && p.reviewCount === 0);
+    if (dev.length === 0) {
+        out.push("✅ 열린 develop PR 없음");
+    } else {
+        out.push(
+            `${noReviewer.length || waiting.length ? "⚠️" : "✅"} 열린 develop PR ${dev.length}건`
+            + (noReviewer.length ? ` · 리뷰어 없음 ${noReviewer.length}건` : "")
+            + (waiting.length ? ` · 리뷰 대기 ${waiting.length}건` : ""),
+        );
+        for (const p of dev.slice(0, 5)) out.push(`　#${p.number} ${p.title}`);
+    }
+    return out.join("\n");
+}
+
+/** 매핑 JSON 에서 디스코드 ID → 깃허브 로그인. 형식은 .github/discord-members.example.json */
+function githubLoginOf(membersJson: string | undefined, discordUserId: string): string | null {
+    if (!membersJson || !discordUserId) return null;
+    try {
+        const t = JSON.parse(membersJson) as { members?: Record<string, { discord?: string }> };
+        for (const [login, v] of Object.entries(t.members ?? {})) {
+            if (v?.discord === discordUserId) return login;
+        }
+    } catch {
+        return null;   // 매핑이 깨져도 명령어 자체는 죽지 않는다
+    }
+    return null;
 }

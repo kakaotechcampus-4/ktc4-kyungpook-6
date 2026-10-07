@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { handleCancel, handleList, handlePrStatus, handleReserve, type Db, type Reservation } from "../src/handlers.ts";
+import { handleCancel, handleDeadline, handleList, handleMyTurn, handlePrStatus, handleReserve, type Db, type Reservation } from "../src/handlers.ts";
 
 const NOW = Date.UTC(2026, 9, 1, 5, 30); // 2026-10-01 14:30 KST
 
@@ -161,6 +161,9 @@ describe("/예약취소", () => {
 });
 
 describe("/pr상태", () => {
+    // 2026-10-06 18:00 KST 고정. nowMs 를 넘기지 않으면 호출 시점에 따라 "1일/2일" 이
+    // 흔들린다 — 실제로 그 때문에 테스트가 깨진 적이 있다.
+    const NOW = Date.parse("2026-10-06T09:00:00Z");
     const pr = (over: Record<string, unknown> = {}) => ({
         number: 58,
         title: "[8주차] 인증·권한 도입",
@@ -168,39 +171,137 @@ describe("/pr상태", () => {
         html_url: "https://github.com/o/r/pull/58",
         user: { login: "softkleenex" },
         base: { ref: "main" },
-        created_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+        created_at: new Date(NOW - 2 * 86_400_000).toISOString(),
+        requested_reviewers: [],
         ...over,
     });
 
+    /** pulls 는 PR 목록을, reviews 는 리뷰 목록을 돌려주는 가짜 fetch. */
+    const fake = (prs: unknown[], reviews: unknown[] = []) =>
+        vi.fn(async (url: string) =>
+            String(url).includes("/reviews") ? Response.json(reviews) : Response.json(prs),
+        ) as unknown as typeof fetch;
+
     it("열린 PR 을 요약한다", async () => {
-        const fetchImpl = vi.fn(async () => Response.json([pr()]));
-        const msg = await handlePrStatus("o/r", undefined, fetchImpl as unknown as typeof fetch);
+        const msg = await handlePrStatus("o/r", undefined, fake([pr()]), NOW);
         expect(msg).toContain("열린 PR 1건");
         expect(msg).toContain("#58");
         expect(msg).toContain("2일");
     });
 
-    it("없으면 없다고 한다", async () => {
-        const fetchImpl = vi.fn(async () => Response.json([]));
-        expect(await handlePrStatus("o/r", undefined, fetchImpl as unknown as typeof fetch)).toContain(
-            "열린 PR 이 없습니다",
+    it("리뷰어가 없으면 짚어 준다", async () => {
+        const msg = await handlePrStatus("o/r", undefined, fake([pr()]), NOW);
+        expect(msg).toContain("리뷰어 없음");
+        expect(msg).toContain("리뷰어가 없습니다");
+    });
+
+    it("리뷰어와 승인 상태를 보여준다", async () => {
+        const msg = await handlePrStatus(
+            "o/r",
+            undefined,
+            fake([pr({ requested_reviewers: [{ login: "HYH1945" }] })],
+                 [{ state: "APPROVED", user: { login: "HYH1945" } }]),
+            NOW,
         );
+        expect(msg).toContain("리뷰어 HYH1945");
+        expect(msg).toContain("승인됨");
+    });
+
+    it("COMMENTED 는 승인을 덮지 않는다", async () => {
+        const msg = await handlePrStatus("o/r", undefined,
+            fake([pr()], [
+                { state: "APPROVED", user: { login: "a" } },
+                { state: "COMMENTED", user: { login: "a" } },
+            ]), NOW);
+        expect(msg).toContain("승인됨");
+    });
+
+    it("봇 리뷰어는 세지 않는다", async () => {
+        const msg = await handlePrStatus("o/r", undefined,
+            fake([pr({ requested_reviewers: [{ login: "Copilot", type: "Bot" }] })]), NOW);
+        expect(msg).toContain("리뷰어 없음");
+    });
+
+    it("없으면 없다고 한다", async () => {
+        expect(await handlePrStatus("o/r", undefined, fake([]), NOW)).toContain("열린 PR 이 없습니다");
     });
 
     it("초안은 표시한다", async () => {
-        const fetchImpl = vi.fn(async () => Response.json([pr({ draft: true })]));
-        expect(await handlePrStatus("o/r", undefined, fetchImpl as unknown as typeof fetch)).toContain("초안");
+        expect(await handlePrStatus("o/r", undefined, fake([pr({ draft: true })]), NOW)).toContain("초안");
     });
 
     it("토큰이 있으면 헤더에 싣는다", async () => {
-        const fetchImpl = vi.fn(async () => Response.json([]));
-        await handlePrStatus("o/r", "t0ken", fetchImpl as unknown as typeof fetch);
-        const headers = (fetchImpl.mock.calls[0] as unknown as [string, { headers: Record<string, string> }])[1].headers;
+        const f = vi.fn(async () => Response.json([]));
+        await handlePrStatus("o/r", "t0ken", f as unknown as typeof fetch, NOW);
+        const headers = (f.mock.calls[0] as unknown as [string, { headers: Record<string, string> }])[1].headers;
         expect(headers.authorization).toBe("Bearer t0ken");
     });
 
     it("실패하면 상태코드를 알려준다", async () => {
-        const fetchImpl = vi.fn(async () => new Response("nope", { status: 403 }));
-        expect(await handlePrStatus("o/r", undefined, fetchImpl as unknown as typeof fetch)).toContain("403");
+        const f = vi.fn(async () => new Response("nope", { status: 403 })) as unknown as typeof fetch;
+        expect(await handlePrStatus("o/r", undefined, f, NOW)).toContain("403");
+    });
+});
+
+describe("/내차례", () => {
+    const NOW = Date.parse("2026-10-06T09:00:00Z");
+    const MEMBERS = JSON.stringify({
+        members: { reviewer1: { name: "리뷰어1", discord: "111" }, author1: { name: "작성자1", discord: "222" } },
+    });
+    const mk = (n: number, author: string, reviewers: string[]) => ({
+        number: n, title: `PR ${n}`, draft: false, html_url: `https://x/${n}`,
+        user: { login: author }, base: { ref: "develop" },
+        created_at: new Date(NOW - 3_600_000).toISOString(),
+        requested_reviewers: reviewers.map((login) => ({ login })),
+    });
+    const fake = (prs: unknown[]) =>
+        vi.fn(async (url: string) =>
+            String(url).includes("/reviews") ? Response.json([]) : Response.json(prs),
+        ) as unknown as typeof fetch;
+
+    it("내가 리뷰할 PR 과 내가 올린 PR 을 나눠 보여준다", async () => {
+        const msg = await handleMyTurn("o/r", undefined, MEMBERS, "111",
+            fake([mk(1, "author1", ["reviewer1"]), mk(2, "reviewer1", [])]), NOW);
+        expect(msg).toContain("리뷰해 주셔야 할 PR 1건");
+        expect(msg).toContain("#1");
+        expect(msg).toContain("올리신 PR 1건");
+        expect(msg).toContain("#2");
+    });
+
+    it("남의 PR 은 끼워 넣지 않는다", async () => {
+        const msg = await handleMyTurn("o/r", undefined, MEMBERS, "222",
+            fake([mk(1, "reviewer1", ["reviewer1"])]), NOW);
+        expect(msg).toContain("없습니다");
+        expect(msg).not.toContain("#1");
+    });
+
+    it("매핑에 없는 사람에게는 연결하라고 안내한다", async () => {
+        const msg = await handleMyTurn("o/r", undefined, MEMBERS, "999", fake([]), NOW);
+        expect(msg).toContain("연결돼 있지 않습니다");
+    });
+
+    it("매핑이 깨져도 죽지 않는다", async () => {
+        const msg = await handleMyTurn("o/r", undefined, "{broken", "111", fake([]), NOW);
+        expect(msg).toContain("연결돼 있지 않습니다");
+    });
+});
+
+describe("/마감", () => {
+    const fake = (prs: unknown[]) =>
+        vi.fn(async (url: string) =>
+            String(url).includes("/reviews") ? Response.json([]) : Response.json(prs),
+        ) as unknown as typeof fetch;
+
+    it("다음 마감과 남은 시간을 알려준다", async () => {
+        // 2026-10-06(화) 18:00 KST → 다음은 수 18:00 1차 PR
+        const msg = await handleDeadline("o/r", undefined, fake([]), Date.parse("2026-10-06T09:00:00Z"));
+        expect(msg).toContain("1차 PR");
+        expect(msg).toContain("수 18:00");
+        expect(msg).toContain("1일");   // 화 18:00 → 수 18:00 = 정확히 24시간
+    });
+
+    it("멘토 PR 이 없으면 짚어 준다", async () => {
+        const msg = await handleDeadline("o/r", undefined, fake([]), Date.parse("2026-10-06T09:00:00Z"));
+        expect(msg).toContain("멘토 PR 이 아직 없습니다");
     });
 });

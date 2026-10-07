@@ -141,10 +141,69 @@ class AuthControllerTest {
         verify(authService).getMe(7L);
     }
 
+    private static final String PHONE = "010-0000-0000";
+
     private static String signupBody(String email, String password, String bizNo,
                                      String storeName, String representativeName) {
+        return signupBody(email, password, bizNo, storeName, representativeName, PHONE);
+    }
+
+    private static String signupBody(String email, String password, String bizNo,
+                                     String storeName, String representativeName, String phone) {
         return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"bizNo\":\"" + bizNo
-                + "\",\"storeName\":\"" + storeName + "\",\"representativeName\":\"" + representativeName + "\"}";
+                + "\",\"storeName\":\"" + storeName + "\",\"representativeName\":\"" + representativeName
+                + "\",\"phone\":\"" + phone + "\"}";
+    }
+
+    @Test
+    @DisplayName("휴대폰 번호가 없거나 비었으면 400 이고 errors 에 필드를 알려준다")
+    void rejectsMissingPhone() throws Exception {
+        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
+                                + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("phone"));
+        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", " ")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("phone"));
+    }
+
+    @Test
+    @DisplayName("휴대폰 번호 형식이 아니면 400 invalid-phone")
+    void mapsInvalidPhone() throws Exception {
+        when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
+
+        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+                                "053-000-0000")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_PHONE.getType().toString()));
+    }
+
+    @Test
+    @DisplayName("너무 긴 휴대폰 번호는 400 이고, 보낸 값이 로그에도 응답에도 남지 않는다")
+    void rejectsTooLongPhoneWithoutEchoingIt() throws Exception {
+        String tooLong = "010-0000-0000-9999-9999";
+        Logger handlerLogger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        handlerLogger.addAppender(logs);
+        String responseBody;
+        try {
+            responseBody = mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                            .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+                                    tooLong)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("phone"))
+                    .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        } finally {
+            handlerLogger.detachAppender(logs);
+        }
+
+        assertThat(logs.list).noneMatch(event -> event.getFormattedMessage().contains(tooLong));
+        // 응답의 errors 는 어느 칸이 왜 틀렸는지만 알려 준다. 거절된 값을 되돌려 주지 않는다.
+        assertThat(responseBody).doesNotContain(tooLong).doesNotContain("9999");
     }
 
     @Test

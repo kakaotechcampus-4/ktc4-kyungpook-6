@@ -39,6 +39,7 @@ public enum ErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다"),
     DUPLICATE_EMAIL(HttpStatus.CONFLICT, "이미 가입된 이메일입니다"),
     INVALID_BIZ_NO(HttpStatus.BAD_REQUEST, "사업자등록번호 형식이 올바르지 않습니다"),
+    INVALID_PHONE(HttpStatus.BAD_REQUEST, "휴대폰 번호 형식이 올바르지 않습니다"),
     PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호가 너무 깁니다"),
     OWNER_ALREADY_REVIEWED(HttpStatus.CONFLICT, "이미 처리된 가입 신청입니다"),
 

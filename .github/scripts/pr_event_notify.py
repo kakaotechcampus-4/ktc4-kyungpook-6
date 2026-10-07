@@ -5,13 +5,25 @@
 이벤트 payload(`$GITHUB_EVENT_PATH`) 안에 있어서 API 를 따로 부르지 않는다.
 
 다루는 이벤트
-  pull_request        opened / ready_for_review / closed(머지된 것만) / review_requested
-  pull_request_review submitted
+  pull_request                opened / ready_for_review / closed(머지된 것만) / review_requested
+  pull_request_review         submitted
+  issue_comment               created — PR 에 달린 일반 코멘트
+  pull_request_review_comment created — **답글만** (in_reply_to_id 가 있는 것)
 
-**중복을 막는 지점** — PR 을 리뷰어까지 지정해서 올리면 GitHub 은 `opened` 와
-`review_requested` 를 둘 다 쏜다. `opened` 에서 이미 리뷰어를 멘션했으므로,
-PR 이 만들어진 지 FRESH_SECONDS 안쪽이면 `review_requested` 는 건너뛴다.
-나중에 리뷰어를 바꾸거나 추가하면 그때는 PR 이 더 이상 새것이 아니라 정상 발송된다.
+**메시지는 세 줄로 쓴다** — 무슨 일 / 어느 PR / 그래서 뭘 해야 하는지(+멘션+링크).
+embed 를 쓰지 않는다. embed 안의 멘션은 울리지 않고, 여러 건이 쌓이면 멘션과 PR 이
+따로 놀아서 누가 뭘 해야 하는지 안 보인다. remind_discord.py 와 모양을 맞춘다.
+
+🔇 **멘토·운영진이 남긴 것은 이 채널로 알리지 않는다.** 운영진 워크플로
+(`notify-discord.yml`)가 `#pr-alert-경북대` 로 이미 보내고 있어서, 여기까지 울리면
+같은 일이 두 번 울린다. 팀원이 아닌 사람(`DISCORD_MEMBERS` 매핑에 없는 사람)이
+남긴 리뷰·코멘트는 전부 건너뛴다. main PR 리뷰도 마찬가지다 —
+`pull_request_review` 는 GitHub 이 branches 필터를 지원하지 않아 여기로 들어오지만,
+그건 주간 멘토 리뷰 PR 이라 걸러 낸다.
+
+코드 한 줄짜리 인라인 코멘트까지 전부 알리면 리뷰 한 번에 열 번이 울린다.
+새로 달리는 인라인 코멘트는 리뷰 제출(`pull_request_review`)이 한 번에 묶어 알리므로,
+`pull_request_review_comment` 는 **답글만** 본다.
 
 로컬 확인:
     GITHUB_EVENT_PATH=event.json GITHUB_EVENT_NAME=pull_request \
@@ -30,6 +42,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discord_members as dm  # noqa: E402
+import discord_webhook as dw  # noqa: E402
 
 # PR 을 올릴 때 리뷰어를 같이 지정하면 GitHub 이 opened 와 review_requested 를 둘 다
 # 보낸다. opened 가 이미 멘션했으므로 그 건은 건너뛴다.
@@ -40,17 +53,12 @@ import discord_members as dm  # noqa: E402
 FRESH_SECONDS = 20
 
 # 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
-# 메시지마다 덮어쓸 수 있어서 봇과 같은 이름·아바타로 맞춘다.
+# 메시지마다 덮어쓸 수 있어서, 봇과 같은 이름·아바타로 맞춘다. 채널에서 보면
+# 알림과 /예약 응답이 같은 "사랑이"로 보인다.
+# 아바타를 바꾸면 해시도 바뀐다 — 그때 이 URL 을 같이 고칠 것.
 WEBHOOK_NAME = "사랑이"
 WEBHOOK_AVATAR = ("https://cdn.discordapp.com/avatars/1555129530186731520/"
                   "add6bacc3fd09363b755ef9dbe1bced6.webp?size=128")
-
-COLOR_NEW = 3447003       # 파랑
-COLOR_MERGED = 5763719    # 초록
-COLOR_REVIEW = 10181046   # 보라
-COLOR_APPROVED = 5763719  # 초록
-COLOR_CHANGES = 15548997  # 빨강
-COLOR_WARN = 16753920     # 주황
 
 
 def parse_ts(value: str) -> datetime:
@@ -65,28 +73,34 @@ def reviewer_logins(pr: dict) -> list[str]:
     ]
 
 
-def pr_embed(pr: dict, color: int, extra: list[dict] | None = None) -> dict:
-    fields = [
-        {"name": "작성자", "value": dm.name_of(pr["user"]["login"]), "inline": True},
-        {"name": "브랜치", "value": pr["head"]["ref"], "inline": True},
-    ]
-    fields.extend(extra or [])
+def is_outsider(login: str | None) -> bool:
+    """매핑에 없는 사람 = 팀원이 아니다. 멘토·운영진이 여기 걸린다."""
+    return bool(login) and login not in dm._table().get("members", {})
+
+
+def say(headline: str, subject: str, action: str = "", url: str = "") -> dict:
+    """무슨 일 / 어느 PR / 그래서 뭘. 링크는 <> 로 감싸 미리보기 카드를 막는다."""
+    lines = [headline, subject]
+    tail = [t for t in (action, f"<{url}>" if url else "") if t]
+    if tail:
+        lines.append(" · ".join(tail))
+    return {"content": "\n".join(lines)[:1900],
+            "allowed_mentions": {"parse": ["users"]}}
+
+
+def subject_of(pr: dict) -> str:
+    """`**#12 제목** · 작성자 · +10 −2 · 3개 파일`"""
+    parts = [f"**#{pr['number']} {pr['title']}**", dm.name_of(pr["user"]["login"])]
     if pr.get("additions") is not None:
-        fields.append({
-            "name": "변경",
-            "value": f"+{pr['additions']} −{pr['deletions']} · {pr['changed_files']}개 파일",
-            "inline": False,
-        })
-    return {
-        "title": f"#{pr['number']} {pr['title']}",
-        "url": pr["html_url"],
-        "color": color,
-        "fields": fields,
-    }
+        parts.append(f"+{pr['additions']} −{pr['deletions']} · {pr['changed_files']}개 파일")
+    return " · ".join(parts)
 
 
 def build(event_name: str, event: dict) -> dict | None:
     """보낼 payload. 보낼 것이 없으면 None."""
+    if event_name == "issue_comment":
+        return on_issue_comment(event)
+
     pr = event.get("pull_request")
     if not pr:
         return None
@@ -94,6 +108,8 @@ def build(event_name: str, event: dict) -> dict | None:
 
     if event_name == "pull_request_review":
         return on_review(event, pr)
+    if event_name == "pull_request_review_comment":
+        return on_reply(event, pr)
 
     if pr.get("draft"):
         return None  # 초안은 알리지 않는다
@@ -103,36 +119,33 @@ def build(event_name: str, event: dict) -> dict | None:
     if action == "review_requested":
         return on_review_requested(event, pr)
     if action == "closed" and pr.get("merged"):
-        return {"content": "✅ develop 에 머지됐습니다",
-                "embeds": [pr_embed(pr, COLOR_MERGED)]}
+        return say("✅ develop 에 머지됐습니다", subject_of(pr), url=pr["html_url"])
     return None
 
 
 def on_opened(pr: dict) -> dict:
     reviewers = reviewer_logins(pr)
     if reviewers:
-        content = ("🔵 새 PR 이 올라왔습니다 (→ develop)\n"
-                   f"리뷰 부탁드립니다 — {dm.mentions(reviewers)}")
-        color = COLOR_NEW
+        action = f"리뷰 부탁드립니다 — {dm.mentions(reviewers)}"
     else:
-        # 리뷰어 없이 올라간 PR 은 24시간 리마인더가 돌 때까지 아무도 모른다. 바로 짚는다.
-        content = ("🔵 새 PR 이 올라왔습니다 (→ develop)\n"
-                   f"⚠️ 리뷰어가 지정되지 않았습니다 — {dm.mention(pr['user']['login'])} 지정해 주세요")
-        color = COLOR_WARN
-    return {"content": content, "embeds": [pr_embed(pr, color)]}
+        # 리뷰어 없이 올라간 PR 은 아무의 일도 아니다. 바로 짚는다.
+        action = ("⚠️ 리뷰어가 없습니다. 같은 파트 팀원을 지정해 주세요 — "
+                  + dm.mention(pr["user"]["login"]))
+    return say("🔵 새 PR 이 올라왔습니다", subject_of(pr), action, pr["html_url"])
 
 
 def on_review_requested(event: dict, pr: dict) -> dict | None:
-    reviewer = (event.get("requested_reviewer") or {}).get("login")
+    requested = event.get("requested_reviewer") or {}
+    reviewer = requested.get("login")
     if not reviewer:
         return None  # 팀 단위 리뷰 요청. 멘션할 개인이 없다
+    if requested.get("type") == "Bot" or reviewer == "Copilot":
+        return None  # Copilot 같은 봇 리뷰어는 부를 사람이 없다
     age = (datetime.now(timezone.utc) - parse_ts(pr["created_at"])).total_seconds()
     if age < FRESH_SECONDS:
         return None  # 방금 opened 가 이미 멘션했다
-    return {
-        "content": f"👀 리뷰어로 지정되셨습니다 — {dm.mention(reviewer)}",
-        "embeds": [pr_embed(pr, COLOR_REVIEW)],
-    }
+    return say("👀 리뷰어로 지정되셨습니다", subject_of(pr),
+               f"확인 부탁드립니다 — {dm.mention(reviewer)}", pr["html_url"])
 
 
 def on_review(event: dict, pr: dict) -> dict | None:
@@ -144,47 +157,81 @@ def on_review(event: dict, pr: dict) -> dict | None:
     if reviewer == author:
         return None  # 자기 PR 에 자기가 단 코멘트는 알리지 않는다
     state = (review.get("state") or "").upper()
-    headline, color = {
-        "APPROVED": ("🟢 승인됐습니다", COLOR_APPROVED),
-        "CHANGES_REQUESTED": ("🔴 변경 요청이 왔습니다", COLOR_CHANGES),
-        "COMMENTED": ("💬 리뷰 코멘트가 달렸습니다", COLOR_REVIEW),
+
+    # 🔇 **멘토 쪽은 이 채널로 알리지 않는다.** 운영진 워크플로(notify-discord.yml)가
+    #    `#pr-alert-경북대` 로 이미 보내고 있어서, 여기까지 울리면 같은 일이 두 번 울린다.
+    #
+    #    pull_request_review 는 GitHub 이 branches 필터를 지원하지 않아 main PR 리뷰도 들어온다.
+    #    주간 멘토 리뷰 PR 이 그것이라 여기서 걸러 낸다.
+    if pr["base"]["ref"] == "main":
+        return None
+    # 팀원이 아닌 사람(매핑에 없는 사람)이 develop PR 에 남긴 리뷰도 같은 이유로 조용히 둔다.
+    if is_outsider(reviewer):
+        return None
+
+    headline, action = {
+        "APPROVED": ("🟢 승인됐습니다", "머지하셔도 됩니다"),
+        "CHANGES_REQUESTED": ("🔴 변경 요청이 왔습니다", "반영한 뒤 다시 리뷰를 요청해 주세요"),
+        "COMMENTED": ("💬 리뷰 코멘트가 달렸습니다", "확인해 주세요"),
     }.get(state, (None, None))
     if not headline:
         return None
-
-    # pull_request_review 는 GitHub 이 branches 필터를 지원하지 않아 main PR 리뷰도 들어온다.
-    # 주간 멘토 리뷰 PR 이 그것이다. 되물음을 놓쳐 다음 주까지 답을 못 한 적이 있어,
-    # 멘토 리뷰는 작성자 한 사람이 아니라 테크리더까지 같이 부른다.
-    if pr["base"]["ref"] == "main":
-        who = dm.mentions([author] + _table_tech_leads())
-        line = ("멘토가 승인했습니다. 마감 전에 머지해 주세요"
-                if state == "APPROVED"
-                else "되물음이 있으면 추측하지 말고 해당 파트가 직접 답해 주세요")
-        return {
-            "content": f"🧑‍🏫 멘토 PR 에 리뷰가 달렸습니다\n{line} — {who}",
-            "embeds": [pr_embed(pr, color, [
-                {"name": "리뷰어", "value": reviewer, "inline": True},
-            ])],
-        }
-
-    return {
-        "content": f"{headline} — {dm.mention(author)}",
-        "embeds": [pr_embed(pr, color, [
-            {"name": "리뷰어", "value": dm.name_of(reviewer), "inline": True},
-        ])],
-    }
+    return say(f"{headline} ({dm.name_of(reviewer)})", subject_of(pr),
+               f"{action} — {dm.mention(author)}", pr["html_url"])
 
 
-def _table_tech_leads() -> list[str]:
-    return dm._table().get("tech_leads", [])
+def comment_message(number: int, title: str, url: str, author: str | None,
+                    commenter: str, body: str) -> dict:
+    """팀원이 남긴 코멘트 알림. 멘토·운영진 것은 여기까지 오지 않는다(위에서 걸러진다)."""
+    excerpt = " ".join((body or "").split())[:200]
+    subject = f"**#{number} {title}**" + (f"\n> {excerpt}" if excerpt else "")
+    return say(f"💬 코멘트가 달렸습니다 ({dm.name_of(commenter)})", subject,
+               f"확인해 주세요 — {dm.mention(author)}", url)
 
 
-def post(webhook: str, payload: dict) -> None:
-    # parse 를 users 로 좁힌다. @everyone·@here·역할 멘션이 본문에 섞여도 울리지 않는다.
-    payload["allowed_mentions"] = {"parse": ["users"]}
-    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
+def on_issue_comment(event: dict) -> dict | None:
+    """PR 에 달린 일반 코멘트. 이슈 코멘트는 제외한다."""
+    if event.get("action") != "created":
+        return None
+    issue = event.get("issue") or {}
+    if "pull_request" not in issue:
+        return None  # 진짜 이슈. PR 이 아니다
+    c = event.get("comment") or {}
+    commenter = (c.get("user") or {}).get("login")
+    author = (issue.get("user") or {}).get("login")
+    if commenter == author:
+        return None  # 작성자가 자기 PR 에 쓴 말
+    # 🔇 멘토·운영진 코멘트는 알리지 않는다 — 운영진 채널이 담당한다.
+    if is_outsider(commenter) or not author:
+        return None
+    return comment_message(issue["number"], issue.get("title", ""),
+                           c.get("html_url", ""), author, commenter, c.get("body", ""))
+
+
+def on_reply(event: dict, pr: dict) -> dict | None:
+    """코드 라인 코멘트의 **답글**. 멘토 되물음이 주로 여기로 온다.
+
+    새로 다는 인라인 코멘트는 리뷰 제출이 한 번에 알리므로 여기서는 보지 않는다.
+    그렇게 하지 않으면 리뷰 한 번에 열 번이 울린다.
+    """
+    if event.get("action") != "created":
+        return None
+    c = event.get("comment") or {}
+    if not c.get("in_reply_to_id"):
+        return None
+    commenter = (c.get("user") or {}).get("login")
+    author = pr["user"]["login"]
+    if commenter == author:
+        return None
+    if is_outsider(commenter):
+        return None  # 🔇 멘토 되물음도 운영진 채널이 담당한다
+    return comment_message(pr["number"], pr["title"], c.get("html_url", ""),
+                           author, commenter, c.get("body", ""))
+
+
+def _send(url: str, payload: dict) -> None:
     req = urllib.request.Request(
-        webhook,
+        url,
         data=json.dumps(payload).encode(),
         headers={
             "Content-Type": "application/json",
@@ -194,14 +241,26 @@ def post(webhook: str, payload: dict) -> None:
         },
         method="POST",
     )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        print(f"디스코드 응답: {resp.status}")
+
+
+def post(webhook: str, payload: dict) -> None:
+    payload = {**payload, "username": WEBHOOK_NAME, "avatar_url": WEBHOOK_AVATAR}
+    url = dw.with_thread(webhook)
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            print(f"디스코드 응답: {resp.status}")
+        _send(url, payload)
     except urllib.error.HTTPError as e:
         # 웹훅 URL 은 절대 찍지 않는다. 응답 본문만 남겨야 원인을 안다.
         print(f"디스코드 전송 실패: {e.code} {e.reason}\n"
               f"{e.read().decode(errors='replace')[:400]}")
-        raise
+        # 스레드가 지워졌거나 잠겼으면 **알림이 통째로 사라진다.** 묻히는 것보다 나쁘다.
+        # 채널로 한 번 더 보내고, 스레드를 손봐야 한다는 걸 로그에 남긴다.
+        if url == webhook:
+            raise
+        print(f"::warning::{dw.THREAD_ENV} 로 보내지 못해 채널로 보냅니다. "
+              "스레드가 지워졌거나 잠긴 건 아닌지 확인하세요.")
+        _send(webhook, payload)
 
 
 def main() -> int:

@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Size;
  *
  * <p>사업자 정보는 관리자가 승인 여부를 판단하는 자료다. 사업자등록번호는 하이픈이 있어도 되고, 서버가
  * 숫자 10자리로 맞춰 확인한다 — 형식 확인을 여기서 하지 않는 이유는 "123-45-67890" 같은 표기를 그대로 받기 위해서다.
+ * 휴대폰 번호도 같은 이유로 서버가 숫자만 남겨 확인한다.
  *
  * <p>상호명·대표자 이름은 두 겹으로 막는다.
  * <ol>
@@ -62,7 +63,13 @@ public record OwnerSignupRequest(
         @Pattern(regexp = HAS_LETTER_OR_DIGIT, message = "대표자 이름에는 글자나 숫자가 하나 이상 있어야 합니다")
         @Pattern(regexp = NO_INVISIBLE_CHARACTERS, message = "대표자 이름에 줄바꿈이나 보이지 않는 글자를 넣을 수 없습니다")
         @Pattern(regexp = NO_STACKED_MARKS, message = "대표자 이름에 겹쳐 쓴 부호가 너무 많습니다")
-        String representativeName
+        String representativeName,
+
+        @Schema(description = "점주 휴대폰 번호 (하이픈 있어도 됨). 가게를 등록할 때 적은 번호와 같으면 후보 가게를 찾는 데 쓰인다",
+                example = "010-0000-0000")
+        @NotBlank(message = "휴대폰 번호를 입력해 주세요")
+        @Size(max = 20, message = "휴대폰 번호가 너무 깁니다")
+        String phone
 ) {
     // 글자(L)나 숫자(N)가 최소 하나. (?s): 줄바꿈이 섞여도 . 이 매칭되게 한다(줄바꿈 자체는 아래 규칙이 막는다).
     static final String HAS_LETTER_OR_DIGIT = "(?s).*[\\p{L}\\p{N}].*";
@@ -73,11 +80,11 @@ public record OwnerSignupRequest(
     // 결합 부호(M)가 3개 이상 연달아 오면 안 된다. (?!...) 는 "뒤에 이런 게 없어야 한다"는 뜻이다.
     static final String NO_STACKED_MARKS = "(?s)(?!.*\\p{M}{3}).*";
 
-    // 로그에 요청 객체가 찍혀도 비밀번호·대표자 이름이 새지 않고 이메일은 일부만 보이게 한다.
+    // 로그에 요청 객체가 찍혀도 비밀번호·대표자 이름·휴대폰 번호가 새지 않고 이메일은 일부만 보이게 한다.
     // record 기본 toString 은 모든 필드를 그대로 출력한다.
     @Override
     public String toString() {
         return "OwnerSignupRequest[email=" + LogMasking.maskEmail(email) + ", password=****, bizNo=" + bizNo
-                + ", storeName=" + storeName + ", representativeName=****]";
+                + ", storeName=" + storeName + ", representativeName=****, phone=****]";
     }
 }
