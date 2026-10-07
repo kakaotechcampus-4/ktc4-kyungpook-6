@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -80,6 +81,9 @@ class InvestigationTarget(BaseModel):
     #: 가게 좌표(WGS84). 있으면 카카오맵 확인이 주소를 좌표로 바꾸지 않고 바로 쓴다.
     lat: float | None = None
     lng: float | None = None
+    #: 담당자가 이 가게 정보를 마지막으로 확인한 시각(백엔드 `Store.lastCheckedAt`). 있으면 그보다 이전에
+    #: 쓰인 웹 근거는 판정에서 뺀다 — 그 뒤에 사람이 본 DB 값이 더 믿을 만하다(`classify.py`).
+    last_checked_at: datetime | None = Field(default=None, alias="lastCheckedAt")
 
 
 class PlaceStatus(str, Enum):

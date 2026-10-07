@@ -37,6 +37,8 @@ from src.investigation import (
 )
 from src.investigation.failure import failure_of
 from src.investigation.kakao_map import KakaoPlaceChecker
+from src.investigation.agent import AgentInvestigator, OpenAIDecider
+from src.investigation.map_lookup import MapLookup
 from src.investigation.web import WebInvestigator
 from src.investigation.web_research import VertexResearchProvider
 
@@ -89,9 +91,20 @@ INVESTIGATOR_MODE = "INVESTIGATOR"
 
 @lru_cache(maxsize=1)
 def _web_investigator() -> Investigator:
-    """Vertex 클라이언트를 프로세스당 하나만 만든다. 카카오 키가 있으면 지도 확인도 붙인다."""
-    checker = KakaoPlaceChecker() if os.environ.get("KAKAO_REST_API_KEY") else None
-    return WebInvestigator(VertexResearchProvider(), place_checker=checker)
+    """Vertex 클라이언트를 프로세스당 하나만 만든다.
+
+    지도 대조(`NAVER_LOCAL_ENABLED`·`KAKAO_COMPARE_ENABLED`)는 기본으로 꺼져 있다 — 끄면 지금과 똑같이 돈다.
+    카카오는 한 경로만 쓴다: 값 대조가 켜져 있으면 그것만, 꺼져 있으면 예전 "근처에 있다/없다" 확인만.
+    `AGENT_ENABLED=true` 면 지도로 확정되지 않은 가게를 에이전트가 이어서 조사한다(혼합 방식, 기본 꺼짐).
+    """
+    map_lookup = MapLookup.from_env()
+    uses_kakao = map_lookup is not None and map_lookup.uses_kakao
+    checker = KakaoPlaceChecker() if os.environ.get("KAKAO_REST_API_KEY") and not uses_kakao else None
+    research = VertexResearchProvider()
+    agent = None
+    if os.environ.get("AGENT_ENABLED", "").lower() == "true":
+        agent = AgentInvestigator(research, decider=OpenAIDecider.from_env())
+    return WebInvestigator(research, place_checker=checker, map_lookup=map_lookup, agent=agent)
 
 
 def get_investigator() -> Investigator:
