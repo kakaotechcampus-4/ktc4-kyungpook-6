@@ -28,7 +28,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discord_members as dm  # noqa: E402
@@ -145,18 +145,87 @@ def wake_at(crossed: datetime) -> datetime:
 
 CATCH_UP = False   # --catch-up 이면 시간 구간을 무시하고 "이미 넘긴 것"을 전부 본다
 
+# 직전 성공 실행 시각. 이번 실행이 책임지는 구간은 (SINCE, now] 다.
+# None 이면 알아내지 못한 것이고, 그때는 "한 시간 구간"으로 되돌아간다.
+SINCE: datetime | None = None
+
+# 구간 상한. 워크플로가 오래 멈췄다 돌아왔을 때 며칠 치가 한꺼번에 쏟아지는 걸 막는다.
+MAX_WINDOW_HOURS = 24
+
+WORKFLOW_FILE = "remind-discord-team.yml"
+
+
+def load_since(repo: str, token: str, now: datetime) -> datetime | None:
+    """직전 **성공한 예약 실행**의 시각.
+
+    🚨 **왜 필요한가** — cron 이 적힌 대로 돌지 않는다. `0 * * * *` 인데 실제로는
+    5~7시간에 한 번 돌았다(2026-10-07 확인: 34.6시간 동안 7번, 기대치의 20%).
+    GitHub 의 예약 실행은 부하가 걸리면 밀리거나 **통째로 건너뛴다.**
+
+    "매시간 도니까 각 건은 1시간 구간을 정확히 한 번 지나간다"가 이 스크립트의 핵심
+    아이디어였는데, 그 구간이 통째로 없어지면 **알림이 영영 사라진다.** 상태를 저장하지
+    않는 설계라 되살릴 길도 없다. 실제로 수요일 17:00 준비 점검이 그렇게 날아갔다.
+
+    그래서 "지난 한 시간" 대신 **"직전 실행 이후"** 를 구간으로 쓴다. 5시간을 건너뛰어도
+    그 사이에 임계값을 넘긴 건이 전부 잡히고, 구간이 겹치지 않으니 여전히 한 번만 나간다.
+
+    이번 실행은 아직 성공이 아니라서 `status=success` 로 거르면 자연히 빠진다.
+    예약 실행만 본다 — 수동 실행이 구간을 앞당겨 버리면 그 사이 건이 사라진다.
+    """
+    try:
+        runs = gh(f"/repos/{repo}/actions/workflows/{WORKFLOW_FILE}/runs"
+                  f"?event=schedule&status=success&per_page=1", token)
+    except urllib.error.HTTPError as e:
+        print(f"::notice::직전 실행 시각을 못 읽었습니다({e.code}). 한 시간 구간으로 돕니다.")
+        return None
+    items = runs.get("workflow_runs") or []
+    if not items:
+        return None
+    since = parse_ts(items[0]["created_at"])
+    floor = now - timedelta(hours=MAX_WINDOW_HOURS)
+    if since < floor:
+        print(f"::warning::직전 실행이 {MAX_WINDOW_HOURS}시간보다 오래됐습니다 "
+              f"({since:%m-%d %H:%M} UTC). 구간을 {MAX_WINDOW_HOURS}시간으로 자릅니다.")
+        return floor
+    return since
+
+
+def window_start(now: datetime) -> datetime:
+    """이번 실행이 책임지는 구간의 시작. SINCE 가 없으면 "지난 한 시간"."""
+    if SINCE is not None:
+        return SINCE.astimezone(KST)
+    k = now.astimezone(KST)
+    return k.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+
 
 def due_now(created: datetime, threshold: int, now: datetime) -> bool:
-    """`created + threshold` 를 (조용한 시간을 피해서) 지금 이 시간대에 넘겼는가.
-
-    `in_band` 를 쓰지 않는 이유 — 조용한 시간에 넘긴 건을 아침으로 미루면
-    "지난 시간"이 아니라 "밀린 시각"을 기준으로 봐야 하기 때문이다.
-    """
+    """`created + threshold` 를 (조용한 시간을 피해서) **이번 구간 안에** 넘겼는가."""
     wake = wake_at(created + timedelta(hours=threshold))
     k = now.astimezone(KST)
     if CATCH_UP:
         return wake <= k      # 밀린 건을 한 번에 — 워크플로가 멈췄다 돌아왔을 때
-    return wake <= k < wake + timedelta(hours=1)
+    if SINCE is None:
+        return wake <= k < wake + timedelta(hours=1)
+    return window_start(now) < wake <= k
+
+
+def slot_due(now: datetime, hour: int, weekday: int | None = None) -> bool:
+    """`(요일,) 시각` 고정 슬롯을 **이번 구간 안에** 지나왔는가.
+
+    `k.hour == hour` 로 보면 그 시각에 실행이 없을 때 슬롯이 통째로 날아간다.
+    cron 이 5~7시간에 한 번 도는 지금은 그게 보통이다.
+    """
+    k = now.astimezone(KST)
+    if SINCE is None:
+        return k.hour == hour and (weekday is None or k.weekday() == weekday)
+    start = window_start(now)
+    day = start.date()
+    while day <= k.date():
+        slot = datetime.combine(day, time(hour), tzinfo=KST)
+        if start < slot <= k and (weekday is None or slot.weekday() == weekday):
+            return True
+        day += timedelta(days=1)
+    return False
 
 
 def latest_review_state(reviews: list[dict]) -> str | None:
@@ -197,7 +266,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
     findings: list[dict] = []
     k = now.astimezone(KST)
     deadline_label = next(
-        (label for wd, hour, label in DEADLINES if (k.weekday(), k.hour) == (wd, hour)), None
+        (label for wd, hour, label in DEADLINES if slot_due(now, hour, wd)), None
     )
 
     pulls = gh(f"/repos/{repo}/pulls?state=open&per_page=100", token)
@@ -270,12 +339,13 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         # 리뷰어가 있든 없든 본다 — 리뷰어가 없는 채로 묵은 PR 이 더 나쁜 상태인데,
         # 그쪽은 2시간 독촉 뒤로 아무 말이 없었다.
         # 1·4시간 독촉과 겹치지 않는다: 한 PR 이 4시간 미만이면서 24시간 초과일 수 없다.
-        if (not reviews and k.hour == STALE_CHECK_HOUR
+        if (not reviews and slot_due(now, STALE_CHECK_HOUR)
                 and opened_hours >= STALE_REVIEW_HOURS):
-            days = int(opened_hours // 24)
+            # 일수를 머리말에 넣지 않는다. cron 이 불규칙해서 하루 독촉이 18시간 간격으로
+            # 떨어지면 "2일째"가 두 번 나간다. 경과 시간은 아래 detail 에 정확히 적는다.
             pr_findings.append({
                 "color": COLOR_WARN,
-                "headline": f"⌛ {days}일째 리뷰가 없습니다",
+                "headline": "⌛ 리뷰 기한을 넘겼습니다",
                 "pr": pr,
                 "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건 "
                           f"(팀 기준 리뷰 기한은 {STALE_REVIEW_HOURS}시간)",
@@ -314,7 +384,7 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         #
         #    예전에는 하루 한 번(10시)만 봤다. 그러면 오후에 깨진 PR 을 다음 날까지 아무도
         #    모른다. 할 말이 생긴 시각에 같이 확인해서, 늦어도 그 PR 의 첫 독촉과 함께 잡는다.
-        if pr_findings or k.hour == CONFLICT_CHECK_HOUR:
+        if pr_findings or slot_due(now, CONFLICT_CHECK_HOUR):
             if is_conflicted(repo, token, pr):
                 pr_findings = [conflict_finding(pr)]
         findings.extend(pr_findings)
@@ -361,21 +431,21 @@ def weekly_deadlines(now: datetime, main_pr: dict | None, deadline_label: str | 
     weekday, hour = k.weekday(), k.hour  # 월=0
     out: list[dict] = []
 
-    if (weekday, hour) == (2, 15) and main_pr is None:
+    if slot_due(now, 15, 2) and main_pr is None:
         out.append({
             "color": COLOR_DEADLINE,
             "headline": "⏰ 3시간 뒤 1차 PR 마감입니다 (수 18:00)",
             "pr": None,
             "detail": "멘토 PR 이 아직 없습니다. develop → main PR 을 올려야 리뷰가 시작됩니다",
         })
-    if (weekday, hour) == (5, 8) and main_pr is not None:
+    if slot_due(now, 8, 5) and main_pr is not None:
         out.append({
             "color": COLOR_DEADLINE,
             "headline": "⏰ 2시간 뒤 2차 재리뷰 요청 마감입니다 (토 10:00)",
             "pr": main_pr,
             "detail": "반영한 refactor PR 링크를 멘토 코멘트에 답글로 남기고 재리뷰를 요청합니다",
         })
-    if (weekday, hour) == (6, 20) and main_pr is not None:
+    if slot_due(now, 20, 6) and main_pr is not None:
         out.append({
             "color": COLOR_DEADLINE,
             "headline": "⏰ 오늘 23:59 이 main 머지 마감입니다",
@@ -403,7 +473,7 @@ def readiness_report(repo: str, token: str, now: datetime,
     일요일 아침에는 머지까지 무엇이 남았는지 본다.
     """
     k = now.astimezone(KST)
-    slot = READINESS.get((k.weekday(), k.hour))
+    slot = next((v for (wd, hour), v in READINESS.items() if slot_due(now, hour, wd)), None)
     if not slot:
         return []
     title, deadline = slot
@@ -649,6 +719,18 @@ def main() -> int:
         return 1
 
     now = parse_ts(args.now) if args.now else datetime.now(timezone.utc)
+
+    # cron 이 적힌 대로 돌지 않는다(5~7시간에 한 번). "지난 한 시간" 대신 "직전 실행 이후"를
+    # 구간으로 써야 건너뛴 시각의 알림이 사라지지 않는다. load_since() 주석 참고.
+    global SINCE
+    if not CATCH_UP:
+        SINCE = load_since(repo, token, now)
+        if SINCE:
+            gap = (now - SINCE).total_seconds() / 3600
+            print(f"직전 실행 {SINCE.astimezone(KST):%m-%d %H:%M} KST ({gap:.1f}시간 전) "
+                  f"이후 구간을 봅니다")
+        else:
+            print("직전 실행을 못 찾아 지난 한 시간만 봅니다")
 
     try:
         findings = build_findings(repo, token, now)
