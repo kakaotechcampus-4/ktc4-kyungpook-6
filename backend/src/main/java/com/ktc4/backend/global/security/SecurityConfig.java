@@ -98,7 +98,9 @@ public class SecurityConfig {
                             .requestMatchers("/api/admin/**").hasRole("ADMIN")
                             // 아동 QR 발급도 새로 만든 API 다. 재발급하면 옛 QR 이 무효가 되므로, 아동 인증이
                             // 생기기 전까지는 스위치와 무관하게 관리자만 부른다.
-                            .requestMatchers("/api/children/**").hasRole("ADMIN");
+                            .requestMatchers("/api/children/**").hasRole("ADMIN")
+                            // 관리자 조사(Job)도 새로 만든 API 다. AI 호출 비용이 드는 API 라 스위치와 무관하게 관리자만 부른다.
+                            .requestMatchers("/api/jobs/**").hasRole("ADMIN");
                     // ⚠️ 임시 분기 — 2026-10-14 까지 제거 (클래스 주석 참고)
                     if (!enforce) {
                         auth.anyRequest().permitAll();

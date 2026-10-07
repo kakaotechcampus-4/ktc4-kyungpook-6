@@ -1,14 +1,20 @@
 package com.ktc4.backend;
 
+import com.ktc4.backend.domain.investigation.client.AiApiClient;
+import com.ktc4.backend.domain.investigation.client.AiClient;
+import com.ktc4.backend.domain.investigation.service.InvestigationRunner;
 import com.ktc4.backend.domain.store.ntscheck.scheduler.NtsCheckScheduler;
+import com.ktc4.backend.global.config.AsyncConfig;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,5 +49,15 @@ class BackendApplicationContextTest {
     @DisplayName("@EnableScheduling 이 살아 있어 스케줄 등록기가 존재한다")
     void enablesScheduling() {
         assertThat(applicationContext.getBeansOfType(ScheduledAnnotationBeanPostProcessor.class)).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("조사 실행기 빈과 AI 클라이언트가 등록되고, 실행기에 @Async 프록시가 걸린다")
+    void wiresInvestigationBeans() {
+        assertThat(applicationContext.getBean(AsyncConfig.INVESTIGATION_EXECUTOR, ThreadPoolTaskExecutor.class)
+                .getMaxPoolSize()).isEqualTo(1);
+        assertThat(applicationContext.getBean(AiClient.class)).isInstanceOf(AiApiClient.class);
+        // 프록시가 아니면 @Async 가 무시되어 조사 시작 API 가 조사가 끝날 때까지 응답하지 않는다
+        assertThat(AopUtils.isAopProxy(applicationContext.getBean(InvestigationRunner.class))).isTrue();
     }
 }

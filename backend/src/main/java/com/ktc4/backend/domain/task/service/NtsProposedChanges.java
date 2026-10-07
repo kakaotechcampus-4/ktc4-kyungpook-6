@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.task.service;
 
+import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
 
 import java.util.Map;
@@ -13,8 +14,8 @@ import java.util.Map;
  */
 public final class NtsProposedChanges {
 
-    /** 수정안에서 가게 상태를 가리키는 이름. AI 가 보내는 수정안과 같은 이름을 쓴다. */
-    public static final String STATUS_FIELD = "status";
+    /** 수정안에서 가게 상태를 가리키는 이름. AI 가 보내는 수정안과 같은 이름을 쓴다({@link ChangeField#key()}). */
+    public static final String STATUS_FIELD = ChangeField.STATUS.key();
 
     private NtsProposedChanges() {
     }
