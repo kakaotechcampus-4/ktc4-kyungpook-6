@@ -142,7 +142,6 @@ class TestClassify:
 
         assert found.classification is TaskClassification.NO_CHANGE
         assert found.signals == []
-        assert found.evidences == []
 
     def test_잡힌_변화_하나가_Signal_한_행이고_출처_수를_담는다(self):
         found = run(
@@ -380,13 +379,16 @@ class TestClassify:
 
         assert dumped["classification"] == "PRIORITY_CHECK"
         assert dumped["proposedChanges"] == {"status": "CLOSED"}
-        assert set(dumped["signals"][0]) == {
-            "signalType", "field", "observed", "evidenceText", "evidenceUrl", "sourceCount",
-        }
+        # 백엔드 Signal 칸과 추가를 요청한 field 만 나간다. 출처 수는 칸이 없어 문구에 적힌다.
+        assert set(dumped["signals"][0]) == {"signalType", "confidence", "evidenceText", "evidenceUrl", "field"}
+        assert dumped["signals"][0]["field"] == "status"
+        assert dumped["signals"][0]["confidence"] is None
+        assert dumped["signals"][0]["evidenceText"].endswith("(출처 1곳)")
+        assert "mapCheck" not in dumped
 
 
 class TestMapCheck:
-    """카카오맵 확인은 분류를 바꾸지 않고 Signal 도 만들지 않는다 — 결과는 mapCheck 로 따로 나간다."""
+    """카카오맵 확인은 분류를 바꾸지 않고 Signal 도 만들지 않는다 — 결과는 mapCheck 에 따로 담긴다(응답에서는 빠진다)."""
 
     FOUND = PlaceCheck(status=PlaceStatus.FOUND, place_url="http://place.map.kakao.com/1")
 
