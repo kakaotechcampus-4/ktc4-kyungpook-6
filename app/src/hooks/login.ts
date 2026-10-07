@@ -8,10 +8,10 @@ import { toLoginErrorMessage } from "../utils/loginError";
 
 /*
   로그인 뒤·회원가입·계정 찾기를 누른 뒤 넘어갈 화면.
-  점주 홈·가입·계정 찾기 화면이 아직 없어서 홈으로 둔다. 화면이 생기면 여기만 바꾼다.
+  점주 홈·계정 찾기 화면이 아직 없어서 홈으로 둔다. 화면이 생기면 여기만 바꾼다.
 */
 const AFTER_LOGIN_PATH = "/";
-const SIGNUP_PATH = "/";
+const SIGNUP_PATH = "/owner/signup";
 const FIND_ACCOUNT_PATH = "/";
 
 export type UseOwnerLoginResult = {
