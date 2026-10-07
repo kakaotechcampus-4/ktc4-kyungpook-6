@@ -72,7 +72,9 @@ READINESS = {
     (6, 9): ("main 머지 준비 점검", "오늘 23:59 까지 main 머지"),
 }
 # 멘토 쪽은 시각으로 보지 않는다. 리뷰가 언제 올지 정해져 있지 않고, 재촉할 일도 아니다.
-# 멘토가 **코멘트를 남기는 순간** 알리는 쪽으로 간다 — pr_event_notify.py 가 맡는다.
+# 멘토가 남긴 리뷰·코멘트는 **이 채널로 아예 알리지 않는다** — 운영진 워크플로
+# (notify-discord.yml)가 #pr-alert-경북대 로 이미 보내서 두 번 울린다.
+# 거르는 쪽은 pr_event_notify.py 의 is_outsider() 다.
 
 # 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
 # 메시지마다 덮어쓸 수 있어서, 봇과 같은 이름·아바타로 맞춘다. 채널에서 보면
@@ -115,10 +117,20 @@ def wake_at(crossed: datetime) -> datetime:
 
     새벽에 넘긴 건은 그 시각이 아니라 QUIET_END_HOUR 에 한꺼번에 알린다.
     여러 건이 몰려도 payload 가 묶어서 한 메시지로 나간다.
+
+    ⚠️ **통과 시각이 아니라 "실제로 나가는 cron 시각"을 보고 민다.** cron 은 정각에만
+    도니까, 23:23 에 넘긴 건은 00:00 에 나간다 — 통과 시각(23시)만 보면 조용한 시간이
+    아니라서 안 밀리고, 결국 자정에 멘션이 울린다. 실제로 PR #66(21:23 생성, 리뷰어
+    미지정 2시간)이 00:00 에 울렸다. 23:00~23:59 에 넘기는 건은 전부 이렇게 된다.
     """
     k = crossed.astimezone(KST)
-    if QUIET_START_HOUR <= k.hour < QUIET_END_HOUR:
-        k = k.replace(hour=QUIET_END_HOUR, minute=0, second=0, microsecond=0)
+    # 통과 직후의 정각 = 이 건을 실어 나를 cron. 정각에 딱 맞춰 넘겼으면 그 정각이다.
+    slot = k.replace(minute=0, second=0, microsecond=0)
+    if slot != k:
+        slot += timedelta(hours=1)
+    if QUIET_START_HOUR <= slot.hour < QUIET_END_HOUR:
+        # slot 의 날짜를 그대로 쓴다 — 자정을 넘긴 건은 그 다음 날 아침이 맞다.
+        return slot.replace(hour=QUIET_END_HOUR)
     return k
 
 

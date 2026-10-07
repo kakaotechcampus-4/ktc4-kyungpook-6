@@ -246,7 +246,7 @@ describe("/pr상태", () => {
 describe("/내차례", () => {
     const NOW = Date.parse("2026-10-06T09:00:00Z");
     const MEMBERS = JSON.stringify({
-        members: { HYH1945: { name: "황영하", discord: "111" }, podkeke: { name: "노은서", discord: "222" } },
+        members: { reviewer1: { name: "리뷰어1", discord: "111" }, author1: { name: "작성자1", discord: "222" } },
     });
     const mk = (n: number, author: string, reviewers: string[]) => ({
         number: n, title: `PR ${n}`, draft: false, html_url: `https://x/${n}`,
@@ -261,7 +261,7 @@ describe("/내차례", () => {
 
     it("내가 리뷰할 PR 과 내가 올린 PR 을 나눠 보여준다", async () => {
         const msg = await handleMyTurn("o/r", undefined, MEMBERS, "111",
-            fake([mk(1, "podkeke", ["HYH1945"]), mk(2, "HYH1945", [])]), NOW);
+            fake([mk(1, "author1", ["reviewer1"]), mk(2, "reviewer1", [])]), NOW);
         expect(msg).toContain("리뷰해 주셔야 할 PR 1건");
         expect(msg).toContain("#1");
         expect(msg).toContain("올리신 PR 1건");
@@ -270,7 +270,7 @@ describe("/내차례", () => {
 
     it("남의 PR 은 끼워 넣지 않는다", async () => {
         const msg = await handleMyTurn("o/r", undefined, MEMBERS, "222",
-            fake([mk(1, "HYH1945", ["HYH1945"])]), NOW);
+            fake([mk(1, "reviewer1", ["reviewer1"])]), NOW);
         expect(msg).toContain("없습니다");
         expect(msg).not.toContain("#1");
     });
