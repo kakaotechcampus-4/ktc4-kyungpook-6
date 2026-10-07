@@ -148,7 +148,7 @@ class Observation:
 class ResearchResult:
     observations: list[Observation] = field(default_factory=list)
     #: 모델이 실제로 쓴 검색어(`web_search_queries`). 판정에는 쓰지 않고, 검색이 흔들린 것인지
-    #: 추출이 흔들린 것인지 가리는 데 쓴다(`2차_조사_불확실성_처리.md` 단계 0).
+    #: 추출이 흔들린 것인지 가리는 데 쓴다(`docs/2차_조사.md`).
     queries: tuple[str, ...] = ()
 
 
