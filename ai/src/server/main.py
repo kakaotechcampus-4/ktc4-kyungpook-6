@@ -39,7 +39,7 @@ from src.investigation.failure import failure_of
 from src.investigation.kakao_map import KakaoPlaceChecker
 from src.investigation.agent import AgentInvestigator, OpenAIDecider
 from src.investigation.map_lookup import MapLookup
-from src.investigation.web import WebInvestigator
+from src.investigation.web import WebInvestigator, _is_rate_limited
 from src.investigation.web_research import VertexResearchProvider
 
 #: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
@@ -165,38 +165,6 @@ def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_H
 
 def investigator_mode() -> str:
     """지금 어떤 조사기가 꽂혀 있는가. `/health` 가 쓴다."""
-    return type(get_investigator()).__name__
-
-
-#: 백엔드와 **같은 값**을 쓴다. 백엔드는 이 키로 AI 를 알아보고(`ApiKeyAuthenticationFilter`),
-#: AI 는 이 키로 백엔드를 알아본다. 키를 두 개 두면 어느 쪽이 틀렸는지 찾기 어렵다.
-API_KEY_ENV = "INTERNAL_API_KEY"
-API_KEY_HEADER = "X-API-KEY"
-
-
-def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
-    """조사를 시작할 수 있는 건 백엔드뿐이다.
-
-    **키가 설정돼 있지 않으면 검사하지 않는다.** 로컬에서 띄워 보는 길을 막지 않기
-    위해서다 — compose 에서 AI 는 포트를 바깥으로 열지 않아, 키가 없어도 같은 도커
-    네트워크 안에서만 닿는다.
-
-    키가 있는데 틀리면 401 이다. 조사는 Vertex·카카오 쿼터를 쓰는 호출이라, 아무나
-    부를 수 있으면 돈과 한도가 샌다.
-    """
-    expected = os.environ.get(API_KEY_ENV, "").strip()
-    if not expected:
-        return
-    # 글자 수가 달라도 시간 차가 안 나게 비교한다.
-    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"{API_KEY_HEADER} 가 없거나 맞지 않습니다.",
-        )
-
-
-def investigator_mode() -> str:
-    """지금 어떤 조사기가 꽂혀 있는가. `/health` 가 쓴다."""
     impl = get_investigator()
     return type(impl).__name__
 
@@ -244,6 +212,7 @@ def investigate(
     **한 건이 실패해도 나머지는 계속 처리하고, 실패한 건도 결과에 남긴다.**
     요청 수와 응답 수가 달라지면 부르는 쪽이 무엇이 빠졌는지 알 수 없다.
     조사 구현 자체가 없으면 그건 건별 실패가 아니라 요청 전체의 실패라 503 으로 답한다.
+    요청 한도를 넘긴 것도 그 가게만의 실패가 아니라 요청 전체가 못 도는 것이라 429 로 답한다.
     """
     results: list[StoreFinding] = []
     for target in targets:
@@ -263,7 +232,26 @@ def investigate(
             results.extend(StoreFinding(storeId=t.store_id, failure=failure) for t in targets[len(results):])
             break
         except Exception as e:  # noqa: BLE001 - 한 건의 예외로 배치 전체를 죽이지 않는다
-            # 응답에는 종류(code)와 고정 문장만 나간다 — 원래 예외 문장은 여기 로그로만 남긴다.
+            if _is_rate_limited(e):
+                # 한도 초과는 **그 가게의 실패가 아니라 지금 아무 가게도 못 조사하는 상태**다.
+                # `200` + `failure` 로 답하면 백엔드가 남은 가게를 계속 불러(`AiApiClient` 는
+                # 가게 한 곳씩 부른다) 전부 같은 이유로 실패한다. 429 면 `AiQuotaExceeded` 로
+                # 받아 조사를 바로 멈춘다 — 백엔드 요청(`#73` 코멘트). PROMPT-138.
+                #
+                # 여기까지 왔다는 건 `WebInvestigator` 안의 재시도(`RATE_LIMIT_WAITS_SECONDS`)를
+                # 이미 다 쓴 것이다.
+                #
+                # 위 503 과 같은 이유로 **이미 끝낸 결과는 버리지 않는다.** 백엔드는 한 곳씩
+                # 부르니 늘 첫 건이고 곧 429 지만, 묶어 부르는 쪽에서 끝낸 건을 날리면 안 된다.
+                logger.warning("요청 한도 초과 (처리 완료 %s건): %s", len(results), e)
+                if not results:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=failure_of(e)
+                    ) from e
+                failure = failure_of(e)
+                results.extend(StoreFinding(storeId=t.store_id, failure=failure) for t in targets[len(results):])
+                break
+            # 응답에는 고정 문장만 나간다 — 원래 예외 문장은 여기 로그로만 남긴다.
             logger.warning("조사 실패 (storeId=%s): %s", target.store_id, e)
             results.append(StoreFinding(storeId=target.store_id, failure=failure_of(e)))
 

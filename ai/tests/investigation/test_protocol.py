@@ -11,7 +11,6 @@ from src.investigation import (
     UnavailableInvestigator,
 )
 from src.investigation.mock import MockInvestigator
-from src.investigation.models import FailureCode
 
 TARGET = InvestigationTarget(store_id=1, name="성심당", address="대전 중구 은행동")
 
@@ -43,7 +42,7 @@ class TestMockInvestigator:
         )
 
         assert found.signals == []
-        assert found.failure.code is FailureCode.ERROR
+        assert found.failure == "목 조사에 등록되지 않은 가게입니다"
 
     def test_결과에_요청한_storeId_를_그대로_담는다(self):
         """부르는 쪽이 요청과 결과를 짝지을 수 있어야 한다."""

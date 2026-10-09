@@ -89,7 +89,7 @@ def test_실패한_건도_결과에_남는다(client):
     # 요청 수와 응답 수가 같아야 부르는 쪽이 무엇이 빠졌는지 알 수 있다.
     assert body["requested"] == 2 and len(body["results"]) == 2
     assert body["succeeded"] == 1
-    assert body["results"][1]["failure"]["code"] == "ERROR"
+    assert body["results"][1]["failure"] == "목 조사에 등록되지 않은 가게입니다"
 
 
 def test_한_건의_예외가_배치를_죽이지_않는다(client):
@@ -107,7 +107,7 @@ def test_한_건의_예외가_배치를_죽이지_않는다(client):
     ).json()
 
     # 예외 문장은 응답에 나가지 않는다 — 종류와 고정 문장만.
-    assert body["results"][0]["failure"] == {"code": "ERROR", "message": "조사 중 알 수 없는 오류가 났습니다"}
+    assert body["results"][0]["failure"] == "조사 중 알 수 없는 오류가 났습니다"
     assert body["results"][1]["failure"] is None
     assert body["succeeded"] == 1
 
@@ -175,8 +175,79 @@ def test_중간에_구현이_끊겨도_이미_끝낸_결과는_돌려준다(clie
     body = response.json()
     assert body["requested"] == 3 and len(body["results"]) == 3
     assert body["results"][0]["failure"] is None
-    assert body["results"][1]["failure"]["code"] == "UNAVAILABLE"
-    assert body["results"][2]["failure"]["code"] == "UNAVAILABLE"
+    assert body["results"][1]["failure"] == "AI 조사 기능을 쓸 수 없는 상태입니다"
+    assert body["results"][2]["failure"] == "AI 조사 기능을 쓸 수 없는 상태입니다"
+
+
+class _RateLimited(Exception):
+    """벤더 SDK 의 429. `_is_rate_limited` 는 SDK 를 import 하지 않고 `code` 만 본다."""
+
+    code = 429
+
+
+class Test한도_초과:
+    """한도 초과는 `200` + `failure` 가 아니라 **429** 다.
+
+    `200` 으로 답하면 백엔드가 남은 가게를 계속 부르고(`AiApiClient` 는 가게 한 곳씩 부른다)
+    한도에 걸린 상태라 전부 같은 이유로 실패해 조사가 실패 더미로 쌓인다. 429 면 백엔드가
+    `AiQuotaExceeded` 로 받아 바로 멈춘다 — 백엔드 요청(`#73` 코멘트). PROMPT-138.
+    """
+
+    def test_한도_초과는_429(self, client):
+        class AlwaysRateLimited:
+            def investigate(self, target: InvestigationTarget) -> StoreFinding:
+                raise _RateLimited("429 RESOURCE_EXHAUSTED. {'error': …}")
+
+        app.dependency_overrides[get_investigator] = AlwaysRateLimited
+
+        response = client.post("/investigations", json=[TARGET])
+
+        assert response.status_code == 429
+        # 원래 예외 문장(RESOURCE_EXHAUSTED)은 나가지 않는다 — 고정 문장만.
+        assert response.json()["detail"] == "AI 요청 한도를 넘어 조사하지 못했습니다"
+
+    def test_이미_끝낸_결과가_있으면_버리지_않고_200(self, client):
+        """백엔드는 한 곳씩 불러 늘 429 지만, 묶어 부르는 쪽에서 끝낸 건을 날리면 안 된다."""
+
+        class RateLimitedAfterFirst:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def investigate(self, target: InvestigationTarget) -> StoreFinding:
+                self.calls += 1
+                if self.calls > 1:
+                    raise _RateLimited("429 RESOURCE_EXHAUSTED")
+                return StoreFinding(storeId=target.store_id)
+
+        app.dependency_overrides[get_investigator] = RateLimitedAfterFirst
+
+        response = client.post(
+            "/investigations",
+            json=[TARGET, {"storeId": 2, "name": "둘째"}, {"storeId": 3, "name": "셋째"}],
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["requested"] == 3 and len(body["results"]) == 3
+        assert body["results"][0]["failure"] is None
+        assert body["results"][1]["failure"] == "AI 요청 한도를 넘어 조사하지 못했습니다"
+        assert body["results"][2]["failure"] == "AI 요청 한도를 넘어 조사하지 못했습니다"
+
+    def test_한도_초과가_아닌_예외는_그대로_건별_실패(self, client):
+        """429 분기가 일반 예외를 삼키지 않는지 — 이 경로가 깨지면 배치가 통째로 멈춘다."""
+
+        class Broken:
+            def investigate(self, target: InvestigationTarget) -> StoreFinding:
+                raise ValueError("예상 못 한 값")
+
+        app.dependency_overrides[get_investigator] = Broken
+
+        response = client.post("/investigations", json=[TARGET, {"storeId": 2, "name": "둘째"}])
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["results"]) == 2
+        assert all(r["failure"] == "조사 중 알 수 없는 오류가 났습니다" for r in body["results"])
 
 
 class Test조사기_선택:

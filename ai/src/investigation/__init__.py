@@ -2,7 +2,6 @@
 
 from src.investigation.models import (
     ChangeField,
-    Failure,
     FailureCode,
     InvestigationResponse,
     InvestigationTarget,
@@ -19,7 +18,6 @@ from src.investigation.protocol import (
 
 __all__ = [
     "ChangeField",
-    "Failure",
     "FailureCode",
     "InvestigationResponse",
     "InvestigationTarget",
