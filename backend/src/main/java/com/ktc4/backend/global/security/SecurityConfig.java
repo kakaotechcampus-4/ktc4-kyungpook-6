@@ -93,7 +93,9 @@ public class SecurityConfig {
                             .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                             .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
                             // 토큰 주인을 알려주는 API 라 토큰 없이는 의미가 없다 — 스위치와 무관하게 막는다.
-                            .requestMatchers(HttpMethod.GET, "/api/auth/me").hasAnyRole("ADMIN", "OWNER")
+                            // 가입 상태 확인용 토큰이 부를 수 있는 API 는 이것 하나다. 승인 전 신청자가 자기 상태를 읽는다.
+                            .requestMatchers(HttpMethod.GET, "/api/auth/me")
+                            .hasAnyRole("ADMIN", "OWNER", AuthMember.SIGNUP_STATUS_ROLE)
                             // 점주 승인처럼 새로 만든 관리자 API — 스위치와 무관하게 막는다.
                             .requestMatchers("/api/admin/**").hasRole("ADMIN")
                             // 아동 QR 발급도 새로 만든 API 다. 재발급하면 옛 QR 이 무효가 되므로, 아동 인증이
