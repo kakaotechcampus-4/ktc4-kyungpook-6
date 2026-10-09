@@ -18,6 +18,7 @@ import java.util.Locale;
  * 점주에게만 필요한 정보는 {@link OwnerInfo} 로 묶어 같은 테이블에 둔다.
  *
  * <p>점주는 가입 신청 시 {@link MemberStatus#PENDING} 으로 만들어지고, 관리자가 {@link #approve} 해야 로그인할 수 있다.
+ * 관리자가 {@link #reject} 하면 로그인할 수 없는 채로 남는다.
  */
 @Entity
 @Table(
@@ -102,6 +103,23 @@ public class Member extends BaseTimeEntity {
         }
         this.status = MemberStatus.APPROVED;
         this.ownerInfo.markReviewed(approvedAt);
+    }
+
+    /**
+     * 승인 대기 중인 점주의 가입을 거절한다. 거절된 계정은 로그인할 수 없다.
+     *
+     * <p>{@link #approve} 와 같은 이유로 여기서 한 번 더 막는다.
+     *
+     * @param rejectedAt 거절 시각
+     * @param rejectedBy 거절한 관리자의 회원 ID
+     * @throws IllegalStateException 승인 대기 중인 점주가 아니면
+     */
+    public void reject(LocalDateTime rejectedAt, Long rejectedBy) {
+        if (role != MemberRole.OWNER || status != MemberStatus.PENDING) {
+            throw new IllegalStateException("승인 대기 중인 점주만 거절할 수 있습니다 - memberId=" + memberId);
+        }
+        this.status = MemberStatus.REJECTED;
+        this.ownerInfo.markRejected(rejectedAt, rejectedBy);
     }
 
     /**

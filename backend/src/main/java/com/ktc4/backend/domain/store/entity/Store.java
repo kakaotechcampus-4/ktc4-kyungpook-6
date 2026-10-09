@@ -68,9 +68,19 @@ public class Store extends BaseTimeEntity {
     @Column(name = "category", length = 50)
     private String category;
 
-    /** 전화번호 — 관리자가 확인 전화를 걸 때 사용 */
+    /** 가게 전화번호 — 관리자가 확인 전화를 걸 때 사용. 점주 개인 번호는 {@code ownerPhone} 에 둔다 */
     @Column(name = "phone", length = 20)
     private String phone;
+
+    /**
+     * 점주 개인 휴대폰 번호 — 선한영향력가게를 신청할 때 적은 번호다. 가입 신청한 점주의 번호와 같으면
+     * 후보 가게를 찾는 단서가 된다. 가게 자료를 넣을 때 명단의 개인 번호를 여기에 넣고, 자료에 없던 가게는
+     * 점주 가입을 승인할 때 채워진다.
+     *
+     * <p>개인정보라 가게 조회 응답에는 내보내지 않는다. 가게 전화번호({@code phone})와 섞어 쓰지 않는다.
+     */
+    @Column(name = "owner_phone", length = 20)
+    private String ownerPhone;
 
     /** 사업자등록번호 — 하이픈 없는 숫자로 정규화해 저장한다 */
     @Column(name = "biz_no", length = 20)
@@ -85,7 +95,7 @@ public class Store extends BaseTimeEntity {
                   String addressRoad, String addressNormalized,
                   Double lat, Double lng,
                   StoreStatus status, String category,
-                  String phone, String bizNo,
+                  String phone, String ownerPhone, String bizNo,
                   LocalDateTime lastCheckedAt) {
         this.name = name;
         this.nameNormalized = nameNormalized;
@@ -96,8 +106,43 @@ public class Store extends BaseTimeEntity {
         this.status = status != null ? status : StoreStatus.UNKNOWN;
         this.category = category;
         this.phone = phone;
+        this.ownerPhone = ownerPhone;
         this.bizNo = bizNo;
         this.lastCheckedAt = lastCheckedAt;
+    }
+
+    /**
+     * 점주 개인 휴대폰 번호가 비어 있을 때만 채운다. 점주 가입을 승인할 때 신청서의 번호로 부른다.
+     *
+     * <p>이미 값이 있으면 바꾸지 않는다 — 가게 명단에서 온 번호나 먼저 승인된 점주의 번호를,
+     * 나중에 연결된 점주의 번호가 덮어쓰지 않게 하기 위해서다.
+     *
+     * @param ownerPhone 숫자만 남긴 휴대폰 번호. 비어 있으면 아무 일도 하지 않는다
+     */
+    public void recordOwnerPhoneIfAbsent(String ownerPhone) {
+        if (ownerPhone == null || ownerPhone.isBlank()) {
+            return;
+        }
+        if (this.ownerPhone == null || this.ownerPhone.isBlank()) {
+            this.ownerPhone = ownerPhone;
+        }
+    }
+
+    /**
+     * 점주 개인 휴대폰 번호가 넘겨받은 번호와 같으면 지운다. 그 점주와의 연결을 끊을 때 부른다.
+     *
+     * <p>잘못 승인해서 채워진 번호가 남아 있으면, 그 번호로 가입한 사람이 계속 이 가게의 후보로 올라온다.
+     * 다른 번호(가게 명단에서 온 번호, 다른 점주의 번호)는 건드리지 않는다.
+     *
+     * @param ownerPhone 숫자만 남긴 휴대폰 번호. 비어 있으면 아무 일도 하지 않는다
+     */
+    public void clearOwnerPhoneIfSame(String ownerPhone) {
+        if (ownerPhone == null || ownerPhone.isBlank() || this.ownerPhone == null) {
+            return;
+        }
+        if (this.ownerPhone.replaceAll("[^0-9]", "").equals(ownerPhone)) {
+            this.ownerPhone = null;
+        }
     }
 
     /**

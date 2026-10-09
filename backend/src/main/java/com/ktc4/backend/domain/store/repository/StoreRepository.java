@@ -101,9 +101,12 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
     Page<StoreWithNtsCheck> findDataProblem(Pageable pageable);
 
     /**
-     * 점주 가입 신청에 연결할 후보 가게를 읽는다 — 사업자등록번호나 전화번호가 같거나, 이름이 겹치는 가게다.
+     * 점주 가입 신청에 연결할 후보 가게를 읽는다 — 사업자등록번호나 점주 휴대폰 번호가 같거나, 이름이 겹치는 가게다.
      *
-     * <p>사업자등록번호가 같은 가게를 맨 앞에, 전화번호가 같은 가게를 그다음에, 이름만 겹치는 가게를 뒤에 둔다.
+     * <p>휴대폰 번호는 가게 전화번호({@code phone})가 아니라 점주 개인 번호({@code owner_phone})와 비교한다.
+     * 가게 전화번호는 매장 번호라 신청서의 개인 번호와 같을 이유가 없다.
+     *
+     * <p>사업자등록번호가 같은 가게를 맨 앞에, 휴대폰 번호가 같은 가게를 그다음에, 이름만 겹치는 가게를 뒤에 둔다.
      * 앞의 둘은 값이 정확히 같아야 하는 단서고, 이름은 일부만 겹쳐도 되는 약한 단서다. 이름 안에서는
      * 정확히 같은 가게를 일부만 겹치는 가게보다 앞에 둔다 — 흔한 이름이면 겹치는 가게가 많아 건수 제한에 잘린다.
      *
@@ -114,21 +117,21 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
      * 빈 문자열을 넘기면 안 된다 — 번호 칸이 비어 있는 가게, 이름에서는 모든 가게와 맞는다.
      *
      * @param bizNo          하이픈 없는 숫자 10자리
-     * @param phone          숫자만 남긴 전화번호
+     * @param phone          숫자만 남긴 신청서의 휴대폰 번호
      * @param nameNormalized {@code StoreNormalizer.normalizeName} 으로 맞춘 이름. 한글·영문·숫자만 남은 값이라
      *                       LIKE 특수문자가 없다
      * @param limit          최대 건수
-     * @return 사업자등록번호 일치, 전화번호 일치, 이름 일치, 이름 일부 겹침 순서. 같은 단서 안에서는 storeId 오름차순
+     * @return 사업자등록번호 일치, 휴대폰 번호 일치, 이름 일치, 이름 일부 겹침 순서. 같은 단서 안에서는 storeId 오름차순
      */
     @Query(value = """
             select s.*
             from store s
             where regexp_replace(s.biz_no, '[^0-9]', '', 'g') = :bizNo
-               or regexp_replace(s.phone, '[^0-9]', '', 'g') = :phone
+               or regexp_replace(s.owner_phone, '[^0-9]', '', 'g') = :phone
                or s.name_normalized like concat('%', :nameNormalized, '%')
             order by case
                          when regexp_replace(s.biz_no, '[^0-9]', '', 'g') = :bizNo then 0
-                         when regexp_replace(s.phone, '[^0-9]', '', 'g') = :phone then 1
+                         when regexp_replace(s.owner_phone, '[^0-9]', '', 'g') = :phone then 1
                          when s.name_normalized = :nameNormalized then 2
                          else 3
                      end,

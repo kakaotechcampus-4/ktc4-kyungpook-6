@@ -30,7 +30,12 @@ class StoreOwnerCandidateQueryTest extends PostgresContainerTest {
     @Autowired
     private TestEntityManager entityManager;
 
-    private Store persistStore(String nameNormalized, String bizNo, String phone) {
+    private Store persistStore(String nameNormalized, String bizNo, String ownerPhone) {
+        return persistStore(nameNormalized, bizNo, ownerPhone, null);
+    }
+
+    // ownerPhone 은 점주 개인 번호, storePhone 은 가게 전화번호(매장 번호)다
+    private Store persistStore(String nameNormalized, String bizNo, String ownerPhone, String storePhone) {
         return entityManager.persistAndFlush(Store.builder()
                 .name(nameNormalized)
                 .nameNormalized(nameNormalized)
@@ -38,7 +43,8 @@ class StoreOwnerCandidateQueryTest extends PostgresContainerTest {
                 .addressNormalized("가상특별시예시구샘플로123")
                 .status(StoreStatus.OPEN)
                 .bizNo(bizNo)
-                .phone(phone)
+                .ownerPhone(ownerPhone)
+                .phone(storePhone)
                 .build());
     }
 
@@ -59,6 +65,15 @@ class StoreOwnerCandidateQueryTest extends PostgresContainerTest {
         assertThat(candidateIds(BIZ_NO, PHONE, NAME, LIMIT))
                 .containsExactly(bizNoOnly.getStoreId(), phoneOnly.getStoreId(), nameOnly.getStoreId())
                 .doesNotContain(unrelated.getStoreId());
+    }
+
+    @Test
+    void 가게_전화번호가_신청서의_번호와_같아도_후보가_되지_않는다() {
+        // 휴대폰 번호는 점주 개인 번호(owner_phone)와만 비교한다. 매장 번호(phone)는 단서가 아니다
+        persistStore("전혀다른이름", null, null, "01000000001");
+        Store ownerPhoneMatched = persistStore("또다른이름", null, "01000000001", "0530000001");
+
+        assertThat(candidateIds(BIZ_NO, PHONE, NAME, LIMIT)).containsExactly(ownerPhoneMatched.getStoreId());
     }
 
     @Test

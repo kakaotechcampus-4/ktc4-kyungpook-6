@@ -42,6 +42,9 @@ public enum ErrorCode {
     INVALID_PHONE(HttpStatus.BAD_REQUEST, "휴대폰 번호 형식이 올바르지 않습니다"),
     PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호가 너무 깁니다"),
     OWNER_ALREADY_REVIEWED(HttpStatus.CONFLICT, "이미 처리된 가입 신청입니다"),
+    OWNER_NOT_APPROVED(HttpStatus.CONFLICT, "승인된 점주가 아닙니다"),
+    STORE_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결된 가게입니다"),
+    STORE_LINK_NOT_FOUND(HttpStatus.NOT_FOUND, "가게 연결을 찾을 수 없습니다"),
 
     // 관리자 조사(Job)
     NO_INVESTIGATION_TARGET(HttpStatus.BAD_REQUEST, "조사할 가게가 없습니다"),
