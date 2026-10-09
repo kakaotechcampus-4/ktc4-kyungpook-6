@@ -37,8 +37,8 @@ from dataclasses import dataclass, field as dc_field
 import httpx
 
 from src.investigation.classify import classify, relation_to_db
-from src.investigation.models import ChangeField, InvestigationTarget, StoreFinding
-from src.investigation.web import RATE_LIMIT_WAITS_SECONDS, PlaceChecker, _is_rate_limited
+from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, StoreFinding
+from src.investigation.web import RATE_LIMIT_WAITS_SECONDS, MapObserver, PlaceChecker, _is_rate_limited
 from src.investigation.web_research import (
     LLM_TIMEOUT_SECONDS,
     build_research_prompt,
@@ -190,7 +190,7 @@ class AgentInvestigator:
         self,
         research: VertexResearchProvider,
         *,
-        map_lookup=None,
+        map_lookup: MapObserver | None = None,
         place_checker: PlaceChecker | None = None,
         model: str = MODEL,
         client: object | None = None,
@@ -202,7 +202,8 @@ class AgentInvestigator:
         self._map_lookup = map_lookup
         self._place_checker = place_checker
         self._model = model
-        self._client = client if client is not None else research._client
+        # Gemini 판단(decider 없음)일 때만 Vertex 클라이언트가 필요하다.
+        self._client = client if client is not None or decider is not None else research.client
         self._sleep = sleep
         self.last_trace = Trace()
         self.last_observations: list[Observation] = []
@@ -258,12 +259,18 @@ class AgentInvestigator:
         """처음부터 조사한다 — 지도 대조도 에이전트가 고른다."""
         return self._investigate(target, [], maps_done=False)
 
-    def continue_from(self, target: InvestigationTarget, maps: list[Observation]) -> StoreFinding:
-        """지도 대조를 마친 가게를 이어서 조사한다(혼합 방식) — 지도로 확정되지 않은 가게만 온다."""
-        return self._investigate(target, list(maps), maps_done=True)
+    def continue_from(
+        self, target: InvestigationTarget, maps: list[Observation], *, place: PlaceCheck | None = None
+    ) -> StoreFinding:
+        """지도 대조를 마친 가게를 이어서 조사한다(혼합 방식) — 지도로 확정되지 않은 가게만 온다.
+        `place` 는 부르는 쪽이 이미 받은 카카오맵 "근처에 있다/없다" 확인이다(다시 부르지 않는다)."""
+        return self._investigate(target, list(maps), maps_done=True, place=place)
 
-    def _investigate(self, target: InvestigationTarget, start: list[Observation], *, maps_done: bool) -> StoreFinding:
+    def _investigate(
+        self, target: InvestigationTarget, start: list[Observation], *, maps_done: bool, place: PlaceCheck | None = None
+    ) -> StoreFinding:
         trace = self.last_trace = Trace()
+        search_errors: list[Exception] = []
         observations: list[Observation] = start
         self.last_observations = observations
         checked_maps = maps_done
@@ -296,6 +303,11 @@ class AgentInvestigator:
             try:
                 result = self._search(prompt)
             except Exception as e:  # noqa: BLE001 - 검색 한 번이 깨져도 조사는 이어 간다(판단 모델이 다음을 정한다)
+                # 기다렸다 다시 불러도 429 면 이 가게가 아니라 지금 아무 가게도 조사할 수 없는 상태다 — 바로 올려
+                # 서버가 429 로 답하게 한다. 삼키면 "변화없음"으로 나간다.
+                if _is_rate_limited(e):
+                    raise
+                search_errors.append(e)
                 trace.steps.append(f"web_search({field}, {goal!r}) → 실패: {type(e).__name__}")
                 return "검색이 실패했다"
             fields = (ChangeField.NAME, ChangeField.ADDRESS, ChangeField.PHONE, ChangeField.STATUS) if change_field is None else (change_field,)
@@ -324,9 +336,14 @@ class AgentInvestigator:
         else:
             self._run_gemini(prompt, tools, trace)
 
-        place = self._place_checker.check(target) if self._place_checker else None
+        if place is None and self._place_checker is not None:
+            place = self._place_checker.check(target)
         logger.info("조사 과정 (storeId=%s): %s", target.store_id, " | ".join(trace.steps))
-        return classify(target, ResearchResult(observations, queries=tuple(trace.queries)), place)
+        finding = classify(target, ResearchResult(observations, queries=tuple(trace.queries)), place)
+        # 웹검색이 전부 실패해 아무것도 못 잡았으면 "변화없음"이 아니라 실패다 — 서버가 failure 로 바꾼다.
+        if search_errors and len(search_errors) == trace.web_searches and not finding.signals:
+            raise search_errors[-1]
+        return finding
 
     def _run_openai(self, prompt: str, tools: dict, trace: Trace) -> None:
         items: list[dict] = [{"role": "user", "content": prompt}]

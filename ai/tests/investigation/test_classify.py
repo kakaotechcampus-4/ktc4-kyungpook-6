@@ -571,6 +571,26 @@ class TestTruncatedAddress:
 
         assert found.proposed_changes == {"addressRoad": value}
 
+    @pytest.mark.parametrize("value", ["만촌동 12-3", "수성동1가 819"])
+    def test_시_구_없이_동과_번지만_있어도_비교한다(self, value):
+        """검색 요약은 구를 빼고 동·번지만 주는 일이 흔하다 — 놓치면 바뀐 주소가 "변화없음"으로 나간다."""
+        found = classify(self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, value, "a.com")]))
+
+        assert found.proposed_changes == {"addressRoad": value}
+
+    @pytest.mark.parametrize("value", ["노동 3시간", "운동 10분 거리", "가동 5개월"])
+    def test_동으로_끝나는_낱말은_지번_주소가_아니다(self, value):
+        found = classify(self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, value, "a.com")]))
+
+        assert found.classification is TaskClassification.NO_CHANGE
+
+    def test_시_도_표기만_다른_지번_주소는_같은_주소다(self):
+        found = classify(
+            self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, "대구광역시 수성구 범어동 48-1", "a.com")])
+        )
+
+        assert found.classification is TaskClassification.NO_CHANGE and found.signals == []
+
 
 
 class TestNameRelation:
@@ -596,6 +616,10 @@ class TestNameRelation:
 
     def test_음식_이름의_지역어는_빼지_않는다(self):
         assert comparison_key(ChangeField.NAME, "대구탕집") == "대구탕집"
+
+    @pytest.mark.parametrize("name", ["대구탕명가점", "대구왕갈비본점", "서울깍두기본점"])
+    def test_지역어로_시작하는_상호는_지역어를_빼지_않는다(self, name):
+        assert comparison_key(ChangeField.NAME, name) == name
 
     def test_잘린_이름은_오타_DB_를_확인하지도_상호_변경을_내지도_않는다(self):
         target = TARGET.model_copy(update={"name": "최과장회닾밥"})

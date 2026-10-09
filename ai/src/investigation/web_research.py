@@ -340,6 +340,11 @@ class VertexResearchProvider:
         self._client = client if client is not None else self._build_client()
         self._http = http if http is not None else httpx.Client(timeout=REDIRECT_TIMEOUT_SECONDS)
 
+    @property
+    def client(self) -> object:
+        """Vertex 클라이언트 — 에이전트가 판단 모델로 같은 Gemini 를 쓸 때 나눠 쓴다."""
+        return self._client
+
     @staticmethod
     def _build_client() -> object:
         from google import genai

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from src.backend_client.models import StoreStatus
 from src.investigation.agent import MAX_WEB_SEARCHES, AgentInvestigator
-from src.investigation.models import ChangeField, InvestigationTarget
-from src.investigation.web_research import Observation, ResearchResult, Source
+from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, PlaceStatus
+from src.investigation.web_research import Observation, ResearchParseError, ResearchResult, ResearchTimeout, Source
 
 TARGET = InvestigationTarget(
     store_id=1, name="빠레뜨치킨", address="대구광역시 서구 국채보상로67길 38", phone="053-567-3050",
@@ -47,6 +49,14 @@ class Research:
     def research_with_prompt(self, prompt):
         self.prompts.append(prompt)
         return self.result
+
+
+class FailingResearch:
+    def __init__(self, error: Exception):
+        self.error = error
+
+    def research_with_prompt(self, prompt):
+        raise self.error
 
 
 def kakao(field: ChangeField, value: str) -> Observation:
@@ -126,3 +136,50 @@ class TestContinueFrom:
         found = agent.continue_from(TARGET, [kakao(ChangeField.PHONE, "053-567-3080")])
 
         assert found.proposed_changes == {"phone": "053-567-3080"}
+
+    def test_웹검색이_전부_실패하고_잡은_게_없으면_실패로_올린다(self):
+        decider = ScriptedDecider([call("web_search", field="all", goal="확인")], [call("finish", reason="끝")])
+        agent = AgentInvestigator(FailingResearch(ResearchTimeout("느림")), decider=decider, client=object())
+
+        with pytest.raises(ResearchTimeout):
+            agent.continue_from(TARGET, [])
+
+    def test_웹검색이_한도를_넘으면_다른_검색이_됐어도_바로_올린다(self):
+        class RateLimited(Exception):
+            code = 429
+
+        class ThenRateLimited:
+            def __init__(self):
+                self.calls = 0
+
+            def research_with_prompt(self, prompt):
+                self.calls += 1
+                if self.calls == 1:
+                    return ResearchResult()
+                raise RateLimited("429 RESOURCE_EXHAUSTED")
+
+        decider = ScriptedDecider(
+            [call("web_search", field="all", goal="확인")],
+            [call("web_search", field="phone", goal="다시 확인")],
+            [call("finish", reason="끝")],
+        )
+        agent = AgentInvestigator(ThenRateLimited(), decider=decider, client=object(), sleep=lambda _: None)
+
+        with pytest.raises(RateLimited):
+            agent.continue_from(TARGET, [])
+
+    def test_웹검색이_실패해도_지도로_잡은_변화는_돌려준다(self):
+        decider = ScriptedDecider([call("web_search", field="phone", goal="확인")], [call("finish", reason="끝")])
+        agent = AgentInvestigator(FailingResearch(ResearchParseError("형식")), decider=decider, client=object())
+
+        found = agent.continue_from(TARGET, [kakao(ChangeField.PHONE, "053-567-3080")])
+
+        assert found.failure is None and found.signals
+
+    def test_받은_카카오맵_확인_결과를_판정에_쓴다(self):
+        place = PlaceCheck(status=PlaceStatus.NOT_FOUND)
+        agent = AgentInvestigator(Research(ResearchResult()), decider=ScriptedDecider(), client=object())
+
+        found = agent.continue_from(TARGET, [], place=place)
+
+        assert found.map_check == place
