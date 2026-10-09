@@ -301,14 +301,6 @@ def java_nested_record(path: Path, name: str) -> dict[str, str]:
     return {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "PROMPT-125 — AI 는 failure 를 객체로, 백엔드는 String 으로 받는다. "
-        "어느 쪽으로 통일할지 AI·백엔드가 정하는 중이다. "
-        "양쪽을 맞춘 사람이 이 마커를 지워야 한다 (strict 라 맞으면 XPASS 로 실패한다)."
-    ),
-)
 def test_failure_모양이_양쪽에서_같다() -> None:
     """`failure` 칸의 **모양**을 검사한다 — 이름만 맞는지가 아니라.
 
@@ -327,6 +319,7 @@ def test_failure_모양이_양쪽에서_같다() -> None:
     if not java_file.exists():
         pytest.skip(f"백엔드 소스가 없습니다: {java_file}")
 
+    from src.investigation.failure import failure_of
     from src.investigation.models import StoreFinding
 
     result = java_nested_record(java_file, "Result")
@@ -338,11 +331,12 @@ def test_failure_모양이_양쪽에서_같다() -> None:
     java_type = result["failure"]
 
     # AI 쪽이 객체를 보내는지 문자열을 보내는지는 **실제 직렬화 결과**로 판단한다.
-    # 애너테이션을 보면 `Failure | None` 의 Optional 을 벗기는 일이 끼어든다.
-    sample = StoreFinding(
-        storeId=1,
-        failure={"code": "RATE_LIMITED", "message": "한도 초과"},
-    )
+    # 애너테이션을 보면 Optional 을 벗기는 일이 끼어든다.
+    #
+    # 값은 운영에서 쓰는 길(`failure_of`)로 만든다. 여기서 모양을 손으로 적으면
+    # 그 모양이 아닐 때 **검사하기 전에 모델 검증에서 먼저 터져** 무엇이 어긋났는지
+    # 대신 ValidationError 를 보게 된다. 실제로 PROMPT-125 를 평평하게 고칠 때 그랬다.
+    sample = StoreFinding(storeId=1, failure=failure_of(ValueError("조사 실패")))
     sent_failure = json.loads(sample.model_dump_json(by_alias=True))["failure"]
 
     if isinstance(sent_failure, str):

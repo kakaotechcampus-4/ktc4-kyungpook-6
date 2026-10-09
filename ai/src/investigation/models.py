@@ -139,13 +139,6 @@ class FailureCode(str, Enum):
     ERROR = "ERROR"  # 그 밖의 예외. 다시 불러도 같을 수 있다
 
 
-class Failure(BaseModel):
-    """가게 한 건의 조사 실패. `message` 는 담당자 화면에 그대로 보여도 되는 문장이다."""
-
-    code: FailureCode
-    message: str
-
-
 class StoreFinding(BaseModel):
     """가게 한 건의 조사 결과.
 
@@ -173,7 +166,10 @@ class StoreFinding(BaseModel):
     #: 응답에서는 뺀다 — 백엔드에 칸이 없다. 지도와 어긋나면 `evidenceText` 에 적힌다.
     map_check: PlaceCheck | None = Field(default=None, alias="mapCheck", exclude=True)
     #: 실패 사유. 성공이면 None. "웹에서 아무것도 못 찾음"은 실패가 아니다 — 변화없음(Signal 0개)으로 나간다.
-    failure: Failure | None = None
+    #: **담당자 화면에 그대로 보여도 되는 문장 하나다.** `FailureCode` 는 `failure.py` 안에만 두고
+    #: 내보내지 않는다 — 백엔드는 `String failure` 로 받아 로그와 `Job.errorMessage` 에만 쓰고,
+    #: 다시 조사할지는 `code` 가 아니라 **예외**로 가른다(`AiFinding.java:13`). PROMPT-125.
+    failure: str | None = None
 
 
 class InvestigationResponse(BaseModel):
