@@ -303,6 +303,10 @@ class AgentInvestigator:
             try:
                 result = self._search(prompt)
             except Exception as e:  # noqa: BLE001 - 검색 한 번이 깨져도 조사는 이어 간다(판단 모델이 다음을 정한다)
+                # 기다렸다 다시 불러도 429 면 이 가게가 아니라 지금 아무 가게도 조사할 수 없는 상태다 — 바로 올려
+                # 서버가 429 로 답하게 한다. 삼키면 "변화없음"으로 나간다.
+                if _is_rate_limited(e):
+                    raise
                 search_errors.append(e)
                 trace.steps.append(f"web_search({field}, {goal!r}) → 실패: {type(e).__name__}")
                 return "검색이 실패했다"

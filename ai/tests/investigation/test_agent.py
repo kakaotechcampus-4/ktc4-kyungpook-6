@@ -144,6 +144,30 @@ class TestContinueFrom:
         with pytest.raises(ResearchTimeout):
             agent.continue_from(TARGET, [])
 
+    def test_웹검색이_한도를_넘으면_다른_검색이_됐어도_바로_올린다(self):
+        class RateLimited(Exception):
+            code = 429
+
+        class ThenRateLimited:
+            def __init__(self):
+                self.calls = 0
+
+            def research_with_prompt(self, prompt):
+                self.calls += 1
+                if self.calls == 1:
+                    return ResearchResult()
+                raise RateLimited("429 RESOURCE_EXHAUSTED")
+
+        decider = ScriptedDecider(
+            [call("web_search", field="all", goal="확인")],
+            [call("web_search", field="phone", goal="다시 확인")],
+            [call("finish", reason="끝")],
+        )
+        agent = AgentInvestigator(ThenRateLimited(), decider=decider, client=object(), sleep=lambda _: None)
+
+        with pytest.raises(RateLimited):
+            agent.continue_from(TARGET, [])
+
     def test_웹검색이_실패해도_지도로_잡은_변화는_돌려준다(self):
         decider = ScriptedDecider([call("web_search", field="phone", goal="확인")], [call("finish", reason="끝")])
         agent = AgentInvestigator(FailingResearch(ResearchParseError("형식")), decider=decider, client=object())
