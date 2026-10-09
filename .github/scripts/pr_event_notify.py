@@ -47,19 +47,28 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discord_members as dm  # noqa: E402
 import discord_webhook as dw  # noqa: E402
 
-# PR 을 올릴 때 리뷰어를 같이 지정하면 GitHub 이 opened 와 review_requested 를 둘 다
-# 보낸다. opened 가 이미 멘션했으므로 그 건은 건너뛴다.
+# PR 을 올릴 때 리뷰어를 같이 지정하면(`gh pr create --reviewer`) GitHub 이 opened 와
+# review_requested 를 **둘 다** 보낸다. 그 건은 opened 가 이미 멘션했으므로 건너뛴다.
 #
-# ⏱️ 짧게 잡아야 한다. 두 이벤트는 **1~2초 안에** 같이 오는데, 사람이 올린 뒤 손으로
-#    리뷰어를 고르는 것도 1분 안쪽이다. 120초로 뒀다가 PR #70 에서 56초 뒤에 지정한
-#    리뷰어 알림이 통째로 묻혔다.
-FRESH_SECONDS = 20
+# ⏱️ **러너 시계로 재지 않는다.** `datetime.now()` 로 재면 큐 대기·체크아웃 시간이 age 에
+#    섞여서, 같은 상황인데 러너가 빠르면 묻히고 느리면 나간다. 대신 GitHub 이 서버에서
+#    찍은 두 값의 차이를 본다 — 리뷰 요청이 들어오면 `pull_request.updated_at` 이
+#    갱신되므로 `updated_at - created_at` 이 **생성과 리뷰어 지정 사이의 실제 간격**이다.
+#
+# 🚨 창을 세 번 틀렸다. 전부 **알림이 안 가는 쪽**으로 틀렸다.
+#    120초 → PR #70 에서 56초 뒤 지정이 묻혔다 → 20초로 줄임
+#    20초  → PR #84·#85 에서 9~10초 뒤 지정이 묻혔다 → 러너 시계를 버리고 2초로 줄임
+#
+#    원자적 생성은 두 이벤트가 1~2초 안에 온다. 사람이나 CLI 가 나중에 넣는 건 그보다 길다.
+#    경계에서 틀릴 때는 **보내는 쪽으로** 틀리게 둔다 — 중복 멘션 한 번은 거슬릴 뿐이지만,
+#    안 가면 리뷰어가 자기가 지정된 걸 모르고 리뷰가 멈춘다.
+ATOMIC_WINDOW_SECONDS = 2
 
 # 웹훅은 기본적으로 **웹훅 자신의 이름**(운영진이 만들 때 붙인 이름)으로 글을 쓴다.
 # 메시지마다 덮어쓸 수 있어서, 봇과 같은 이름·아바타로 맞춘다. 채널에서 보면
@@ -168,6 +177,27 @@ def on_opened(pr: dict) -> dict:
                mention=who, color=COLOR_NEW)
 
 
+def requested_with_pr(pr: dict) -> bool:
+    """리뷰어가 **PR 생성과 한 묶음으로** 지정됐는가.
+
+    그렇다면 `opened` 가 이미 그 사람을 멘션했으니 다시 보내지 않는다.
+
+    판단은 **GitHub 이 서버에서 찍은 두 값**으로만 한다. 러너 시계(`datetime.now()`)를
+    쓰면 큐 대기 시간이 섞여 판정이 흔들린다 — 그래서 #84·#85 가 묻혔다.
+
+    `updated_at` 을 읽을 수 없으면 **보내는 쪽**을 고른다. 모를 때 묻어 버리는 것이
+    지금까지 세 번 다 사고가 난 방향이다.
+    """
+    created, updated = pr.get("created_at"), pr.get("updated_at")
+    if not created or not updated:
+        return False
+    try:
+        gap = (parse_ts(updated) - parse_ts(created)).total_seconds()
+    except ValueError:
+        return False
+    return 0 <= gap <= ATOMIC_WINDOW_SECONDS
+
+
 def on_review_requested(event: dict, pr: dict) -> dict | None:
     requested = event.get("requested_reviewer") or {}
     reviewer = requested.get("login")
@@ -175,9 +205,8 @@ def on_review_requested(event: dict, pr: dict) -> dict | None:
         return None  # 팀 단위 리뷰 요청. 멘션할 개인이 없다
     if requested.get("type") == "Bot" or reviewer == "Copilot":
         return None  # Copilot 같은 봇 리뷰어는 부를 사람이 없다
-    age = (datetime.now(timezone.utc) - parse_ts(pr["created_at"])).total_seconds()
-    if age < FRESH_SECONDS:
-        return None  # 방금 opened 가 이미 멘션했다
+    if requested_with_pr(pr):
+        return None  # opened 가 이 리뷰어를 이미 멘션했다
     return say("👀 리뷰어로 지정되셨습니다", subject_of(pr), "확인 부탁드립니다",
                pr["html_url"], mention=dm.mention(reviewer), color=COLOR_REVIEW)
 
