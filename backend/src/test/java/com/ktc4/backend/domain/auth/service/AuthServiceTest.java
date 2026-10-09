@@ -4,6 +4,7 @@ import com.ktc4.backend.domain.auth.dto.LoginRequest;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
@@ -214,7 +215,7 @@ class AuthServiceTest {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        MemberResponse response = authService.signupOwner(signup(" Owner@Example.com ", PASSWORD, "123-45-67890"));
+        OwnerSignupResponse response = authService.signupOwner(signup(" Owner@Example.com ", PASSWORD, "123-45-67890"));
 
         ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).saveAndFlush(saved.capture());
@@ -228,6 +229,26 @@ class AuthServiceTest {
         assertThat(member.getOwnerInfo().getRepresentativeName()).isEqualTo("홍길동");
         assertThat(member.getOwnerInfo().getReviewedAt()).isNull();
         assertThat(response.status()).isEqualTo(MemberStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("가입 신청 응답의 토큰은 가입 상태 확인용이다 — 그 회원의 것이고, 점주 토큰이 아니다")
+    void signupIssuesSignupStatusToken() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            Member saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "memberId", 3L);   // DB 가 매겨 주는 번호를 흉내 낸다
+            return saved;
+        });
+
+        OwnerSignupResponse response = authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"));
+
+        assertThat(response.memberId()).isEqualTo(3L);
+        assertThat(response.tokenType()).isEqualTo("Bearer");
+        assertThat(response.statusTokenExpiresAt()).isEqualTo(NOW.plus(Duration.ofDays(7)));
+        assertThat(jwtProvider.parse(response.statusToken())).contains(AuthMember.signupStatus(3L));
+        assertThat(jwtProvider.parse(response.statusToken())).get()
+                .isNotEqualTo(new AuthMember(3L, MemberRole.OWNER));
     }
 
     @Test

@@ -126,6 +126,22 @@ class SecurityConfigNotEnforcedTest {
         verifyNoInteractions(ownerApprovalService);
     }
 
+    @Test
+    @DisplayName("꺼져 있어도 가입 상태 확인용 토큰은 관리자 API 를 부를 수 없고, 내 정보 조회는 부를 수 있다")
+    void signupStatusTokenStaysLimited() throws Exception {
+        String applicant = "Bearer " + jwtProvider.issueSignupStatus(3L).value();
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, applicant)).andExpect(status().isOk());
+        expectProblem(mockMvc.perform(post("/api/admin/owners/3/approve").header(HttpHeaders.AUTHORIZATION, applicant)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.FORBIDDEN);
+        expectProblem(mockMvc.perform(post("/api/children/7/qr-token")
+                .header(HttpHeaders.AUTHORIZATION, applicant)), ErrorCode.FORBIDDEN);
+        expectProblem(mockMvc.perform(get("/api/jobs/1")
+                .header(HttpHeaders.AUTHORIZATION, applicant)), ErrorCode.FORBIDDEN);
+
+        verifyNoInteractions(ownerApprovalService);
+    }
+
     // 보안 필터의 거절 응답이 docs/에러_처리_가이드.md 의 모양(RFC 9457)인지 본다 — SecurityConfigTest 와 같은 확인이다.
     private static void expectProblem(ResultActions result, ErrorCode errorCode) throws Exception {
         result.andExpect(status().is(errorCode.getHttpStatus().value()))

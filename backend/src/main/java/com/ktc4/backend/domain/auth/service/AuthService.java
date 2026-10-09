@@ -4,6 +4,7 @@ import com.ktc4.backend.domain.auth.dto.LoginRequest;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
@@ -79,15 +80,18 @@ public class AuthService {
      * <p>사업자등록번호는 숫자 10자리로, 휴대폰 번호는 숫자만 남겨 저장한다. 둘 다 관리자가 가게를 정할 때
      * 후보 가게를 찾는 단서가 된다. 국세청 진위확인은 다음 단계에서 붙인다.
      *
+     * <p>가입 상태 확인용 토큰을 함께 준다. 신청자가 승인됐는지 보려고 비밀번호로 로그인을 되풀이하지 않게 하기 위해서다.
+     * 이 토큰으로는 자기 가입 상태만 읽을 수 있고, 승인된 뒤에도 접근 토큰으로 바뀌지 않는다 — 로그인해야 한다.
+     *
      * @param request 이메일·비밀번호·사업자 정보·휴대폰 번호
-     * @return 만들어진 계정(승인 대기)
+     * @return 만들어진 계정(승인 대기)과 가입 상태 확인용 토큰
      * @throws CustomException 비밀번호가 72바이트를 넘으면 {@code PASSWORD_TOO_LONG},
      *                         사업자등록번호가 10자리가 아니면 {@code INVALID_BIZ_NO},
      *                         휴대폰 번호 형식이 아니면 {@code INVALID_PHONE},
      *                         이미 가입된 이메일이면 {@code DUPLICATE_EMAIL}
      */
     @Transactional
-    public MemberResponse signupOwner(OwnerSignupRequest request) {
+    public OwnerSignupResponse signupOwner(OwnerSignupRequest request) {
         if (request.password().getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
             throw new CustomException(ErrorCode.PASSWORD_TOO_LONG);
         }
@@ -107,7 +111,8 @@ public class AuthService {
         Member applicant = Member.ownerApplicant(email, passwordEncoder.encode(request.password()),
                 new OwnerInfo(bizNo, request.storeName().strip(), request.representativeName().strip(), phone));
         try {
-            return MemberResponse.from(memberRepository.saveAndFlush(applicant));
+            Member saved = memberRepository.saveAndFlush(applicant);
+            return OwnerSignupResponse.of(saved, jwtProvider.issueSignupStatus(saved.getMemberId()));
         } catch (DataIntegrityViolationException e) {
             // 위 확인과 저장 사이에 같은 이메일로 동시에 가입한 경우. 이메일 유니크 제약이 최종 방어선이다.
             // 다른 제약 위반까지 "이미 가입된 이메일"로 바꾸면 원인을 잃으므로 그대로 던진다.
@@ -130,7 +135,7 @@ public class AuthService {
     }
 
     /**
-     * 로그인한 본인 정보를 조회한다.
+     * 로그인한 본인 정보를 조회한다. 가입 상태 확인용 토큰으로 부르면 승인 전 신청자의 현재 상태가 나온다.
      *
      * @param memberId 토큰에 담긴 회원 ID
      * @return 본인 정보
