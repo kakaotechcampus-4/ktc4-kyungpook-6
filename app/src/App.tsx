@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
+import UnauthorizedRedirect from "./components/UnauthorizedRedirect";
 import SplashPage from "./pages/SplashPage";
 import RoleSelectPage from "./pages/RoleSelectPage";
 import OwnerLoginPage from "./pages/OwnerLoginPage";
@@ -21,6 +22,7 @@ function HomePage() {
 function App() {
   return (
     <BrowserRouter>
+      <UnauthorizedRedirect />
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/splash" element={<SplashPage />} />
