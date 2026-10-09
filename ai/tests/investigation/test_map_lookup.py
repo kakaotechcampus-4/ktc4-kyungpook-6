@@ -8,7 +8,7 @@ import pytest
 from src.backend_client.models import StoreStatus
 from src.investigation.classify import classify, coverage
 from src.investigation.map_lookup import KakaoLocalLookup, MapLookup, NaverLocalLookup, same_store
-from src.investigation.models import ChangeField, InvestigationTarget
+from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, PlaceStatus
 from src.investigation.web import WebInvestigator
 from src.investigation.web_research import Observation, ResearchResult, Source
 
@@ -173,13 +173,23 @@ class TestLookups:
         assert MapLookup.from_env() is None
 
 
+class Checker:
+    def __init__(self, result: PlaceCheck) -> None:
+        self.result, self.calls = result, 0
+
+    def check(self, target):
+        self.calls += 1
+        return self.result
+
+
 class StubAgent:
     def __init__(self) -> None:
         self.calls = []
 
-    def continue_from(self, target, maps):
+    def continue_from(self, target, maps, *, place=None):
         self.calls.append(maps)
-        return classify(target, ResearchResult(maps))
+        self.place = place
+        return classify(target, ResearchResult(maps), place)
 
 
 class TestHybrid:
@@ -216,3 +226,18 @@ class TestHybrid:
         WebInvestigator(research, map_lookup=Maps([map_obs(ChangeField.PHONE, "053-567-3080")])).investigate(TARGET)
 
         assert research.calls == 0
+
+    def test_카카오맵_확인_결과를_에이전트에_넘긴다(self):
+        agent = StubAgent()
+        checker = Checker(PlaceCheck(status=PlaceStatus.NOT_FOUND))
+
+        found = WebInvestigator(Research(), place_checker=checker, map_lookup=Maps([]), agent=agent).investigate(TARGET)
+
+        assert checker.calls == 1 and agent.place == checker.result and found.map_check == checker.result
+
+    def test_지도_대조가_꺼져_있으면_에이전트가_아니라_웹검색으로_간다(self):
+        agent, research = StubAgent(), Research()
+
+        WebInvestigator(research, agent=agent).investigate(TARGET)
+
+        assert agent.calls == [] and research.calls == 1

@@ -17,11 +17,14 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from src.investigation.classify import classify, coverage
 from src.investigation.models import InvestigationTarget, PlaceCheck, StoreFinding
-from src.investigation.web_research import ResearchParseError, ResearchProvider, ResearchResult
+from src.investigation.web_research import Observation, ResearchParseError, ResearchProvider, ResearchResult
+
+if TYPE_CHECKING:
+    from src.investigation.agent import AgentInvestigator
 
 # 그라운딩 검색을 켜면 형식을 강제할 수 없고, 그라운딩이 빈 채로 오기도 한다.
 LLM_ATTEMPTS = 2
@@ -43,7 +46,7 @@ class PlaceChecker(Protocol):
 
 
 class MapObserver(Protocol):
-    def observe(self, target: InvestigationTarget) -> list: ...
+    def observe(self, target: InvestigationTarget) -> list[Observation]: ...
 
 
 class WebInvestigator:
@@ -55,7 +58,7 @@ class WebInvestigator:
         rate_limit_waits: Sequence[float] = RATE_LIMIT_WAITS_SECONDS,
         sleep: Callable[[float], None] = time.sleep,
         map_lookup: MapObserver | None = None,
-        agent=None,
+        agent: AgentInvestigator | None = None,
     ) -> None:
         self._provider = provider
         self._map_lookup = map_lookup
@@ -73,24 +76,28 @@ class WebInvestigator:
         """
         maps = self._map_lookup.observe(target) if self._map_lookup else []
         place = self._place_checker.check(target) if self._place_checker else None
-        if maps and self._settled(target, maps):
-            return classify(target, ResearchResult(maps), place)
-        if self._agent is not None:
-            return self._agent.continue_from(target, maps)
+        if maps:
+            finding = classify(target, ResearchResult(maps), place)
+            if self._settled(target, maps, finding):
+                return finding
+        # 에이전트는 지도 대조를 마친 가게만 이어서 조사한다. 지도 대조가 꺼져 있으면 "지도를 봤고 전부 못 찾았다"는
+        # 거짓 전제로 시작하게 되므로 기존 웹검색으로 간다.
+        if self._agent is not None and self._map_lookup is not None:
+            return self._agent.continue_from(target, maps, place=place)
         result = self._research(target)
         return classify(target, ResearchResult(maps + result.observations, queries=result.queries), place)
 
-    def _settled(self, target: InvestigationTarget, maps: list) -> bool:
+    def _settled(self, target: InvestigationTarget, maps: list[Observation], finding: StoreFinding) -> bool:
         """지도만으로 확정됐는가. 에이전트가 붙어 있으면 카카오에만 다른 값(수정안에 값을 못 담음)은 확정이 아니다 —
         에이전트가 웹으로 실제 값을 확인할 수 있다."""
-        state = coverage(target, maps)
+        state = coverage(target, maps, finding)
         if state == "confirmed":
             return True
         if state != "changed":
             return False
         if self._agent is None:
             return True
-        return all(s.observed is not None for s in classify(target, ResearchResult(maps)).signals)
+        return all(s.observed is not None for s in finding.signals)
 
     def _research(self, target: InvestigationTarget) -> ResearchResult:
         parse_failures = 0

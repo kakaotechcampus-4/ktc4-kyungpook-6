@@ -342,7 +342,7 @@ def relation_to_db(target: InvestigationTarget, change_field: ChangeField, value
     return "same" if _same_as_current(change_field, current_key, key) else "different"
 
 
-def coverage(target: InvestigationTarget, observations: list[Observation]) -> str:
+def coverage(target: InvestigationTarget, observations: list[Observation], finding: StoreFinding | None = None) -> str:
     """이 관측으로 가게를 어디까지 확인했나 — "changed" · "confirmed" · "unresolved".
 
     - changed: DB 와 다른 값(변화)이 잡혔다
@@ -350,9 +350,9 @@ def coverage(target: InvestigationTarget, observations: list[Observation]) -> st
       다른 값을 가리키는 근거가 없다 — 담당자가 건너뛰어도 되는 가게
     - unresolved: 그 밖 — 더 조사하거나 담당자가 봐야 한다
 
-    지도 대조만으로 끝낼지(웹검색을 부를지) 정하는 데 쓴다.
+    지도 대조만으로 끝낼지(웹검색을 부를지) 정하는 데 쓴다. 같은 관측으로 이미 판정했으면 `finding` 을 넘긴다.
     """
-    if classify(target, ResearchResult(observations)).signals:
+    if (finding or classify(target, ResearchResult(observations))).signals:
         return "changed"
     fields = (ChangeField.NAME, ChangeField.ADDRESS, ChangeField.PHONE)
     confirmed, disagree = set(), False
