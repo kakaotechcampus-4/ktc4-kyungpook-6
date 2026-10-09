@@ -27,6 +27,8 @@ export type SignupDraft = {
    */
   takenEmail: string | null;
   markEmailTaken: (email: string) => void;
+  /** 가입 신청이 끝나면 부른다. 비밀번호를 포함한 입력값을 메모리에서 지운다. */
+  clear: () => void;
 };
 
 export const SignupDraftContext = createContext<SignupDraft | null>(null);
