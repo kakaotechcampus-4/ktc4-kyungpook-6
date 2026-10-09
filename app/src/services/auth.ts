@@ -1,4 +1,4 @@
-import { postRequest } from "./api";
+import { getRequest, postRequest } from "./api";
 
 /** 백엔드 LoginRequest. */
 export type LoginRequest = {
@@ -29,7 +29,7 @@ export type OwnerSignupRequest = {
   phone: string;
 };
 
-/** 백엔드 MemberResponse. 가입 직후 status 는 항상 PENDING(승인 대기)이다. */
+/** 백엔드 MemberResponse. GET /api/auth/me 의 응답. */
 export type MemberResponse = {
   memberId: number;
   email: string;
@@ -37,9 +37,31 @@ export type MemberResponse = {
   status: "PENDING" | "APPROVED" | "REJECTED";
 };
 
+/**
+ * 백엔드 OwnerSignupResponse (PR #87). 가입 직후 status 는 항상 PENDING 이다.
+ * statusToken 으로는 GET /api/auth/me 만 부를 수 있다. 승인된 뒤에는 로그인해서 접근 토큰을 받는다.
+ */
+export type OwnerSignupResponse = MemberResponse & {
+  statusToken: string;
+  tokenType: "Bearer";
+  /** statusToken 만료 시각(UTC, ISO 문자열). 발급 후 7일. */
+  statusTokenExpiresAt: string;
+};
+
 /** 점주 가입 신청. 성공하면 201, 관리자가 승인해야 로그인할 수 있다. */
 export const signupOwner = (payload: OwnerSignupRequest) => {
-  return postRequest<MemberResponse>("/api/auth/owners/signup", payload);
+  return postRequest<OwnerSignupResponse>("/api/auth/owners/signup", payload);
+};
+
+/**
+ * 내 정보 조회. token 을 주면 저장된 로그인 토큰 대신 그 토큰으로 묻는다(가입 상태 확인용 토큰).
+ * 토큰이 없거나 만료·위조면 401.
+ */
+export const getMe = (token?: string) => {
+  return getRequest<MemberResponse>(
+    "/api/auth/me",
+    token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+  );
 };
 
 /**

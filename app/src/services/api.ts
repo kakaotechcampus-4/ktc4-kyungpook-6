@@ -20,8 +20,9 @@ const LOGIN_URL = "/api/auth/login";
 /** 토큰이 없거나 만료됐을 때 보낼 화면. */
 const LOGIN_PAGE_PATH = "/owner/login";
 
-// 저장된 토큰이 있으면 모든 요청에 붙인다.
+// 저장된 토큰이 있으면 모든 요청에 붙인다. 요청이 직접 넣은 Authorization(가입 상태 확인용 토큰 등)은 덮어쓰지 않는다.
 axiosApiInstance.interceptors.request.use(async (config) => {
+  if (config.headers.Authorization) return config;
   const accessToken = await getAuthToken();
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
@@ -55,4 +56,8 @@ export const postRequest = async <T>(
   options?: AxiosRequestConfig
 ) => {
   return axiosApiInstance.post<T>(url, payload, options).then(successHandler);
+};
+
+export const getRequest = async <T>(url: string, options?: AxiosRequestConfig) => {
+  return axiosApiInstance.get<T>(url, options).then(successHandler);
 };
