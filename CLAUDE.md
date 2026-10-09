@@ -17,6 +17,13 @@
 - [`backend/docs/백엔드_아키텍처_가이드.md`](backend/docs/백엔드_아키텍처_가이드.md) — 도메인 패키지 구조
 - [`backend/docs/Javadoc_가이드.md`](backend/docs/Javadoc_가이드.md) — Javadoc 작성 대상과 형식
 - [`backend/docs/스웨거_API_문서화_가이드.md`](backend/docs/스웨거_API_문서화_가이드.md) — Swagger 사용법
+- [`backend/docs/데이터_정규화_가이드.md`](backend/docs/데이터_정규화_가이드.md) — 사업자등록번호·가게 이름·주소 정규화 규칙, 국세청 API 와의 역할 분담
+
+## AI (Python)
+
+- [`ai/docs/백엔드_연동.md`](ai/docs/백엔드_연동.md) — 백엔드와 주고받는 `POST /investigations` 요청·응답 형식, 계약 테스트
+- [`ai/docs/2차_조사.md`](ai/docs/2차_조사.md) — 2차 조사 흐름(지도 대조 → 웹검색·에이전트 → 규칙 판정), 기능 스위치, 외부 출처 약관
+- [`ai/docs/웹검색_폴백.md`](ai/docs/웹검색_폴백.md) — 사업자등록번호를 웹검색으로 채우는 폴백의 측정 결과와 설계
 
 ---
 

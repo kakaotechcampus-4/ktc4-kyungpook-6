@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 점주가 가입 신청해서 로그인하기까지를 실제 앱·DB 로 한 번에 확인한다.
  * <pre>
- * 점주 가입 신청 → 로그인 시도(승인 대기 403) → 관리자 로그인 → 대기 목록 확인 → 후보 가게 조회
+ * 점주 가입 신청 → 가입 때 받은 토큰으로 상태 조회 → 로그인 시도(승인 대기 403) → 관리자 로그인 → 대기 목록 확인 → 후보 가게 조회
  *   → 가게를 정해 승인 → 점주 로그인 → 내 정보 → 내 가게에만 체크인
  *   → 연결 끊기(체크인 불가) → 다시 연결(체크인 가능)
  * </pre>
@@ -143,6 +143,20 @@ class OwnerSignupFlowIntegrationTest {
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long ownerId = JSON.readTree(signupBody).get("memberId").asLong();
+        String statusToken = "Bearer " + JSON.readTree(signupBody).get("statusToken").asText();
+
+        // 1-1. 가입 때 받은 토큰으로는 자기 가입 상태만 읽는다 — 체크인도, 관리자 API 도 부를 수 없다
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, statusToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.memberId").value(ownerId))
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        mockMvc.perform(post("/api/stores/" + myStoreId + "/check-ins").header(HttpHeaders.AUTHORIZATION, statusToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(json("qrPayload", "v1.!!!")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/forbidden")));
+        mockMvc.perform(post("/api/admin/owners/" + ownerId + "/approve").header(HttpHeaders.AUTHORIZATION, statusToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(storeIdBody(myStoreId)))
+                .andExpect(status().isForbidden());
 
         // 2. 승인 전 로그인 → 403 승인 대기
         mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
@@ -201,6 +215,16 @@ class OwnerSignupFlowIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(storeOwnerRepository.count()).isEqualTo(1);
         mockMvc.perform(get(candidates).header(HttpHeaders.AUTHORIZATION, admin))
                 .andExpect(jsonPath("$[0].linkedOwnerCount").value(1));
+
+        // 6-1. 가입 때 받은 토큰으로 다시 조회하면 승인된 것이 보인다. 그래도 이 토큰은 접근 토큰이 되지 않는다 —
+        //      가게가 연결된 뒤에도 내 가게에 체크인할 수 없고, 로그인해야 한다
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, statusToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+        mockMvc.perform(post("/api/stores/" + myStoreId + "/check-ins").header(HttpHeaders.AUTHORIZATION, statusToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(json("qrPayload", "v1.!!!")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/forbidden")));
 
         // 7. 점주 로그인 → 내 정보
         String owner = login("flow-owner@example.com", "owner-password");

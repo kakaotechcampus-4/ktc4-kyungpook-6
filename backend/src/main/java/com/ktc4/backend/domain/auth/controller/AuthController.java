@@ -4,6 +4,7 @@ import com.ktc4.backend.domain.auth.dto.LoginRequest;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.global.error.ApiProblemDetail;
 import com.ktc4.backend.global.security.AuthMember;
@@ -65,13 +66,18 @@ public class AuthController {
                     점주 계정을 신청합니다. 관리자가 승인하기 전까지는 로그인할 수 없습니다
                     (로그인하면 403 `owner-pending-approval`).
 
+                    응답의 `statusToken` 은 가입 상태 확인용 토큰입니다. `Authorization: Bearer <statusToken>` 으로
+                    `GET /api/auth/me` 를 부르면 `status`(PENDING·APPROVED·REJECTED)를 볼 수 있습니다.
+                    이 토큰으로는 그 API 만 부를 수 있고, 승인된 뒤에는 로그인해서 접근 토큰을 받아야 합니다.
+                    비밀번호를 앱에 들고 있지 말고 이 토큰을 보관하세요.
+
                     사업자등록번호는 하이픈이 있어도 되고, 서버가 숫자 10자리로 맞춰 저장합니다.
                     휴대폰 번호(`phone`)도 하이픈이 있어도 되며 010·011·016·017·018·019 로 시작해야 합니다.
                     가게를 등록할 때 적은 번호와 같으면 관리자가 가게를 찾기 쉬워집니다.
                     """)
     @SecurityRequirements
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "신청 완료 — 상태는 PENDING(승인 대기)"),
+            @ApiResponse(responseCode = "201", description = "신청 완료 — 상태는 PENDING(승인 대기). 가입 상태 확인용 토큰을 함께 줍니다"),
             @ApiResponse(responseCode = "400",
                     description = "입력값이 비었거나 형식이 틀린 경우(errors 에 필드 표시), 사업자등록번호가 10자리가 아닌 경우(invalid-biz-no), "
                             + "휴대폰 번호 형식이 아닌 경우(invalid-phone)",
@@ -83,11 +89,16 @@ public class AuthController {
     })
     @PostMapping("/owners/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public MemberResponse signupOwner(@Valid @RequestBody OwnerSignupRequest request) {
+    public OwnerSignupResponse signupOwner(@Valid @RequestBody OwnerSignupRequest request) {
         return authService.signupOwner(request);
     }
 
-    @Operation(summary = "내 정보 조회", description = "토큰의 주인이 누구인지 확인합니다. 앱을 다시 열었을 때 토큰이 아직 유효한지 확인하는 데도 씁니다.")
+    @Operation(summary = "내 정보 조회", description = """
+            토큰의 주인이 누구인지 확인합니다. 앱을 다시 열었을 때 토큰이 아직 유효한지 확인하는 데도 씁니다.
+
+            가입 신청 때 받은 가입 상태 확인용 토큰(`statusToken`)으로도 부를 수 있습니다. 승인 전 신청자는
+            `status` 로 승인 여부를 확인합니다 — APPROVED 가 되면 로그인 화면으로 보내 주세요.
+            """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "401", description = "토큰이 없거나 만료·위조된 경우",

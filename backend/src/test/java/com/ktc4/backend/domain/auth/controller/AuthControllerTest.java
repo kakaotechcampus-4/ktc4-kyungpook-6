@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.auth.controller;
 
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.domain.member.enums.MemberRole;
@@ -207,16 +208,32 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("가입 신청은 201 과 승인 대기 상태를 돌려준다")
+    @DisplayName("가입 신청은 201 과 승인 대기 상태, 가입 상태 확인용 토큰을 돌려준다")
     void signupReturnsCreatedPending() throws Exception {
-        when(authService.signupOwner(any())).thenReturn(
-                new MemberResponse(3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING));
+        when(authService.signupOwner(any())).thenReturn(new OwnerSignupResponse(
+                3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
+                "issued-status-token", "Bearer", Instant.parse("2026-10-16T03:00:00Z")));
 
         mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
                         .content(signupBody("owner@example.com", "password1234", "123-45-67890", "예시분식", "홍길동")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.memberId").value(3))
                 .andExpect(jsonPath("$.role").value("OWNER"))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.statusToken").value("issued-status-token"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.statusTokenExpiresAt").value("2026-10-16T03:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("가입 상태 확인용 토큰으로 내 정보를 조회하면 토큰의 회원 ID 로 상태를 돌려준다")
+    void meWithSignupStatusToken() throws Exception {
+        when(authService.getMe(7L)).thenReturn(
+                new MemberResponse(7L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING));
+        String token = jwtProvider.issueSignupStatus(7L).value();
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING"));
     }
 
