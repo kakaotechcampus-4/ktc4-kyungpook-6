@@ -39,7 +39,7 @@ from src.investigation.failure import failure_of
 from src.investigation.kakao_map import KakaoPlaceChecker
 from src.investigation.agent import AgentInvestigator, OpenAIDecider
 from src.investigation.map_lookup import MapLookup
-from src.investigation.web import WebInvestigator
+from src.investigation.web import WebInvestigator, _is_rate_limited
 from src.investigation.web_research import VertexResearchProvider
 
 #: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
@@ -212,6 +212,7 @@ def investigate(
     **한 건이 실패해도 나머지는 계속 처리하고, 실패한 건도 결과에 남긴다.**
     요청 수와 응답 수가 달라지면 부르는 쪽이 무엇이 빠졌는지 알 수 없다.
     조사 구현 자체가 없으면 그건 건별 실패가 아니라 요청 전체의 실패라 503 으로 답한다.
+    요청 한도를 넘긴 것도 그 가게만의 실패가 아니라 요청 전체가 못 도는 것이라 429 로 답한다.
     """
     results: list[StoreFinding] = []
     for target in targets:
@@ -231,7 +232,26 @@ def investigate(
             results.extend(StoreFinding(storeId=t.store_id, failure=failure) for t in targets[len(results):])
             break
         except Exception as e:  # noqa: BLE001 - 한 건의 예외로 배치 전체를 죽이지 않는다
-            # 응답에는 종류(code)와 고정 문장만 나간다 — 원래 예외 문장은 여기 로그로만 남긴다.
+            if _is_rate_limited(e):
+                # 한도 초과는 **그 가게의 실패가 아니라 지금 아무 가게도 못 조사하는 상태**다.
+                # `200` + `failure` 로 답하면 백엔드가 남은 가게를 계속 불러(`AiApiClient` 는
+                # 가게 한 곳씩 부른다) 전부 같은 이유로 실패한다. 429 면 `AiQuotaExceeded` 로
+                # 받아 조사를 바로 멈춘다 — 백엔드 요청(`#73` 코멘트). PROMPT-138.
+                #
+                # 여기까지 왔다는 건 `WebInvestigator` 안의 재시도(`RATE_LIMIT_WAITS_SECONDS`)를
+                # 이미 다 쓴 것이다.
+                #
+                # 위 503 과 같은 이유로 **이미 끝낸 결과는 버리지 않는다.** 백엔드는 한 곳씩
+                # 부르니 늘 첫 건이고 곧 429 지만, 묶어 부르는 쪽에서 끝낸 건을 날리면 안 된다.
+                logger.warning("요청 한도 초과 (처리 완료 %s건): %s", len(results), e)
+                if not results:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=failure_of(e)
+                    ) from e
+                failure = failure_of(e)
+                results.extend(StoreFinding(storeId=t.store_id, failure=failure) for t in targets[len(results):])
+                break
+            # 응답에는 고정 문장만 나간다 — 원래 예외 문장은 여기 로그로만 남긴다.
             logger.warning("조사 실패 (storeId=%s): %s", target.store_id, e)
             results.append(StoreFinding(storeId=target.store_id, failure=failure_of(e)))
 
