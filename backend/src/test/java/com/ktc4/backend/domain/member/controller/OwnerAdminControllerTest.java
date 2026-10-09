@@ -1,9 +1,11 @@
 package com.ktc4.backend.domain.member.controller;
 
+import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
+import com.ktc4.backend.domain.member.enums.NameMatch;
 import com.ktc4.backend.domain.member.service.OwnerApprovalService;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.global.dto.PageResponse;
@@ -32,10 +34,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -97,20 +101,22 @@ class OwnerAdminControllerTest {
     }
 
     @Test
-    @DisplayName("후보 가게는 어느 단서가 맞았는지와 이미 연결된 점주 수를 함께 내려준다")
+    @DisplayName("후보 가게는 어느 단서가 맞았는지, 국세청 상태, 이미 연결된 점주 수를 함께 내려준다")
     void listsStoreCandidates() throws Exception {
         when(ownerApprovalService.getStoreCandidates(3L)).thenReturn(List.of(
                 new StoreCandidateResponse(10L, "예시분식", "가상특별시 예시구 샘플로 123", "1234567890",
-                        "010-****-0000", StoreStatus.OPEN, true, false, 1)));
+                        "053-000-0000", StoreStatus.OPEN, true, false, NameMatch.EXACT, 1, BusinessState.ACTIVE)));
 
         mockMvc.perform(get("/api/admin/owners/3/store-candidates"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].storeId").value(10))
                 .andExpect(jsonPath("$[0].name").value("예시분식"))
-                .andExpect(jsonPath("$[0].phone").value("010-****-0000"))
+                .andExpect(jsonPath("$[0].phone").value("053-000-0000"))
                 .andExpect(jsonPath("$[0].bizNoMatched").value(true))
                 .andExpect(jsonPath("$[0].phoneMatched").value(false))
-                .andExpect(jsonPath("$[0].linkedOwnerCount").value(1));
+                .andExpect(jsonPath("$[0].nameMatch").value("EXACT"))
+                .andExpect(jsonPath("$[0].linkedOwnerCount").value(1))
+                .andExpect(jsonPath("$[0].ntsState").value("ACTIVE"));
     }
 
     @Test
@@ -159,6 +165,72 @@ class OwnerAdminControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(ownerApprovalService, never()).approve(anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("거절하면 로그인한 관리자를 서비스에 넘기고, 거절된 신청을 돌려준다")
+    void rejects() throws Exception {
+        when(ownerApprovalService.reject(3L, ADMIN_ID)).thenReturn(sample(MemberStatus.REJECTED));
+
+        mockMvc.perform(post("/api/admin/owners/3/reject").with(adminLogin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        verify(ownerApprovalService).reject(3L, ADMIN_ID);
+    }
+
+    @Test
+    @DisplayName("이미 처리된 신청을 거절하면 409, 없는 점주는 404")
+    void mapsRejectErrors() throws Exception {
+        when(ownerApprovalService.reject(3L, ADMIN_ID)).thenThrow(new CustomException(ErrorCode.OWNER_ALREADY_REVIEWED));
+        when(ownerApprovalService.reject(99L, ADMIN_ID)).thenThrow(new CustomException(ErrorCode.MEMBER_NOT_FOUND));
+
+        mockMvc.perform(post("/api/admin/owners/3/reject").with(adminLogin()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value(ErrorCode.OWNER_ALREADY_REVIEWED.getType().toString()));
+        mockMvc.perform(post("/api/admin/owners/99/reject").with(adminLogin()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("연결과 끊기는 204 이고, 점주·가게·로그인한 관리자를 서비스에 넘긴다")
+    void linksAndUnlinks() throws Exception {
+        mockMvc.perform(post("/api/admin/owners/3/stores/10").with(adminLogin()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/admin/owners/3/stores/10").with(adminLogin()))
+                .andExpect(status().isNoContent());
+
+        verify(ownerApprovalService).linkStore(3L, 10L, ADMIN_ID);
+        verify(ownerApprovalService).unlinkStore(3L, 10L, ADMIN_ID);
+    }
+
+    @Test
+    @DisplayName("연결: 승인되지 않은 점주와 이미 연결된 가게는 409, 없는 가게는 404")
+    void mapsLinkErrors() throws Exception {
+        doThrow(new CustomException(ErrorCode.OWNER_NOT_APPROVED)).when(ownerApprovalService).linkStore(3L, 10L, ADMIN_ID);
+        doThrow(new CustomException(ErrorCode.STORE_ALREADY_LINKED)).when(ownerApprovalService).linkStore(3L, 11L, ADMIN_ID);
+        doThrow(new CustomException(ErrorCode.STORE_NOT_FOUND)).when(ownerApprovalService).linkStore(3L, 999L, ADMIN_ID);
+
+        mockMvc.perform(post("/api/admin/owners/3/stores/10").with(adminLogin()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value(ErrorCode.OWNER_NOT_APPROVED.getType().toString()));
+        mockMvc.perform(post("/api/admin/owners/3/stores/11").with(adminLogin()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value(ErrorCode.STORE_ALREADY_LINKED.getType().toString()));
+        mockMvc.perform(post("/api/admin/owners/3/stores/999").with(adminLogin()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value(ErrorCode.STORE_NOT_FOUND.getType().toString()));
+    }
+
+    @Test
+    @DisplayName("끊기: 연결돼 있지 않으면 404 store-link-not-found")
+    void mapsUnlinkErrors() throws Exception {
+        doThrow(new CustomException(ErrorCode.STORE_LINK_NOT_FOUND))
+                .when(ownerApprovalService).unlinkStore(3L, 10L, ADMIN_ID);
+
+        mockMvc.perform(delete("/api/admin/owners/3/stores/10").with(adminLogin()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value(ErrorCode.STORE_LINK_NOT_FOUND.getType().toString()));
     }
 
     @Test

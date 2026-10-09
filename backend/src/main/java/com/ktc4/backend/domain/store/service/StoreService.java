@@ -1,11 +1,14 @@
 package com.ktc4.backend.domain.store.service;
 
+import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
+import com.ktc4.backend.domain.store.enums.NtsLookupResult;
+import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
@@ -20,7 +23,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -37,7 +43,7 @@ public class StoreService {
     static final String NO_MATCH = "#";
 
     /** 정규화한 상호명이 이보다 짧으면 이름으로는 후보를 찾지 않는다. */
-    static final int MIN_NAME_LENGTH_FOR_SEARCH = 2;
+    public static final int MIN_NAME_LENGTH_FOR_SEARCH = 2;
 
     private final StoreRepository storeRepository;
 
@@ -128,8 +134,8 @@ public class StoreService {
     }
 
     /**
-     * 점주 가입 신청에 연결할 후보 가게를 찾는다. 사업자등록번호가 같은 가게, 전화번호가 같은 가게,
-     * 이름이 겹치는 가게 순서다.
+     * 점주 가입 신청에 연결할 후보 가게를 찾는다. 사업자등록번호가 같은 가게, 점주 휴대폰 번호가 같은 가게,
+     * 이름이 겹치는 가게 순서다. 휴대폰 번호는 가게 전화번호가 아니라 가게의 점주 개인 번호와 비교한다.
      *
      * <p>이름은 가게 이름과 같은 규칙으로 정규화해 비교한다. 정규화하고 남는 글자가
      * {@value #MIN_NAME_LENGTH_FOR_SEARCH}자보다 적으면 이름으로는 찾지 않는다 — 빈 값은 모든 가게와,
@@ -154,6 +160,29 @@ public class StoreService {
 
     private static String orNoMatch(String clue) {
         return clue == null || clue.isEmpty() ? NO_MATCH : clue;
+    }
+
+    /**
+     * 가게들의 국세청 상태를 읽는다 — 배치가 마지막으로 확인해 둔 값이다. 국세청을 새로 조회하지 않는다.
+     *
+     * <p>확인한 적이 없는 가게와, 사업자등록번호가 지워진(NO_BIZ_NO) 가게는 결과에 없다. 뒤의 경우 남아 있는
+     * 상태는 옛 번호 기준이라 다른 사업자의 것일 수 있다.
+     *
+     * @param storeIds 가게 ID 들
+     * @return 가게 ID 별 국세청 상태. 알 수 없는 가게는 빠져 있다
+     */
+    public Map<Long, BusinessState> findNtsStates(Collection<Long> storeIds) {
+        if (storeIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, BusinessState> states = new HashMap<>();
+        for (StoreWithNtsCheck row : storeRepository.findWithNtsCheckByStoreIdIn(storeIds)) {
+            StoreNtsCheck check = row.check();
+            if (check != null && check.getNtsState() != null && check.getCheckResult() != NtsLookupResult.NO_BIZ_NO) {
+                states.put(row.store().getStoreId(), check.getNtsState());
+            }
+        }
+        return states;
     }
 
     /**

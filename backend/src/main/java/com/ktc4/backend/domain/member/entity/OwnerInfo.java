@@ -39,9 +39,15 @@ public class OwnerInfo {
     @Column(name = "phone", length = 11)
     private String phone;
 
-    /** 관리자가 승인한 시각. 승인 전에는 비어 있다. */
+    /** 관리자가 승인하거나 거절한 시각. 처리 전에는 비어 있다. */
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
+
+    /**
+     * 가입을 거절한 관리자의 회원 ID. 거절이 아니면 비어 있다 — 승인한 관리자는 가게 연결({@link StoreOwner})에 남는다.
+     */
+    @Column(name = "rejected_by")
+    private Long rejectedBy;
 
     /**
      * @param bizNo              {@code BizNoNormalizer} 로 맞춘 사업자등록번호
@@ -58,5 +64,10 @@ public class OwnerInfo {
 
     void markReviewed(LocalDateTime reviewedAt) {
         this.reviewedAt = reviewedAt;
+    }
+
+    void markRejected(LocalDateTime rejectedAt, Long rejectedBy) {
+        this.reviewedAt = rejectedAt;
+        this.rejectedBy = rejectedBy;
     }
 }

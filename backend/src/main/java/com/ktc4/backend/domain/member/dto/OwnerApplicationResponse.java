@@ -20,7 +20,7 @@ public record OwnerApplicationResponse(
         String phone,
         @Schema(description = "계정 상태", example = "PENDING") MemberStatus status,
         @Schema(description = "신청 시각") LocalDateTime appliedAt,
-        @Schema(description = "승인 시각. 승인 전에는 비어 있음") LocalDateTime reviewedAt
+        @Schema(description = "승인하거나 거절한 시각. 처리 전에는 비어 있음") LocalDateTime reviewedAt
 ) {
     public static OwnerApplicationResponse from(Member member) {
         OwnerInfo info = member.getOwnerInfo();

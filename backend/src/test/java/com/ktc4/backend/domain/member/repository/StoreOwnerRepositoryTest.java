@@ -92,6 +92,55 @@ class StoreOwnerRepositoryTest extends PostgresContainerTest {
     }
 
     @Test
+    void 끊긴_연결은_연결이_없다고_답하고_다시_이으면_있다고_답한다() {
+        Store store = persistStore("예시분식");
+        Member owner = persistOwner("owner@example.com");
+        StoreOwner link = entityManager.persistAndFlush(StoreOwner.link(store, owner, admin, LINKED_AT));
+
+        link.unlink(admin, LINKED_AT.plusDays(1));
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(storeOwnerRepository.existsByStoreIdAndMemberId(store.getStoreId(), owner.getMemberId())).isFalse();
+
+        StoreOwner unlinked = storeOwnerRepository
+                .findByStoreIdAndMemberId(store.getStoreId(), owner.getMemberId()).orElseThrow();
+        // 끊긴 연결도 읽힌다 — 누가 언제 끊었는지 남아 있다
+        assertThat(unlinked.isActive()).isFalse();
+        assertThat(unlinked.getUnlinkedAt()).isEqualTo(LINKED_AT.plusDays(1));
+        assertThat(unlinked.getUnlinkedBy().getMemberId()).isEqualTo(admin.getMemberId());
+
+        unlinked.relink(admin, LINKED_AT.plusDays(2));
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(storeOwnerRepository.existsByStoreIdAndMemberId(store.getStoreId(), owner.getMemberId())).isTrue();
+        assertThat(storeOwnerRepository.count()).isEqualTo(1);   // 행은 하나 그대로다
+    }
+
+    @Test
+    void 연결된_적이_없는_짝은_연결을_읽어도_빈_값이다() {
+        Store store = persistStore("예시분식");
+        Member owner = persistOwner("owner@example.com");
+
+        assertThat(storeOwnerRepository.findByStoreIdAndMemberId(store.getStoreId(), owner.getMemberId())).isEmpty();
+    }
+
+    @Test
+    void 가게별_점주_수에_끊긴_연결은_세지_않는다() {
+        Store store = persistStore("예시분식");
+        Member stays = persistOwner("stays@example.com");
+        Member left = persistOwner("left@example.com");
+        link(store, stays);
+        StoreOwner leftLink = entityManager.persistAndFlush(StoreOwner.link(store, left, admin, LINKED_AT));
+        leftLink.unlink(admin, LINKED_AT.plusDays(1));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(storeOwnerRepository.countOwnersByStoreIds(List.of(store.getStoreId())))
+                .extracting(OwnerCount::getStoreId, OwnerCount::getOwnerCount)
+                .containsExactly(tuple(store.getStoreId(), 1L));
+    }
+
+    @Test
     void 한_가게에_점주_여럿을_한_점주에_가게_여럿을_연결할_수_있다() {
         Store storeA = persistStore("예시분식");
         Store storeB = persistStore("샘플카페");
