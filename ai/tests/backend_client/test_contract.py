@@ -277,3 +277,94 @@ def test_store_finding_칸이_백엔드에_있다() -> None:
         f"AI 가 보내는 StoreFinding 칸이 백엔드 Task 에 없습니다: {sorted(missing)}. "
         f"백엔드 Task 엔티티: {sorted(backend)}"
     )
+
+
+# `record Result(` 또는 `record SignalItem(` 처럼 **중첩 record** 의 구성요소를 읽는다.
+# `java_record_fields` 는 `public record` 하나만 보므로 여기서는 이름으로 찾는다.
+NESTED_RECORD = re.compile(r"\brecord\s+(\w+)\s*\(([^)]*)\)", re.DOTALL)
+# `Long storeId` · `Map<String, String> proposedChanges` · `String failure`
+RECORD_PARAM = re.compile(r"([\w.]+(?:<[^>]*>)?)\s+(\w+)\s*$")
+
+
+def java_nested_record(path: Path, name: str) -> dict[str, str]:
+    """중첩 record 하나의 `{구성요소 이름: 자바 타입}` 을 준다."""
+    text = path.read_text(encoding="utf-8")
+    for m in NESTED_RECORD.finditer(text):
+        if m.group(1) != name:
+            continue
+        out: dict[str, str] = {}
+        for part in m.group(2).split(","):
+            part = part.strip()
+            if (pm := RECORD_PARAM.match(part)) is not None:
+                out[pm.group(2)] = pm.group(1)
+        return out
+    return {}
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "PROMPT-125 — AI 는 failure 를 객체로, 백엔드는 String 으로 받는다. "
+        "어느 쪽으로 통일할지 AI·백엔드가 정하는 중이다. "
+        "양쪽을 맞춘 사람이 이 마커를 지워야 한다 (strict 라 맞으면 XPASS 로 실패한다)."
+    ),
+)
+def test_failure_모양이_양쪽에서_같다() -> None:
+    """`failure` 칸의 **모양**을 검사한다 — 이름만 맞는지가 아니라.
+
+    `test_store_finding_칸이_백엔드에_있다` 가 `failure` 를 비교에서 빼는 것은 맞다.
+    그 칸은 `Task` 가 아니라 `Job.errorMessage` 로 간다. 그런데 그래서 **어느 테스트도
+    이 칸의 모양을 보지 않았고**, AI 는 객체로 보내고 백엔드는 `String` 으로 받는 상태로
+    두 PR 이 각자 머지됐다(#71 · #73). Jackson 이 객체를 `String` 에 못 넣어
+    `RestClientException` → `AiContractError` 가 되고, **실패 이유가 사라진다.**
+
+    어느 쪽으로 통일할지는 팀이 정한다. 이 테스트는 **어느 쪽이든 양쪽이 같으면 통과**한다.
+
+    - AI 가 `Failure` 객체를 보낸다면 → 백엔드 `failure` 도 같은 칸을 가진 타입이어야 한다
+    - AI 가 문자열로 평평하게 바꾼다면 → 백엔드 `failure` 는 `String` 이어야 한다
+    """
+    java_file = JAVA_ROOT / "investigation/client/AiInvestigationResponse.java"
+    if not java_file.exists():
+        pytest.skip(f"백엔드 소스가 없습니다: {java_file}")
+
+    from src.investigation.models import StoreFinding
+
+    result = java_nested_record(java_file, "Result")
+    assert result, f"{java_file.name} 에서 `record Result(...)` 를 찾지 못했습니다"
+    assert "failure" in result, (
+        f"백엔드 `Result` 에 `failure` 칸이 없습니다. AI 는 실패 사유를 이 칸으로 보냅니다. "
+        f"백엔드 칸: {sorted(result)}"
+    )
+    java_type = result["failure"]
+
+    # AI 쪽이 객체를 보내는지 문자열을 보내는지는 **실제 직렬화 결과**로 판단한다.
+    # 애너테이션을 보면 `Failure | None` 의 Optional 을 벗기는 일이 끼어든다.
+    sample = StoreFinding(
+        storeId=1,
+        failure={"code": "RATE_LIMITED", "message": "한도 초과"},
+    )
+    sent_failure = json.loads(sample.model_dump_json(by_alias=True))["failure"]
+
+    if isinstance(sent_failure, str):
+        assert java_type == "String", (
+            f"AI 는 `failure` 를 문자열로 보내는데 백엔드는 `{java_type}` 로 받습니다."
+        )
+        return
+
+    assert java_type != "String", (
+        f"AI 는 `failure` 를 객체로 보내는데(칸: {sorted(sent_failure)}) "
+        f"백엔드는 `String` 으로 받습니다. Jackson 이 객체를 String 에 넣지 못해 "
+        f"AiContractError 가 되고 실패 이유가 사라집니다. "
+        f"어느 쪽으로 통일할지 정한 뒤 양쪽을 맞춰 주세요 — PROMPT-125."
+    )
+
+    backend_failure = java_nested_record(java_file, java_type)
+    assert backend_failure, (
+        f"백엔드 `failure` 타입이 `{java_type}` 인데 그 record 를 "
+        f"{java_file.name} 에서 찾지 못했습니다"
+    )
+    missing = set(sent_failure) - set(backend_failure)
+    assert not missing, (
+        f"AI 가 보내는 `failure` 칸이 백엔드 `{java_type}` 에 없습니다: {sorted(missing)}. "
+        f"백엔드 칸: {sorted(backend_failure)}"
+    )
