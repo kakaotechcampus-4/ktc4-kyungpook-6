@@ -18,7 +18,8 @@ public record JobCreateResponse(
         int targetCount,
 
         @Schema(description = "조사에서 뺀 가게와 이유. reason: STORE_NOT_FOUND(없는 가게) · DATA_PROBLEM(사업자번호 문제) · "
-                + "NO_NTS_CHECK(국세청과 비교할 수 없음) · ALREADY_CLOSED(우리도 국세청도 폐업)")
+                + "NO_NTS_CHECK(국세청과 비교할 수 없음) · ALREADY_CLOSED(우리도 국세청도 폐업) · "
+                + "ALREADY_SUSPENDED(우리도 국세청도 휴업)")
         List<ExcludedStore> excluded
 ) {
 

@@ -5,5 +5,8 @@ public enum InvestigationExclusionReason {
     STORE_NOT_FOUND, // 없는 가게 번호
     DATA_PROBLEM,    // 사업자등록번호가 없거나 국세청에 없는 번호 — 번호부터 찾거나 바로잡아야 한다
     NO_NTS_CHECK,    // 국세청과 비교할 수 없음 — 아직 대조하지 않았거나 우리 상태가 UNKNOWN
-    ALREADY_CLOSED   // 우리도 국세청도 폐업 — 바꿀 것도 찾아볼 것도 없다
+    ALREADY_CLOSED,  // 우리도 국세청도 폐업 — 바꿀 것도 찾아볼 것도 없다
+    // 우리도 국세청도 휴업 — 바꿀 것이 없고, 쉬는 가게는 웹에 새 글이 올라오지 않아 AI 가 찾아볼 것도 없다.
+    // 다시 열거나 폐업하면 국세청 상태가 바뀌어 1차 수정안으로 잡힌다
+    ALREADY_SUSPENDED
 }

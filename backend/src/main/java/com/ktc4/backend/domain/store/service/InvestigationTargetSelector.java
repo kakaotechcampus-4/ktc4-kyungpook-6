@@ -22,8 +22,9 @@ import java.util.stream.Collectors;
 /**
  * 담당자가 고른 가게를 1차 조사(국세청 대조) 결과로 나눈다.
  *
- * <p>국세청과 상태가 다른 가게는 국세청이 답을 이미 줬으므로 1차 수정안으로 끝내고, 상태가 같은 가게만
- * AI 조사로 넘긴다 — 국세청이 "정상"이라 해도 전화번호·주소 같은 변화는 알려 주지 못하기 때문이다.
+ * <p>국세청과 상태가 다른 가게는 국세청이 답을 이미 줬으므로 1차 수정안으로 끝내고, 상태가 같은 가게 중
+ * <b>영업 중인 가게만</b> AI 조사로 넘긴다 — 국세청이 "정상"이라 해도 전화번호·주소 같은 변화는 알려 주지 못하기 때문이다.
+ * 양쪽 모두 폐업이거나 휴업인 가게는 조사하지 않는다. 바꿀 것이 없고 웹에서 찾을 것도 없다.
  *
  * <p>판단은 {@link StoreCheckResponse} 가 계산한 값을 그대로 쓴다. 화면 목록의 {@code statusMismatch} /
  * {@code dataProblem} 과 여기서 나누는 기준이 어긋나지 않게 하기 위해서다.
@@ -81,6 +82,11 @@ public class InvestigationTargetSelector {
         }
         if (check.statusComparison() == StatusComparison.MATCH && check.internalStatus() == StoreStatus.CLOSED) {
             return Optional.of(InvestigationExclusionReason.ALREADY_CLOSED);
+        }
+        // 휴업도 폐업처럼 뺀다 — 쉬는 가게는 후기가 꾸준히 올라오지 않아 AI 가 웹에서 찾을 것이 없다(9주차 멘토 리뷰).
+        // 한쪽만 휴업인 가게는 상태가 다른 것이라 여기 오지 않고 1차 수정안으로 간다.
+        if (check.statusComparison() == StatusComparison.MATCH && check.internalStatus() == StoreStatus.SUSPENDED) {
+            return Optional.of(InvestigationExclusionReason.ALREADY_SUSPENDED);
         }
         return Optional.empty();
     }

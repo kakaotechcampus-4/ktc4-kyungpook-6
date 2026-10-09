@@ -85,18 +85,37 @@ class InvestigationTargetSelectorTest {
         return checks.stream().map(StoreCheckResponse::storeId).toList();
     }
 
-    @ParameterizedTest(name = "[{index}] 우리 {0} / 국세청 {1}")
-    @CsvSource({
-            "OPEN,      ACTIVE",
-            "SUSPENDED, SUSPENDED"
-    })
-    @DisplayName("국세청과 상태가 같으면 AI 조사 대상이다")
-    void matchGoesToAi(StoreStatus internal, BusinessState nts) {
-        InvestigationTargets targets = select(List.of(1L), checked(1L, internal, NtsLookupResult.CONFIRMED, nts));
+    @Test
+    @DisplayName("우리도 국세청도 영업 중이면 AI 조사 대상이다")
+    void openOnBothSidesGoesToAi() {
+        InvestigationTargets targets = select(List.of(1L),
+                checked(1L, StoreStatus.OPEN, NtsLookupResult.CONFIRMED, BusinessState.ACTIVE));
 
         assertThat(storeIds(targets.aiTargets())).containsExactly(1L);
         assertThat(targets.resolvedByNts()).isEmpty();
         assertThat(targets.excluded()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("우리도 국세청도 휴업이면 조사하지 않는다 — 쉬는 가게는 웹에서 찾을 것이 없다")
+    void suspendedOnBothSidesIsExcluded() {
+        InvestigationTargets targets = select(List.of(1L),
+                checked(1L, StoreStatus.SUSPENDED, NtsLookupResult.CONFIRMED, BusinessState.SUSPENDED));
+
+        assertThat(targets.excluded())
+                .containsExactly(new ExcludedStore(1L, InvestigationExclusionReason.ALREADY_SUSPENDED));
+        assertThat(targets.aiTargets()).isEmpty();
+        assertThat(targets.resolvedByNts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이번 국세청 조회가 실패했어도 마지막으로 확인한 상태가 휴업이면 휴업으로 보고 제외한다")
+    void suspendedByLastKnownStateIsExcluded() {
+        InvestigationTargets targets = select(List.of(1L),
+                checked(1L, StoreStatus.SUSPENDED, NtsLookupResult.UNCONFIRMED, BusinessState.SUSPENDED));
+
+        assertThat(targets.excluded())
+                .containsExactly(new ExcludedStore(1L, InvestigationExclusionReason.ALREADY_SUSPENDED));
     }
 
     @ParameterizedTest(name = "[{index}] 우리 {0} / 국세청 {1}")
@@ -253,7 +272,8 @@ class InvestigationTargetSelectorTest {
                 .allSatisfy(check -> assertThat(NtsProposedChanges.from(check.statusComparison())).isNotEmpty());
         assertThat(targets.aiTargets())
                 .allSatisfy(check -> assertThat(NtsProposedChanges.from(check.statusComparison())).isEmpty());
-        assertThat(targets.aiTargets())
-                .allSatisfy(check -> assertThat(check.internalStatus()).isNotEqualTo(StoreStatus.CLOSED));
+        // AI 조사 대상은 양쪽 모두 영업 중인 가게뿐이다 — 폐업·휴업은 빠진다
+        assertThat(targets.aiTargets()).isNotEmpty()
+                .allSatisfy(check -> assertThat(check.internalStatus()).isEqualTo(StoreStatus.OPEN));
     }
 }
