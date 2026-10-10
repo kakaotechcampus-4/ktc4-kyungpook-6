@@ -100,9 +100,12 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Run frontend lint
+      - name: Run frontend tests
         run: ./scripts/test.sh
         working-directory: frontend
+        env:
+          # Orval 이 API 코드를 만들 백엔드 Swagger JSON 주소(dev 백엔드). 생성 코드는 커밋하지 않는다.
+          BACKEND_SWAGGER_URL: ${{ secrets.BACKEND_SWAGGER_URL }}
 
   bot-test:
     needs: changes
