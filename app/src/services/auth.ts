@@ -16,7 +16,8 @@ export type LoginResponse = {
 };
 
 export const login = (payload: LoginRequest) => {
-  return postRequest<LoginResponse>("/api/auth/login", payload);
+  // 로그인의 401 은 "아이디·비밀번호가 틀림"이라 로그인 화면으로 다시 보내지 않는다.
+  return postRequest<LoginResponse>("/api/auth/login", payload, { skipAuthRedirect: true });
 };
 
 /** 백엔드 OwnerSignupRequest. bizNo·phone 은 하이픈이 있어도 서버가 숫자만 남겨 저장한다. */
