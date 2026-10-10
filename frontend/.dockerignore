@@ -5,3 +5,4 @@ dist
 Dockerfile
 README.md
 npm-debug.log*
+.openapi-spec.json

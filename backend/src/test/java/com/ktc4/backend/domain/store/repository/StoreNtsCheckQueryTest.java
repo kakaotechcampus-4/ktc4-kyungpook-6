@@ -74,6 +74,25 @@ class StoreNtsCheckQueryTest extends PostgresContainerTest {
     }
 
     @Test
+    void 고른_가게만_확인기록과_함께_읽는다() {
+        Store checked = persistStore("예시분식", StoreStatus.OPEN, "1111111111");
+        persistCheck(checked, NtsLookupResult.CONFIRMED, BusinessState.CLOSED);
+        Store notCheckedYet = persistStore("샘플카페", StoreStatus.OPEN, "2222222222");
+        Store notSelected = persistStore("예시국밥", StoreStatus.OPEN, "3333333333");
+        persistCheck(notSelected, NtsLookupResult.CONFIRMED, BusinessState.ACTIVE);
+        entityManager.clear();
+
+        // 없는 가게 번호가 섞여 있어도 있는 가게만 돌려준다. 고른 순서와 무관하게 storeId 오름차순이다
+        List<StoreWithNtsCheck> rows = storeRepository.findWithNtsCheckByStoreIdIn(
+                List.of(notCheckedYet.getStoreId(), checked.getStoreId(), 999_999L));
+
+        assertThat(rows).extracting(row -> row.store().getStoreId())
+                .containsExactly(checked.getStoreId(), notCheckedYet.getStoreId());
+        assertThat(rows.get(0).check().getNtsState()).isEqualTo(BusinessState.CLOSED);
+        assertThat(rows.get(1).check()).isNull();
+    }
+
+    @Test
     void 상태가_다른_가게만_고른다() {
         Store mismatch = persistStore("예시분식", StoreStatus.OPEN, "1111111111");
         persistCheck(mismatch, NtsLookupResult.CONFIRMED, BusinessState.CLOSED);

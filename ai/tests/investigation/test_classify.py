@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from src.backend_client.models import StoreStatus
-from src.investigation.classify import classify, comparison_key, domestic_phone, road_address_key
+from src.investigation.classify import classify, comparison_key, domestic_phone, name_relation, road_address_key
 from src.investigation.models import (
     ChangeField,
     InvestigationTarget,
@@ -142,7 +144,6 @@ class TestClassify:
 
         assert found.classification is TaskClassification.NO_CHANGE
         assert found.signals == []
-        assert found.evidences == []
 
     def test_잡힌_변화_하나가_Signal_한_행이고_출처_수를_담는다(self):
         found = run(
@@ -380,13 +381,16 @@ class TestClassify:
 
         assert dumped["classification"] == "PRIORITY_CHECK"
         assert dumped["proposedChanges"] == {"status": "CLOSED"}
-        assert set(dumped["signals"][0]) == {
-            "signalType", "field", "observed", "evidenceText", "evidenceUrl", "sourceCount",
-        }
+        # 백엔드 Signal 칸과 추가를 요청한 field 만 나간다. 출처 수는 칸이 없어 문구에 적힌다.
+        assert set(dumped["signals"][0]) == {"signalType", "confidence", "evidenceText", "evidenceUrl", "field"}
+        assert dumped["signals"][0]["field"] == "status"
+        assert dumped["signals"][0]["confidence"] is None
+        assert dumped["signals"][0]["evidenceText"].endswith("(출처 1곳)")
+        assert "mapCheck" not in dumped
 
 
 class TestMapCheck:
-    """카카오맵 확인은 분류를 바꾸지 않고 Signal 도 만들지 않는다 — 결과는 mapCheck 로 따로 나간다."""
+    """카카오맵 확인은 분류를 바꾸지 않고 Signal 도 만들지 않는다 — 결과는 mapCheck 에 따로 담긴다(응답에서는 빠진다)."""
 
     FOUND = PlaceCheck(status=PlaceStatus.FOUND, place_url="http://place.map.kakao.com/1")
 
@@ -445,3 +449,198 @@ class TestMapCheck:
         )
 
         assert "카카오맵" not in found.signals[0].evidence_text
+
+
+def dated(field: ChangeField, value: str, observed_at: str, *domains: str) -> Observation:
+    return Observation(
+        field=field,
+        value=value,
+        evidence="근거 문장",
+        observed_at=observed_at,
+        sources=tuple(Source(domain=d, url=f"https://{d}/post") for d in domains),
+    )
+
+
+class TestDates:
+    """웹 근거의 게시일 — 오래된 글이 최신 DB 값을 덮지 않게 한다(네이버 블로그 실험)."""
+
+    def test_출처_수가_같으면_최근_글의_값을_제안한다(self):
+        found = run(
+            dated(ChangeField.PHONE, "053-000-1111", "2019-07-20", "blog.naver.com"),
+            dated(ChangeField.PHONE, "053-000-2222", "2025-03-01", "blog.naver.com"),
+        )
+
+        assert found.proposed_changes == {"phone": "053-000-2222"}
+
+    def test_출처_수가_많은_값이_날짜보다_먼저다(self):
+        found = run(
+            dated(ChangeField.PHONE, "053-000-1111", "2023-01-01", "a.com", "b.com"),
+            dated(ChangeField.PHONE, "053-000-2222", "2025-03-01", "c.com"),
+        )
+
+        assert found.proposed_changes == {"phone": "053-000-1111"}
+
+    def test_확인일보다_이전_글은_판정에서_뺀다(self):
+        target = TARGET.model_copy(update={"last_checked_at": datetime(2025, 10, 5)})
+        found = classify(
+            target, ResearchResult([dated(ChangeField.PHONE, "053-000-1111", "2024-12-01", "blog.naver.com")])
+        )
+
+        assert found.classification is TaskClassification.NO_CHANGE
+
+    def test_확인일_뒤의_글과_날짜_모르는_글은_남긴다(self):
+        target = TARGET.model_copy(update={"last_checked_at": datetime(2025, 10, 5)})
+        found = classify(
+            target,
+            ResearchResult(
+                [
+                    dated(ChangeField.PHONE, "053-000-1111", "2026-01-02", "blog.naver.com"),
+                    dated(ChangeField.STATUS, "CLOSED", "", "tistory.com"),
+                ]
+            ),
+        )
+
+        assert found.proposed_changes == {"phone": "053-000-1111", "status": "CLOSED"}
+
+    def test_연도만_아는_글은_그해_끝으로_본다(self):
+        """확인일이 2025-10-05 면 "2025" 글은 그 뒤일 수도 있어 남긴다. "2024" 는 확실히 이전이다."""
+        target = TARGET.model_copy(update={"last_checked_at": datetime(2025, 10, 5)})
+
+        def proposed(observed_at: str) -> dict:
+            result = ResearchResult([dated(ChangeField.PHONE, "053-000-1111", observed_at, "a.com")])
+            return classify(target, result).proposed_changes
+
+        assert proposed("2025") == {"phone": "053-000-1111"}
+        assert proposed("2024") == {}
+
+    def test_확인일은_백엔드_필드명으로_받는다(self):
+        target = InvestigationTarget.model_validate(
+            {"storeId": 1, "name": "예시분식", "lastCheckedAt": "2026-09-01T10:00:00"}
+        )
+
+        assert target.last_checked_at == datetime(2026, 9, 1, 10, 0)
+
+    def test_최근_글이_DB_값을_확인하면_더_오래된_다른_값은_올리지_않는다(self):
+        found = run(
+            dated(ChangeField.PHONE, "053-111-2222", "2026-09-25", "blog.naver.com"),  # DB 값
+            dated(ChangeField.PHONE, "053-000-1111", "2024-12-23", "blog.naver.com"),
+        )
+
+        assert found.classification is TaskClassification.NO_CHANGE
+
+    def test_DB_값_확인보다_새로운_다른_값은_올린다(self):
+        found = run(
+            dated(ChangeField.PHONE, "053-111-2222", "2024-12-23", "blog.naver.com"),  # DB 값
+            dated(ChangeField.PHONE, "053-000-1111", "2026-09-25", "blog.naver.com"),
+        )
+
+        assert found.proposed_changes == {"phone": "053-000-1111"}
+
+    def test_연도만_아는_다른_값은_그해_끝으로_보고_비교한다(self):
+        """"2026" 글은 2026-03-01 확인보다 나중일 수도 있다 — 확실히 오래됐을 때만 뺀다."""
+        found = run(
+            dated(ChangeField.PHONE, "053-111-2222", "2026-03-01", "blog.naver.com"),  # DB 값
+            dated(ChangeField.PHONE, "053-000-1111", "2026", "tistory.com"),
+        )
+
+        assert found.proposed_changes == {"phone": "053-000-1111"}
+
+    def test_날짜_모르는_다른_값은_낡았다고_보지_않는다(self):
+        found = run(
+            dated(ChangeField.PHONE, "053-111-2222", "2026-09-25", "blog.naver.com"),
+            dated(ChangeField.PHONE, "053-000-1111", "", "tistory.com"),
+        )
+
+        assert found.proposed_changes == {"phone": "053-000-1111"}
+
+
+class TestTruncatedAddress:
+    """번지까지 없는 주소는 제안하지 않는다 — 검색 요약에서 잘린 주소다."""
+
+    JIBUN_TARGET = TARGET.model_copy(update={"address": "대구 수성구 범어동 48-1"})
+
+    @pytest.mark.parametrize("value", ["대구광역시 수성구 범어동 3층", "대구광역시 수성구 범어동", "수성구 범어동 2층 201호"])
+    def test_번지_없는_주소는_비교하지_않는다(self, value):
+        found = classify(self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, value, "a.com")]))
+
+        assert found.classification is TaskClassification.NO_CHANGE
+
+    @pytest.mark.parametrize("value", ["대구 수성구 동대구로80길 24 3층", "대구 수성구 수성동1가 819", "대구 수성구 만촌동 12-3"])
+    def test_도로명이나_번지가_있으면_비교한다(self, value):
+        found = classify(self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, value, "a.com")]))
+
+        assert found.proposed_changes == {"addressRoad": value}
+
+    @pytest.mark.parametrize("value", ["만촌동 12-3", "수성동1가 819"])
+    def test_시_구_없이_동과_번지만_있어도_비교한다(self, value):
+        """검색 요약은 구를 빼고 동·번지만 주는 일이 흔하다 — 놓치면 바뀐 주소가 "변화없음"으로 나간다."""
+        found = classify(self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, value, "a.com")]))
+
+        assert found.proposed_changes == {"addressRoad": value}
+
+    @pytest.mark.parametrize("value", ["노동 3시간", "운동 10분 거리", "가동 5개월"])
+    def test_동으로_끝나는_낱말은_지번_주소가_아니다(self, value):
+        found = classify(self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, value, "a.com")]))
+
+        assert found.classification is TaskClassification.NO_CHANGE
+
+    def test_시_도_표기만_다른_지번_주소는_같은_주소다(self):
+        found = classify(
+            self.JIBUN_TARGET, ResearchResult([obs(ChangeField.ADDRESS, "대구광역시 수성구 범어동 48-1", "a.com")])
+        )
+
+        assert found.classification is TaskClassification.NO_CHANGE and found.signals == []
+
+
+
+class TestNameRelation:
+    """상호 비교 — 불일치 벤치마크에서 나온 사례."""
+
+    @pytest.mark.parametrize(
+        ("db", "web"),
+        [
+            ("삼송빵집", "삼송빵집 본점"),
+            ("은정", "은정식당"),
+            ("크라운호프대구수성못점", "크라운 호프 수성못점"),  # 지점명 앞 지역어
+            ("스텔라떡볶이 대구신암신천점", "스텔라떡볶이 신암신천점"),
+        ],
+    )
+    def test_업종_지점_표기와_지역어_차이는_같은_상호다(self, db, web):
+        db_key, web_key = comparison_key(ChangeField.NAME, db), comparison_key(ChangeField.NAME, web)
+
+        assert name_relation(db_key, web_key) == "same"
+
+    def test_잘린_이름은_판단을_보류한다(self):
+        """"최과장" 은 "최과장회닾밥"(오타)도 "최과장회덮밥"(정상)도 확인해 주지 못한다."""
+        assert name_relation(comparison_key(ChangeField.NAME, "최과장회닾밥"), "최과장") == "partial"
+
+    def test_음식_이름의_지역어는_빼지_않는다(self):
+        assert comparison_key(ChangeField.NAME, "대구탕집") == "대구탕집"
+
+    @pytest.mark.parametrize("name", ["대구탕명가점", "대구왕갈비본점", "서울깍두기본점"])
+    def test_지역어로_시작하는_상호는_지역어를_빼지_않는다(self, name):
+        assert comparison_key(ChangeField.NAME, name) == name
+
+    def test_잘린_이름은_오타_DB_를_확인하지도_상호_변경을_내지도_않는다(self):
+        target = TARGET.model_copy(update={"name": "최과장회닾밥"})
+        found = classify(target, ResearchResult([obs(ChangeField.NAME, "최과장", "a.com", "b.com")]))
+
+        assert found.classification is TaskClassification.NO_CHANGE and found.signals == []
+
+    def test_잘린_이름이_있어도_다른_출처의_바른_이름은_올린다(self):
+        target = TARGET.model_copy(update={"name": "최과장회닾밥"})
+        found = classify(
+            target,
+            ResearchResult([obs(ChangeField.NAME, "최과장", "a.com"), obs(ChangeField.NAME, "최과장회덮밥", "b.com")]),
+        )
+
+        assert found.proposed_changes == {"name": "최과장회덮밥"}
+
+
+class TestCityInRoad:
+    def test_도로명_속_광역시를_되돌려_비교한다(self):
+        """모델이 "동대구로 590" 을 "동대구광역시로 590" 으로 적어 왔다(불일치 벤치마크)."""
+        assert road_address_key("대구광역시 동구 동대구광역시로 590 상가") == road_address_key("대구광역시 동구 동대구로 590")
+
+    def test_시_이름_뒤에_띄어_쓴_광역시는_그대로다(self):
+        assert road_address_key("대구광역시 중구 동성로 12") == "동성로12"

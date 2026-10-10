@@ -10,15 +10,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AuthRequestToStringTest {
 
     @Test
-    @DisplayName("가입 요청은 비밀번호·대표자 이름을 가리고 이메일은 일부만 보인다")
+    @DisplayName("가입 요청은 비밀번호·대표자 이름·휴대폰 번호를 가리고 이메일은 일부만 보인다")
     void signupRequestMasksPersonalData() {
         String text = new OwnerSignupRequest("owner@example.com", "secret-password", "1234567890",
-                "예시분식", "홍길동").toString();
+                "예시분식", "홍길동", "010-0000-0000").toString();
 
         assertThat(text).contains("o***@example.com")
                 .doesNotContain("owner@example.com")
                 .doesNotContain("secret-password")
-                .doesNotContain("홍길동");
+                .doesNotContain("홍길동")
+                .doesNotContain("010-0000-0000");
     }
 
     @Test
