@@ -18,6 +18,11 @@ function OwnerSignupLayout() {
         setInfo,
         takenEmail,
         markEmailTaken: (email) => setTakenEmail(email.toLowerCase()),
+        clear: () => {
+          setAccount(null);
+          setInfo(null);
+          setTakenEmail(null);
+        },
       }}
     >
       <Outlet />

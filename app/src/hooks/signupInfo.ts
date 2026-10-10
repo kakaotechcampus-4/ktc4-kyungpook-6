@@ -3,6 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useSignupDraft } from "./signupDraft";
 import { signupOwner } from "../services/auth";
+import type { OwnerSignupRequest } from "../services/auth";
+import { saveStatusToken } from "../services/statusToken";
 import { formatBizNo, formatPhone } from "../utils/format";
 import { toSignupError } from "../utils/signupError";
 import {
@@ -58,8 +60,13 @@ export const useSignupInfo = (): UseSignupInfoResult => {
     info?.bizRegistrationFile ?? null,
   );
 
+  // 가입 상태 확인용 토큰 저장까지 끝나야 성공으로 본다. 완료 화면이 이 토큰으로 승인 여부를 묻는다.
   const signupMutation = useMutation({
-    mutationFn: signupOwner,
+    mutationFn: async (payload: OwnerSignupRequest) => {
+      const response = await signupOwner(payload);
+      await saveStatusToken(response);
+      return response;
+    },
     onSuccess: () => navigate(COMPLETE_PATH, { replace: true }),
     onError: (error, payload) => {
       if (toSignupError(error).kind === "duplicate-email") {
