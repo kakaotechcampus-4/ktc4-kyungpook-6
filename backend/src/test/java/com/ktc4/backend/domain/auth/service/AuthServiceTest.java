@@ -4,6 +4,7 @@ import com.ktc4.backend.domain.auth.dto.LoginRequest;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
@@ -16,6 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -176,7 +179,34 @@ class AuthServiceTest {
     // ── 점주 가입 신청 ─────────────────────────────────────────────
 
     private static OwnerSignupRequest signup(String email, String password, String bizNo) {
-        return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ");
+        return signup(email, password, bizNo, "010-0000-0000");
+    }
+
+    private static OwnerSignupRequest signup(String email, String password, String bizNo, String phone) {
+        return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ", phone);
+    }
+
+    @ParameterizedTest(name = "[{index}] \"{0}\"")
+    @ValueSource(strings = {"010-0000-0000", "010 0000 0000", "01000000000", "+82 10-0000-0000", "０１０-0000-0000"})
+    @DisplayName("휴대폰 번호는 표기가 달라도 숫자만 남겨 같은 값으로 저장한다")
+    void normalizesPhone(String phone) {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890", phone));
+
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getOwnerInfo().getPhone()).isEqualTo("01000000000");
+    }
+
+    @ParameterizedTest(name = "[{index}] \"{0}\"")
+    @ValueSource(strings = {"053-000-0000", "010-0000", "012-0000-0000", "전화없음", "010-0000-0000-0"})
+    @DisplayName("휴대폰 번호 형식이 아니면 INVALID_PHONE 이고 저장하지 않는다 — 매장 전화, 자릿수 부족, 없는 앞자리")
+    void rejectsInvalidPhone(String phone) {
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890", phone))))
+                .isEqualTo(ErrorCode.INVALID_PHONE);
+        verify(memberRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -185,7 +215,7 @@ class AuthServiceTest {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        MemberResponse response = authService.signupOwner(signup(" Owner@Example.com ", PASSWORD, "123-45-67890"));
+        OwnerSignupResponse response = authService.signupOwner(signup(" Owner@Example.com ", PASSWORD, "123-45-67890"));
 
         ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).saveAndFlush(saved.capture());
@@ -199,6 +229,26 @@ class AuthServiceTest {
         assertThat(member.getOwnerInfo().getRepresentativeName()).isEqualTo("홍길동");
         assertThat(member.getOwnerInfo().getReviewedAt()).isNull();
         assertThat(response.status()).isEqualTo(MemberStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("가입 신청 응답의 토큰은 가입 상태 확인용이다 — 그 회원의 것이고, 점주 토큰이 아니다")
+    void signupIssuesSignupStatusToken() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            Member saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "memberId", 3L);   // DB 가 매겨 주는 번호를 흉내 낸다
+            return saved;
+        });
+
+        OwnerSignupResponse response = authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"));
+
+        assertThat(response.memberId()).isEqualTo(3L);
+        assertThat(response.tokenType()).isEqualTo("Bearer");
+        assertThat(response.statusTokenExpiresAt()).isEqualTo(NOW.plus(Duration.ofDays(7)));
+        assertThat(jwtProvider.parse(response.statusToken())).contains(AuthMember.signupStatus(3L));
+        assertThat(jwtProvider.parse(response.statusToken())).get()
+                .isNotEqualTo(new AuthMember(3L, MemberRole.OWNER));
     }
 
     @Test

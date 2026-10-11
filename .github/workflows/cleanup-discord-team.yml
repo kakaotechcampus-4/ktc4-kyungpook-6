@@ -1,0 +1,39 @@
+# 웹훅이 보낸 알림을 지운다 (수동 실행 전용).
+#
+# 시험 삼아 보낸 알림이 채널에 남았을 때 쓴다. 웹훅은 자기가 보낸 메시지를
+# Discord 권한 없이 지울 수 있어서, 채널 「메시지 관리」 권한이 없어도 된다.
+#
+# 메시지 ID: 디스코드 사용자 설정 → 고급 → 개발자 모드 켜기 →
+#            메시지 우클릭 → "메시지 ID 복사하기"
+#
+# ⚠️ 지운 메시지는 되돌릴 수 없다. 웹훅이 보낸 것만 지워지고, 사람 메시지는
+#    404 가 나고 그대로 넘어간다.
+name: Cleanup Discord (webhook messages)
+
+on:
+  workflow_dispatch:
+    inputs:
+      message_ids:
+        description: "지울 메시지 ID (공백으로 구분)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Delete messages
+        env:
+          DISCORD_WEBHOOK_TEAM: ${{ secrets.DISCORD_WEBHOOK_TEAM }}
+          # 보낼 때와 같은 스레드를 봐야 지울 메시지를 찾는다. 안 맞으면 404.
+          DISCORD_THREAD_ID: ${{ vars.DISCORD_THREAD_ID }}
+          MESSAGE_IDS: ${{ inputs.message_ids }}
+        # 🔒 입력은 외부 문자열이다. run: 안에 ${{ }} 로 펼치지 않고 env 로 넘긴다.
+        run: python3 .github/scripts/delete_discord_messages.py $MESSAGE_IDS

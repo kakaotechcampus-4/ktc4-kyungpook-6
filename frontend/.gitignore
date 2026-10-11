@@ -6,3 +6,7 @@ dist
 # Playwright
 playwright-report/
 test-results/
+
+# Orval 생성 결과 — npm run api:generate 로 만든다(배포 때는 scripts/deploy.sh 가 만든다)
+src/api/generated/
+.openapi-spec.json

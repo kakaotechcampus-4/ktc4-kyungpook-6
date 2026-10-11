@@ -13,12 +13,11 @@
 # 현재는 dev 에서만 쓰므로 여기 둡니다. prod 에도 필요해지면 두 환경에 같은 줄을 반복하지 않도록
 # base(docker-compose.yml)로 옮깁니다.
 #
-# ⚠️ AUTH_ENFORCE 기본값이 false 입니다. SecurityConfig 의 임시 스위치를 2026-10-14 에 제거할 때
-#    이 줄도 함께 지워야 합니다 — Java 기본값은 안전한 쪽(true)인데 여기서 덮고 있습니다.
+# AUTH_ENFORCE 기본값은 켜짐(true)입니다 — Java·application.yml 기본값과 같습니다.
 services:
   backend:
     environment:
-      AUTH_ENFORCE: ${AUTH_ENFORCE:-false}
+      AUTH_ENFORCE: ${AUTH_ENFORCE:-true}
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}

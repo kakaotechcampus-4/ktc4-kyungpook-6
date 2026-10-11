@@ -15,11 +15,12 @@ import java.time.LocalDateTime;
  *
  * <p>AI 가 이름·주소·좌표로 가게를 찾아볼 수 있도록 원본과 정규화 값을 함께 담는다.
  * 우리 상태와 국세청 상태가 다른지는 코드가 {@code statusComparison}(어떻게) / {@code statusMismatch}(다른가)
- * 로 계산해 두고, 그 불일치가 실제 폐업을 뜻하는지 같은 해석만 AI 에 맡긴다.
+ * 로 계산해 둔다.
  *
- * <p>대응이 다른 두 가지를 따로 담는다 — {@code statusMismatch} 는 가게가 정말 폐업했는지
- * AI 가 조사할 대상이고, {@code dataProblem} 은 사업자등록번호가 없거나 틀려서 번호부터
- * 찾거나 바로잡아야 하는 대상이다. 번호가 틀린 가게를 조사에 넘기면 엉뚱한 가게를 보게 된다.
+ * <p>대응이 다른 두 가지를 따로 담는다 — {@code statusMismatch} 는 국세청 상태로 바꾸자는
+ * 1차 수정안이 나오는 대상이고(AI 조사로는 넘기지 않는다), {@code dataProblem} 은 사업자등록번호가
+ * 없거나 틀려서 번호부터 찾거나 바로잡아야 하는 대상이다. 번호가 틀린 가게를 조사에 넘기면 엉뚱한 가게를 보게 된다.
+ * 조사할 때 가게를 어떻게 나누는지는 {@code InvestigationTargetSelector} 가 정한다.
  *
  * <p>{@code ntsStatus} / {@code ntsClosedAt} 은 마지막으로 확인된 국세청 값이라 이후 조회에 실패해도 남는다.
  * 비어 있는 이유는 {@code ntsLookup} 으로 구분하고, 그 값이 언제 기준인지는 {@code ntsCheckedAt}(마지막으로 국세청 확인에 성공한 시각)으로 알 수 있다.

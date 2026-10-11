@@ -24,13 +24,18 @@ spring:
 
 server:
   port: 8080
+  forward-headers-strategy: framework
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
 
 auth:
   # 권한 검사 스위치. false 면 로그인 없이 기존 API 를 통과시킨다(로그인 API 는 동작).
   # /api/admin/**, /api/children/**, /api/auth/me 는 false 여도 막힌다.
+  # 기본값은 켜짐(true)이다. 끄려면 서버 .env 에 AUTH_ENFORCE=false 를 명시한다.
   # ⚠️ 임시 설정 — 2026-10-14 까지 제거. 프론트 관리자 로그인 화면이 머지되고 AI 서버가 X-API-KEY 를 붙이면
-  #    true 로 바꾼 뒤 이 설정과 SecurityConfig 의 enforce 분기를 지운다.
-  enforce: ${AUTH_ENFORCE:false}
+  #    서버 .env 의 AUTH_ENFORCE=false 를 지운 뒤, 이 설정과 SecurityConfig 의 enforce 분기를 지운다.
+  enforce: ${AUTH_ENFORCE:true}
   jwt:
     # 시크릿 기본값은 두지 않음(public repo). 비워 두면 기동할 때마다 임의 키를 만들어 앱은 뜨지만,
     # 재시작하면 발급한 토큰이 모두 무효가 된다 — 배포 환경에는 32바이트 이상 값을 반드시 주입한다.
@@ -58,3 +63,13 @@ external:
   nts:
     base-url: https://api.odcloud.kr/api/nts-businessman/v1/status
     service-key: ${NTS_SERVICE_KEY:}
+
+ai:
+  # AI 조사 서버(FastAPI). 로컬은 uvicorn 기본 포트, 배포는 환경변수로 덮어쓴다.
+  base-url: ${AI_BASE_URL:http://localhost:8000}
+  connect-timeout-ms: 3000
+  # AI 는 가게 한 곳에 최대 60초를 쓰고, 그 안에 못 끝내면 200 + failure 로 답한다(멘토 Q4).
+  # 그보다 넉넉히 기다려 "AI 가 아예 답하지 않음"(AiReadTimeout)만 여기에 걸리게 한다.
+  read-timeout-ms: ${AI_READ_TIMEOUT_MS:75000}
+  # AI 일시 오류(5xx·연결 실패)를 다시 시도하기 전 기다리는 시간. 두 번째 시도 전 한 번만 기다린다.
+  retry-backoff-ms: 2000

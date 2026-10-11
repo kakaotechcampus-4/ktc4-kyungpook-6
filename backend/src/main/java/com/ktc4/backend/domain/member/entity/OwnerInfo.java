@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  *
  * <p>가입할 때 받은 사업자 정보는 관리자가 승인 여부를 판단하는 자료다. 사업자등록번호는 다음 단계의
  * 가게 연결에 그대로 쓰도록 {@code BizNoNormalizer} 로 맞춘 10자리로 저장한다.
- * 대표자 이름은 개인정보라 관리자 조회에서만 내려주고 로그에는 남기지 않는다.
+ * 대표자 이름과 휴대폰 번호는 개인정보라 관리자 조회에서만 내려주고 로그에는 남기지 않는다.
  */
 @Embeddable
 @Getter
@@ -32,22 +32,42 @@ public class OwnerInfo {
     @Column(name = "representative_name", length = 50)
     private String representativeName;
 
-    /** 관리자가 승인한 시각. 승인 전에는 비어 있다. */
+    /**
+     * 점주 휴대폰 번호 — 숫자만 남긴 값. 가게를 등록할 때 적은 번호와 같으면 후보 가게를 찾는 단서가 된다.
+     * 이 칸이 생기기 전에 가입한 점주는 비어 있다.
+     */
+    @Column(name = "phone", length = 11)
+    private String phone;
+
+    /** 관리자가 승인하거나 거절한 시각. 처리 전에는 비어 있다. */
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
+
+    /**
+     * 가입을 거절한 관리자의 회원 ID. 거절이 아니면 비어 있다 — 승인한 관리자는 가게 연결({@link StoreOwner})에 남는다.
+     */
+    @Column(name = "rejected_by")
+    private Long rejectedBy;
 
     /**
      * @param bizNo              {@code BizNoNormalizer} 로 맞춘 사업자등록번호
      * @param storeName          상호명
      * @param representativeName 대표자 이름
+     * @param phone              {@code PhoneNormalizer} 로 맞춘 휴대폰 번호
      */
-    public OwnerInfo(String bizNo, String storeName, String representativeName) {
+    public OwnerInfo(String bizNo, String storeName, String representativeName, String phone) {
         this.bizNo = bizNo;
         this.storeName = storeName;
         this.representativeName = representativeName;
+        this.phone = phone;
     }
 
     void markReviewed(LocalDateTime reviewedAt) {
         this.reviewedAt = reviewedAt;
+    }
+
+    void markRejected(LocalDateTime rejectedAt, Long rejectedBy) {
+        this.reviewedAt = rejectedAt;
+        this.rejectedBy = rejectedBy;
     }
 }

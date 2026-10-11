@@ -17,7 +17,12 @@ def client():
 
 def test_health_does_not_touch_backend(client):
     # 백엔드를 아예 주입하지 않은 상태에서도 200이어야 한다.
-    assert client.get("/health").json() == {"status": "ok"}
+    body = client.get("/health").json()
+
+    assert body["status"] == "ok"
+    # investigator 칸은 꽂힌 조사기 이름이다(값은 환경에 따라 다르다).
+    # 칸 전체를 == 로 비교하면 칸이 늘 때마다 깨진다.
+    assert "investigator" in body
 
 
 def test_backend_health_reports_unreachable(client):

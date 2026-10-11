@@ -70,3 +70,6 @@ target/
 *.sqlite3
 *.db
 .terraform/
+
+# 디스코드 멘션 매핑 — 실제 값은 시크릿 DISCORD_MEMBERS 에 있다 (example 만 커밋)
+.github/discord-members.json

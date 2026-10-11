@@ -132,9 +132,12 @@ class Observation:
     field: ChangeField
     value: str
     evidence: str
-    observed_at: str = ""  # YYYY-MM-DD. 모르면 빈 문자열
+    observed_at: str = ""  # YYYY-MM-DD · YYYY-MM · YYYY(`normalize_date`). 모르면 빈 문자열
     #: 이 근거 문장을 뒷받침하는 검색 결과. 비어 있으면 출처를 확인하지 못한 관측이다.
     sources: tuple[Source, ...] = ()
+    #: 값을 수정안·근거 문구에 담아도 되는가. 카카오 로컬 값은 저장할 수 없다(실시간 비교 후 폐기만 허용) —
+    #: 판정에는 쓰되, 수정안에는 값 대신 "지도 등록 정보와 다름 + 링크"만 남긴다.
+    storable: bool = True
 
     @property
     def domains(self) -> frozenset[str]:
@@ -144,6 +147,9 @@ class Observation:
 @dataclass(frozen=True)
 class ResearchResult:
     observations: list[Observation] = field(default_factory=list)
+    #: 모델이 실제로 쓴 검색어(`web_search_queries`). 판정에는 쓰지 않고, 검색이 흔들린 것인지
+    #: 추출이 흔들린 것인지 가리는 데 쓴다(`docs/2차_조사.md`).
+    queries: tuple[str, ...] = ()
 
 
 class ResearchParseError(Exception):
@@ -178,6 +184,27 @@ def _squash_nothing(value: str) -> bool:
     return value.strip(" .-()") in ("", NOTHING_FOUND, "정보 없음", "정보없음", "모름", "N/A")
 
 
+#: 근거의 게시일. "2025-07-22", "2025.7.22", "2025년 7월", "2025" 를 받는다.
+_DATE = re.compile(r"(?<!\d)(20\d{2})(?:\s*[-./년]\s*(\d{1,2}))?(?:\s*[-./월]\s*(\d{1,2}))?")
+
+
+def normalize_date(text: str) -> str:
+    """모델이 적은 날짜를 "YYYY-MM-DD" · "YYYY-MM" · "YYYY" 로 고친다. 날짜가 아니면 빈 문자열.
+
+    모델은 날짜 칸에 "맛집검색" 같은 엉뚱한 말을 적기도 한다(실측) — 그대로 두면 날짜 비교에서
+    어떤 날짜보다도 "나중"으로 정렬된다.
+    """
+    match = _DATE.search(text)
+    if not match:
+        return ""
+    parts = [match[1]]
+    for piece, limit in ((match[2], 12), (match[3], 31)):
+        if piece is None or not 1 <= int(piece) <= limit:
+            break
+        parts.append(f"{int(piece):02}")
+    return "-".join(parts)
+
+
 def _parse_line(line: str) -> Observation | None:
     """한 줄을 관측으로 읽는다. 약속을 어긴 줄(모르는 항목, 빈 근거, 엉뚱한 상태 값)은 None."""
     parts = [part.strip() for part in _LIST_MARKER.sub("", line).split("|")]
@@ -198,7 +225,7 @@ def _parse_line(line: str) -> Observation | None:
         field=change_field,
         value=value,
         evidence=evidence,
-        observed_at=parts[3] if len(parts) > 3 else "",
+        observed_at=normalize_date(parts[3]) if len(parts) > 3 else "",
     )
 
 
@@ -249,6 +276,13 @@ def _says_nothing_found(line: str) -> bool:
         return True
     parts = [part.strip() for part in _LIST_MARKER.sub("", line).split("|")]
     return len(parts) >= 2 and parts[0].lower() in _FIELDS and parts[1] == NOTHING_FOUND
+
+
+def search_queries_of(response: object) -> tuple[str, ...]:
+    """SDK 응답에서 모델이 쓴 검색어를 꺼낸다. 없으면 빈 튜플."""
+    candidates = getattr(response, "candidates", None) or []
+    metadata = getattr(candidates[0], "grounding_metadata", None) if candidates else None
+    return tuple(getattr(metadata, "web_search_queries", None) or ())
 
 
 def grounding_of(response: object) -> tuple[list[Source], list[Support]]:
@@ -306,6 +340,11 @@ class VertexResearchProvider:
         self._client = client if client is not None else self._build_client()
         self._http = http if http is not None else httpx.Client(timeout=REDIRECT_TIMEOUT_SECONDS)
 
+    @property
+    def client(self) -> object:
+        """Vertex 클라이언트 — 에이전트가 판단 모델로 같은 Gemini 를 쓸 때 나눠 쓴다."""
+        return self._client
+
     @staticmethod
     def _build_client() -> object:
         from google import genai
@@ -317,12 +356,17 @@ class VertexResearchProvider:
         )
 
     def research(self, target: InvestigationTarget) -> ResearchResult:
+        return self.research_with_prompt(build_research_prompt(target))
+
+    def research_with_prompt(self, prompt: str) -> ResearchResult:
+        """프롬프트를 바꿔 같은 방식(그라운딩 검색 → 줄 파싱 → 출처 잇기)으로 관측을 모은다.
+        에이전트의 목적을 좁힌 웹검색(`agent.py`)이 쓴다."""
         from google.genai import types
 
         try:
             response = self._client.models.generate_content(
                 model=self._model,
-                contents=build_research_prompt(target),
+                contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[{"google_search": {}}],
                     http_options=types.HttpOptions(timeout=int(LLM_TIMEOUT_SECONDS * 1000)),
@@ -334,7 +378,7 @@ class VertexResearchProvider:
         observations = parse_observations(response.text or "", chunks, supports)
         if observations and not chunks:
             raise ResearchUngrounded(f"관측 {len(observations)}건에 그라운딩 검색 결과가 없습니다")
-        return ResearchResult(observations=self._with_real_urls(observations))
+        return ResearchResult(observations=self._with_real_urls(observations), queries=search_queries_of(response))
 
     def _with_real_urls(self, observations: list[Observation]) -> list[Observation]:
         """출처로 쓰인 리다이렉트 주소만 원래 URL 로 바꾼다. 같은 주소는 한 번만 푼다."""

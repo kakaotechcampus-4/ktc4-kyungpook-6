@@ -23,10 +23,10 @@ import java.time.LocalDateTime;
  *
  * <p>실제 조사 대상 하나하나는 {@code Task} 로 나뉘고, Job 은 그 Task 들을 묶는 배치 실행 기록이다.
  *
- * <p>상태 전이(예: PENDING → IN_PROGRESS → DONE)와 진행률 갱신 메서드는 아직 넣지 않았다 —
- * 그 로직을 실제로 어떤 흐름(배치? 이벤트?)으로 실행할지가 아직 정해지지 않아서, 지금 미리 만들면
- * 스펙 없는 API를 추측해서 만드는 셈이 된다. 조사 실행 로직을 만드는 티켓에서 이 엔티티에
- * 상태 전이 메서드를 추가하면 된다.
+ * <p>상태는 {@code PENDING → IN_PROGRESS → DONE} 으로 가고, 중간에 멈추면 {@code FAILED} 다. 전이는
+ * {@code InvestigationRunner} 가 {@code JobService} 를 거쳐서만 하고, 순서가 어긋난 호출은
+ * {@link IllegalStateException} 으로 막는다 — 실행기와 서버 재시작 정리가 같은 Job 을 건드릴 수 있어서다.
+ * 재시작 정리는 엔티티 메서드가 아니라 벌크 쿼리({@code JobRepository.failUnfinishedCreatedBefore})로 한다.
  */
 @Entity
 @Table(
@@ -78,5 +78,73 @@ public class Job extends BaseTimeEntity {
         this.completedCount = completedCount;
         this.finishedAt = finishedAt;
         this.errorMessage = errorMessage;
+    }
+
+    /**
+     * 조사를 시작한다. 대기 중인 Job 만 시작할 수 있다.
+     *
+     * @throws IllegalStateException 대기 중이 아닐 때 — 같은 Job 을 두 번 돌리려 했다는 뜻이다
+     */
+    public void start() {
+        requireStatus(JobStatus.PENDING);
+        this.status = JobStatus.IN_PROGRESS;
+    }
+
+    /**
+     * 가게 한 곳의 조사가 끝났음을 센다. 성공·실패 모두 한 건이다.
+     *
+     * @throws IllegalStateException 진행 중이 아니거나, 이미 대상 수만큼 셌을 때(같은 가게를 두 번 셌다는 뜻)
+     */
+    public void recordProgress() {
+        requireStatus(JobStatus.IN_PROGRESS);
+        if (completedCount >= targetCount) {
+            throw new IllegalStateException(
+                    "완료 수가 대상 수를 넘을 수 없습니다 - jobId=" + jobId + ", targetCount=" + targetCount);
+        }
+        this.completedCount++;
+    }
+
+    /**
+     * 조사를 완료로 끝낸다.
+     *
+     * <p>시각은 호출자가 넘긴다 — 엔티티가 직접 {@code LocalDateTime.now()} 를 부르면 테스트에서 시각을 통제할 수 없다.
+     *
+     * @param finishedAt 끝난 시각
+     * @throws IllegalStateException 진행 중이 아닐 때
+     */
+    public void finish(LocalDateTime finishedAt) {
+        requireStatus(JobStatus.IN_PROGRESS);
+        this.status = JobStatus.DONE;
+        this.finishedAt = finishedAt;
+    }
+
+    /**
+     * 조사를 실패로 끝낸다. 그때까지 끝난 가게 수({@code completedCount})와 저장된 결과는 그대로 남는다.
+     *
+     * <p>{@code DONE} 은 "끝났다"는 뜻이라, 담당자가 다시 돌려야 하는 중단은 {@code FAILED} 로 드러낸다.
+     *
+     * @param errorMessage 화면에 보여 줄 실패 이유 — 예외 메시지 원문이 아니라 정해 둔 문구
+     * @param failedAt     끝난 시각
+     * @throws IllegalStateException 이미 끝난 Job 일 때 — 늦게 온 실패가 완료 결과를 덮어쓰지 않게 한다
+     */
+    public void fail(String errorMessage, LocalDateTime failedAt) {
+        if (isFinished()) {
+            throw new IllegalStateException("이미 끝난 Job 입니다 - jobId=" + jobId + ", status=" + status);
+        }
+        this.status = JobStatus.FAILED;
+        this.errorMessage = errorMessage;
+        this.finishedAt = failedAt;
+    }
+
+    /** 완료나 실패로 끝났는가. */
+    public boolean isFinished() {
+        return status == JobStatus.DONE || status == JobStatus.FAILED;
+    }
+
+    private void requireStatus(JobStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException(
+                    "Job 상태가 " + expected + " 가 아닙니다 - jobId=" + jobId + ", status=" + status);
+        }
     }
 }

@@ -1,5 +1,7 @@
 package com.ktc4.backend.domain.signal.entity;
 
+import com.ktc4.backend.domain.signal.enums.ChangeField;
+import com.ktc4.backend.domain.signal.enums.SignalSource;
 import com.ktc4.backend.domain.signal.enums.SignalType;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.global.entity.BaseTimeEntity;
@@ -49,13 +51,27 @@ public class Signal extends BaseTimeEntity {
     @Column(name = "signal_type", nullable = false, length = 50)
     private SignalType signalType;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false, length = 30)
+    private SignalSource source;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "field", nullable = false, length = 30)
+    private ChangeField field;
+
     /**
-     * 신뢰도 (0.0 ~ 1.0). {@code Double}(래퍼 타입)인 이유: {@code double}(primitive)이면 빌더 호출 시
-     * 값을 빠뜨려도 컴파일·실행이 다 되고 기본값 0.0이 조용히 들어가 버린다("신뢰도 0.0"은 실수인지
-     * 진짜 값인지 구분이 안 되는 값이라 특히 위험함). {@code Double}로 두면 값이 빠졌을 때 DB의
-     * {@code nullable = false} 제약에서 저장 시점에 확실히 걸러진다.
+     * 이 출처가 본 새 값. 상태면 {@code StoreStatus} 이름(예: {@code CLOSED}), 그 밖은 원문.
+     * {@code Task.proposedChanges} 는 항목마다 최종 제안 하나만 담아서, 출처끼리 값이 다를 때
+     * 각 출처가 무엇을 봤는지는 여기에만 남는다. 길이는 가장 긴 항목인 {@code Store.addressRoad}(500)에 맞춘다.
      */
-    @Column(name = "confidence", nullable = false)
+    @Column(name = "observed", length = 500)
+    private String observed;
+
+    /**
+     * 신뢰도 (0.0 ~ 1.0). 없을 수 있다 — AI 는 모델이 매긴 확신도를 판단 근거로 쓰지 않기로 해서 보내지 않는다.
+     * 값이 있을 때만 범위를 검사한다.
+     */
+    @Column(name = "confidence")
     private Double confidence;
 
     @Column(name = "evidence_text", columnDefinition = "TEXT")
@@ -65,12 +81,16 @@ public class Signal extends BaseTimeEntity {
     private String evidenceUrl;
 
     @Builder
-    private Signal(Task task, SignalType signalType, Double confidence, String evidenceText, String evidenceUrl) {
+    private Signal(Task task, SignalType signalType, SignalSource source, ChangeField field,
+                   String observed, Double confidence, String evidenceText, String evidenceUrl) {
         if (confidence != null && (confidence < 0.0 || confidence > 1.0)) {
             throw new CustomException(ErrorCode.INVALID_REQUEST);
         }
         this.task = task;
         this.signalType = signalType;
+        this.source = source;
+        this.field = field;
+        this.observed = observed;
         this.confidence = confidence;
         this.evidenceText = evidenceText;
         this.evidenceUrl = evidenceUrl;

@@ -1,10 +1,13 @@
 package com.ktc4.backend.domain.member.controller;
 
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
+import com.ktc4.backend.domain.member.dto.OwnerApproveRequest;
+import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.service.OwnerApprovalService;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.ApiProblemDetail;
+import com.ktc4.backend.global.security.AuthMember;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -12,17 +15,25 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "점주 가입 관리(관리자)", description = "관리자가 점주 가입 신청을 확인·승인하는 API")
+import java.util.List;
+
+@Tag(name = "점주 가입 관리(관리자)", description = "관리자가 점주 가입 신청을 확인·승인·거절하고 가게 연결을 관리하는 API")
 @RestController
 @RequestMapping("/api/admin/owners")
 @RequiredArgsConstructor
@@ -52,11 +63,46 @@ public class OwnerAdminController {
         return ownerApprovalService.getApplications(status, page, limit);
     }
 
+    @Operation(summary = "후보 가게 조회",
+            description = """
+                    가입 신청한 점주에게 연결할 후보 가게를 찾습니다. 관리자가 이 중 하나를 골라 승인 API 에 넘깁니다.
+
+                    - 신청서의 사업자등록번호가 같은 가게(`bizNoMatched: true`), 휴대폰 번호가 가게에 등록된 점주 휴대폰 번호와
+                      같은 가게(`phoneMatched: true`), 상호명이 겹치는 가게 순서로 옵니다. 최대 20곳입니다. 번호는 하이픈·공백을 빼고 비교합니다.
+                    - `nameMatch` 는 상호명이 가게명과 같은지(EXACT), 가게명에 들어 있는지(PARTIAL), 겹치지 않는지(NONE)입니다.
+                    - `ntsState` 는 국세청 기준 그 가게 사업자의 상태입니다(배치가 마지막으로 확인한 값, 없으면 null).
+                      `bizNoMatched` 가 true 인 후보라면 신청서 번호의 상태와 같습니다.
+                    - `phone` 은 가게 전화번호(매장 번호)입니다. 신청서에 적힌 번호는 신청자가 직접 적은 값이므로,
+                      전화로 확인할 때는 이 번호로 거는 것을 권합니다.
+                    - `linkedOwnerCount` 가 1 이상이면 이미 점주가 연결된 가게입니다. 재가입·공동 대표·양수인지, 사칭인지 확인해 주세요.
+                    - 후보가 없으면 빈 배열입니다. 가게 목록에서 직접 찾은 가게 ID 로도 승인할 수 있습니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "조회 성공 (후보가 없으면 빈 배열)"),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없는 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @GetMapping("/{memberId}/store-candidates")
+    public List<StoreCandidateResponse> getStoreCandidates(
+            @Parameter(description = "가입 신청한 회원 ID", example = "3") @PathVariable Long memberId) {
+        return ownerApprovalService.getStoreCandidates(memberId);
+    }
+
     @Operation(summary = "점주 가입 승인",
-            description = "승인 대기 중인 점주를 승인합니다. 승인된 점주는 바로 로그인할 수 있습니다. 관리자만 부를 수 있습니다.")
+            description = """
+                    승인 대기 중인 점주를 승인하고, 고른 가게에 연결합니다. 승인된 점주는 바로 로그인해 그 가게에 체크인할 수 있습니다.
+                    관리자만 부를 수 있습니다.
+
+                    - `storeId` 는 필수입니다. 가게 없이는 승인할 수 없습니다.
+                    - 승인과 가게 연결은 함께 처리됩니다. 가게가 없으면 신청은 승인 대기 그대로 남습니다.
+                    """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "승인 성공"),
-            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없는 경우",
+            @ApiResponse(responseCode = "400", description = "storeId 가 없거나 본문이 비어 있는 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없거나(member-not-found), 가게가 없는 경우(store-not-found)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "이미 승인·거절된 신청인 경우",
@@ -65,7 +111,83 @@ public class OwnerAdminController {
     })
     @PostMapping("/{memberId}/approve")
     public OwnerApplicationResponse approve(
-            @Parameter(description = "승인할 회원 ID", example = "3") @PathVariable Long memberId) {
-        return ownerApprovalService.approve(memberId);
+            @Parameter(description = "승인할 회원 ID", example = "3") @PathVariable Long memberId,
+            @Valid @RequestBody OwnerApproveRequest request,
+            @AuthenticationPrincipal AuthMember admin) {
+        return ownerApprovalService.approve(memberId, request.storeId(), admin.memberId());
+    }
+
+    @Operation(summary = "점주 가입 거절",
+            description = """
+                    승인 대기 중인 점주의 가입을 거절합니다. 거절된 계정은 로그인할 수 없습니다(로그인하면 403 `owner-rejected`).
+                    관리자만 부를 수 있습니다.
+
+                    - 거절을 되돌리는 API 는 아직 없습니다. 같은 이메일로는 다시 가입할 수 없습니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "거절 성공 — 상태는 REJECTED"),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없는 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "이미 승인·거절된 신청인 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @PostMapping("/{memberId}/reject")
+    public OwnerApplicationResponse reject(
+            @Parameter(description = "거절할 회원 ID", example = "3") @PathVariable Long memberId,
+            @AuthenticationPrincipal AuthMember admin) {
+        return ownerApprovalService.reject(memberId, admin.memberId());
+    }
+
+    @Operation(summary = "점주를 가게에 연결",
+            description = """
+                    이미 승인된 점주를 가게에 연결합니다. 가게를 잘못 골라 승인했거나 실수로 연결을 끊었을 때 바로잡는 데 씁니다.
+                    관리자만 부를 수 있습니다.
+
+                    - 승인 대기 중인 점주는 이 API 가 아니라 승인 API 로 연결합니다.
+                    - 끊긴 적이 있는 가게면 그 연결을 되살립니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "연결 성공"),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없거나(member-not-found), 가게가 없는 경우(store-not-found)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "409",
+                    description = "승인된 점주가 아니거나(owner-not-approved), 이미 연결된 가게인 경우(store-already-linked)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @PostMapping("/{memberId}/stores/{storeId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void linkStore(
+            @Parameter(description = "점주의 회원 ID", example = "3") @PathVariable Long memberId,
+            @Parameter(description = "연결할 가게 ID", example = "123") @PathVariable Long storeId,
+            @AuthenticationPrincipal AuthMember admin) {
+        ownerApprovalService.linkStore(memberId, storeId, admin.memberId());
+    }
+
+    @Operation(summary = "점주와 가게의 연결 끊기",
+            description = """
+                    점주와 가게의 연결을 끊습니다. 끊는 즉시 그 점주는 그 가게에 체크인할 수 없습니다. 관리자만 부를 수 있습니다.
+
+                    - 가게를 넘겨준 옛 점주, 잘못 승인한 경우에 씁니다.
+                    - 계정은 승인 상태 그대로입니다. 로그인은 되지만 연결된 가게가 없으면 체크인할 곳이 없습니다.
+                    - 누가 언제 끊었는지 기록이 남습니다. 연결 API 로 다시 이을 수 있습니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "끊기 성공"),
+            @ApiResponse(responseCode = "404",
+                    description = "해당 ID 의 점주가 없거나(member-not-found), 그 가게에 연결돼 있지 않은 경우(store-link-not-found, 이미 끊긴 경우 포함)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @DeleteMapping("/{memberId}/stores/{storeId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unlinkStore(
+            @Parameter(description = "점주의 회원 ID", example = "3") @PathVariable Long memberId,
+            @Parameter(description = "끊을 가게 ID", example = "123") @PathVariable Long storeId,
+            @AuthenticationPrincipal AuthMember admin) {
+        ownerApprovalService.unlinkStore(memberId, storeId, admin.memberId());
     }
 }

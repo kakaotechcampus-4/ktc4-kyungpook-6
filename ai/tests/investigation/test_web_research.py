@@ -25,6 +25,7 @@ from src.investigation.web_research import (
     Support,
     VertexResearchProvider,
     build_research_prompt,
+    normalize_date,
     grounding_of,
     parse_observations,
     resolve_redirect,
@@ -255,6 +256,18 @@ def _redirects(mapping: dict[str, str]) -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
+class TestSearchQueries:
+    def test_모델이_쓴_검색어를_남긴다(self):
+        """판정에는 쓰지 않는다 — 검색이 흔들린 것인지 추출이 흔들린 것인지 가리는 데 쓴다."""
+        response = _grounded_response("없음", [])
+        response.candidates[0].grounding_metadata.web_search_queries = ["예시분식 대구", "예시분식 폐업"]
+        client, _ = _fake_client(response)
+
+        result = VertexResearchProvider(client=client, http=_redirects({})).research(TARGET)
+
+        assert result.queries == ("예시분식 대구", "예시분식 폐업")
+
+
 class TestVertexResearchProvider:
     def test_출처를_잇고_원래_URL_로_푼다(self):
         raw = "status | CLOSED | 폐업 안내문이 붙어 있다 |"
@@ -436,3 +449,19 @@ class TestWebInvestigator:
         found = WebInvestigator(MockResearchProvider()).investigate(TARGET)
 
         assert found.store_id == 1 and found.failure is None
+
+
+@pytest.mark.parametrize(
+    ("written", "normalized"),
+    [
+        ("2026-09-01", "2026-09-01"),
+        ("2025.7.22.", "2025-07-22"),
+        ("2025년 7월", "2025-07"),
+        ("2024", "2024"),
+        ("2025-13-01", "2025"),  # 달이 아니면 연도까지만
+        ("맛집검색", ""),  # 실측 — 날짜 칸에 엉뚱한 말
+        ("", ""),
+    ],
+)
+def test_날짜는_비교할_수_있는_모양으로_고친다(written, normalized):
+    assert normalize_date(written) == normalized

@@ -110,7 +110,8 @@ class SecurityConfigTest {
         void allowsOwnerSignup() throws Exception {
             mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
-                                    + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\"}"))
+                                    + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\","
+                                    + "\"phone\":\"010-0000-0000\"}"))
                     .andExpect(status().isCreated());
         }
 
@@ -118,6 +119,7 @@ class SecurityConfigTest {
         @DisplayName("점주 승인 API 는 401")
         void blocksOwnerAdminApi() throws Exception {
             expectProblem(mockMvc.perform(get("/api/admin/owners")), ErrorCode.UNAUTHORIZED);
+            expectProblem(mockMvc.perform(get("/api/admin/owners/3/store-candidates")), ErrorCode.UNAUTHORIZED);
             expectProblem(mockMvc.perform(post("/api/admin/owners/3/approve")), ErrorCode.UNAUTHORIZED);
         }
 
@@ -159,11 +161,15 @@ class SecurityConfigTest {
         }
 
         @Test
-        @DisplayName("점주 가입 신청 목록과 승인을 부를 수 있다")
+        @DisplayName("점주 가입 신청 목록, 후보 가게 조회, 승인을 부를 수 있다")
         void allowsOwnerAdminApi() throws Exception {
             mockMvc.perform(get("/api/admin/owners").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
                     .andExpect(status().isOk());
-            mockMvc.perform(post("/api/admin/owners/3/approve").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
+            mockMvc.perform(get("/api/admin/owners/3/store-candidates")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post("/api/admin/owners/3/approve").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}"))
                     .andExpect(status().isOk());
         }
     }
@@ -203,6 +209,52 @@ class SecurityConfigTest {
         void allowsMe() throws Exception {
             mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.OWNER)))
                     .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    @DisplayName("가입 상태 확인용 토큰 — 승인 전 신청자")
+    class SignupStatus {
+
+        private String statusBearer() {
+            return "Bearer " + jwtProvider.issueSignupStatus(1L).value();
+        }
+
+        @Test
+        @DisplayName("내 정보 조회는 부를 수 있다 — 승인 여부를 여기서 본다")
+        void allowsMe() throws Exception {
+            mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, statusBearer()))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("체크인은 403 — 승인 전에는 점주가 아니다")
+        void cannotCheckIn() throws Exception {
+            expectProblem(mockMvc.perform(post("/api/stores/1/check-ins")
+                    .header(HttpHeaders.AUTHORIZATION, statusBearer())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"qrPayload\":\"v1.qr-for-security-test\"}")), ErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("관리자 API 와 점주 승인 API 는 403 — 스스로 승인할 수 없다")
+        void blocksAdminApis() throws Exception {
+            expectProblem(mockMvc.perform(get("/api/stores")
+                    .header(HttpHeaders.AUTHORIZATION, statusBearer())), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(get("/api/admin/owners")
+                    .header(HttpHeaders.AUTHORIZATION, statusBearer())), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(post("/api/admin/owners/1/approve")
+                    .header(HttpHeaders.AUTHORIZATION, statusBearer())
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(post("/api/children/7/qr-token")
+                    .header(HttpHeaders.AUTHORIZATION, statusBearer())), ErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("권한 목록에 없는 경로도 403 — 부를 수 있는 API 는 내 정보 조회 하나다")
+        void blocksUnlistedPath() throws Exception {
+            expectProblem(mockMvc.perform(get("/api/anything-new")
+                    .header(HttpHeaders.AUTHORIZATION, statusBearer())), ErrorCode.FORBIDDEN);
         }
     }
 

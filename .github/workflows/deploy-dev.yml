@@ -16,6 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # 🚨 지우지 마세요. 서버 `.env` 가 레포 안(러너 작업 폴더)에 있습니다.
+          #    기본값 true 는 체크아웃 전에 추적되지 않는 파일을 정리하므로, `.env` 가
+          #    날아가고 백엔드가 **시크릿 없이 조용히 뜹니다**(값이 없어도 멈추지 않음 —
+          #    `docker-compose.dev.yml` 주석 참고).
+          #    `.env` 를 레포 밖으로 옮기고 `docker compose --env-file` 로 가리키면
+          #    이 옵션이 필요 없어집니다. 그때 함께 지우세요.
           clean: false
 
       - name: Rebuild and restart containers

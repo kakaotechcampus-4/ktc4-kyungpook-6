@@ -16,9 +16,11 @@ public record OwnerApplicationResponse(
         @Schema(description = "사업자등록번호 (숫자 10자리)", example = "1234567890") String bizNo,
         @Schema(description = "상호명", example = "예시분식") String storeName,
         @Schema(description = "대표자 이름", example = "홍길동") String representativeName,
+        @Schema(description = "점주 휴대폰 번호 (숫자만). 이 칸이 생기기 전에 가입한 점주는 비어 있음", example = "01000000000")
+        String phone,
         @Schema(description = "계정 상태", example = "PENDING") MemberStatus status,
         @Schema(description = "신청 시각") LocalDateTime appliedAt,
-        @Schema(description = "승인 시각. 승인 전에는 비어 있음") LocalDateTime reviewedAt
+        @Schema(description = "승인하거나 거절한 시각. 처리 전에는 비어 있음") LocalDateTime reviewedAt
 ) {
     public static OwnerApplicationResponse from(Member member) {
         OwnerInfo info = member.getOwnerInfo();
@@ -28,6 +30,7 @@ public record OwnerApplicationResponse(
                 info.getBizNo(),
                 info.getStoreName(),
                 info.getRepresentativeName(),
+                info.getPhone(),
                 member.getStatus(),
                 member.getCreatedAt(),
                 info.getReviewedAt()

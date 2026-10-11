@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.auth.controller;
 
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.domain.member.enums.MemberRole;
@@ -141,23 +142,98 @@ class AuthControllerTest {
         verify(authService).getMe(7L);
     }
 
+    private static final String PHONE = "010-0000-0000";
+
     private static String signupBody(String email, String password, String bizNo,
                                      String storeName, String representativeName) {
+        return signupBody(email, password, bizNo, storeName, representativeName, PHONE);
+    }
+
+    private static String signupBody(String email, String password, String bizNo,
+                                     String storeName, String representativeName, String phone) {
         return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"bizNo\":\"" + bizNo
-                + "\",\"storeName\":\"" + storeName + "\",\"representativeName\":\"" + representativeName + "\"}";
+                + "\",\"storeName\":\"" + storeName + "\",\"representativeName\":\"" + representativeName
+                + "\",\"phone\":\"" + phone + "\"}";
     }
 
     @Test
-    @DisplayName("가입 신청은 201 과 승인 대기 상태를 돌려준다")
+    @DisplayName("휴대폰 번호가 없거나 비었으면 400 이고 errors 에 필드를 알려준다")
+    void rejectsMissingPhone() throws Exception {
+        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
+                                + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("phone"));
+        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", " ")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("phone"));
+    }
+
+    @Test
+    @DisplayName("휴대폰 번호 형식이 아니면 400 invalid-phone")
+    void mapsInvalidPhone() throws Exception {
+        when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
+
+        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+                                "053-000-0000")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_PHONE.getType().toString()));
+    }
+
+    @Test
+    @DisplayName("너무 긴 휴대폰 번호는 400 이고, 보낸 값이 로그에도 응답에도 남지 않는다")
+    void rejectsTooLongPhoneWithoutEchoingIt() throws Exception {
+        String tooLong = "010-0000-0000-9999-9999";
+        Logger handlerLogger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        handlerLogger.addAppender(logs);
+        String responseBody;
+        try {
+            responseBody = mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
+                            .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+                                    tooLong)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("phone"))
+                    .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        } finally {
+            handlerLogger.detachAppender(logs);
+        }
+
+        assertThat(logs.list).noneMatch(event -> event.getFormattedMessage().contains(tooLong));
+        // 응답의 errors 는 어느 칸이 왜 틀렸는지만 알려 준다. 거절된 값을 되돌려 주지 않는다.
+        assertThat(responseBody).doesNotContain(tooLong).doesNotContain("9999");
+    }
+
+    @Test
+    @DisplayName("가입 신청은 201 과 승인 대기 상태, 가입 상태 확인용 토큰을 돌려준다")
     void signupReturnsCreatedPending() throws Exception {
-        when(authService.signupOwner(any())).thenReturn(
-                new MemberResponse(3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING));
+        when(authService.signupOwner(any())).thenReturn(new OwnerSignupResponse(
+                3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
+                "issued-status-token", "Bearer", Instant.parse("2026-10-16T03:00:00Z")));
 
         mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
                         .content(signupBody("owner@example.com", "password1234", "123-45-67890", "예시분식", "홍길동")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.memberId").value(3))
                 .andExpect(jsonPath("$.role").value("OWNER"))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.statusToken").value("issued-status-token"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.statusTokenExpiresAt").value("2026-10-16T03:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("가입 상태 확인용 토큰으로 내 정보를 조회하면 토큰의 회원 ID 로 상태를 돌려준다")
+    void meWithSignupStatusToken() throws Exception {
+        when(authService.getMe(7L)).thenReturn(
+                new MemberResponse(7L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING));
+        String token = jwtProvider.issueSignupStatus(7L).value();
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING"));
     }
 

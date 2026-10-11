@@ -130,14 +130,69 @@ class TaskRepositoryTest extends PostgresContainerTest {
     }
 
     @Test
-    void classification이_없으면_저장에_실패한다() {
+    void 조사에_실패한_Task는_분류_없이_실패_이유와_함께_저장된다() {
+        // 실패는 판정이 없다는 뜻이라 분류를 비워 둔다 — AI 가 실패를 표현하는 방식(classification=None + failure)과 같다.
         Task task = Task.builder()
                 .job(job)
                 .store(store)
+                .failureReason("AI 응답 시간 초과")
                 .build();
 
-        assertThatThrownBy(() -> taskRepository.saveAndFlush(task))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        Long savedId = entityManager.persistAndFlush(task).getTaskId();
+        entityManager.clear();
+
+        Task found = taskRepository.findById(savedId).orElseThrow();
+
+        assertThat(found.getClassification()).isNull();
+        assertThat(found.getFailureReason()).isEqualTo("AI 응답 시간 초과");
+        assertThat(found.isFailed()).isTrue();
+    }
+
+    @Test
+    void 판정이_있는_Task는_실패_이유가_비어_있다() {
+        Long savedId = entityManager.persistAndFlush(Task.builder()
+                .job(job)
+                .store(store)
+                .classification(TaskClassification.NO_CHANGE)
+                .build()).getTaskId();
+        entityManager.clear();
+
+        Task found = taskRepository.findById(savedId).orElseThrow();
+
+        assertThat(found.getFailureReason()).isNull();
+        assertThat(found.isFailed()).isFalse();
+    }
+
+    @Test
+    void failureReason은_500자까지_저장된다() {
+        String longest = "가".repeat(500);
+
+        Long savedId = entityManager.persistAndFlush(Task.builder()
+                .job(job)
+                .store(store)
+                .failureReason(longest)
+                .build()).getTaskId();
+        entityManager.clear();
+
+        assertThat(taskRepository.findById(savedId).orElseThrow().getFailureReason()).isEqualTo(longest);
+    }
+
+    @Test
+    void 분류도_실패_이유도_없으면_만들_수_없다() {
+        // 둘 다 없으면 "판정했다"도 "실패했다"도 아닌 Task 가 된다 — 화면이 어느 섹션에도 넣지 못한다.
+        assertThatThrownBy(() -> Task.builder().job(job).store(store).build())
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 분류와_실패_이유가_둘_다_있으면_만들_수_없다() {
+        assertThatThrownBy(() -> Task.builder()
+                .job(job)
+                .store(store)
+                .classification(TaskClassification.PRIORITY_CHECK)
+                .failureReason("AI 응답 시간 초과")
+                .build())
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

@@ -312,6 +312,19 @@ class StoreServiceTest {
         }
 
         @Test
+        @DisplayName("확인 시각을 받으면 그 시각으로 갱신한다 — 확인 기록과 가게 확인일을 같은 시각으로 맞출 때 쓴다")
+        void setsLastCheckedAtToGivenTime() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            LocalDateTime checkedAt = LocalDateTime.of(2026, 10, 7, 12, 0);
+
+            StoreResponse response = storeService.confirmStore(1L, checkedAt);
+
+            assertThat(store.getLastCheckedAt()).isEqualTo(checkedAt);
+            assertThat(response.lastCheckedAt()).isEqualTo(checkedAt);
+        }
+
+        @Test
         @DisplayName("storeId 에 해당하는 가게가 없으면 STORE_NOT_FOUND 를 던진다")
         void throwsWhenStoreNotFound() {
             when(storeRepository.findById(anyLong())).thenReturn(Optional.empty());

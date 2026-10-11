@@ -7,18 +7,25 @@ import ch.qos.logback.core.read.ListAppender;
 import com.ktc4.backend.domain.checkin.dto.CheckInResponse;
 import com.ktc4.backend.domain.checkin.entity.CheckIn;
 import com.ktc4.backend.domain.checkin.repository.CheckInRepository;
+import com.ktc4.backend.domain.member.entity.Member;
+import com.ktc4.backend.domain.member.entity.OwnerInfo;
+import com.ktc4.backend.domain.member.entity.StoreOwner;
+import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import com.ktc4.backend.global.security.AuthMember;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.slf4j.LoggerFactory;
@@ -48,6 +55,9 @@ class CheckInServiceTest extends PostgresContainerTest {
 
     private static final Long CHILD_ID = 7L;
     private static final Long MISSING_STORE_ID = 999_999L;
+
+    // 관리자는 가게 연결을 확인하지 않는다. 가게 연결과 무관한 테스트는 관리자로 부른다.
+    private static final AuthMember ADMIN = new AuthMember(1L, MemberRole.ADMIN);
 
     @Autowired
     private CheckInService checkInService;
@@ -131,7 +141,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         void savesCheckIn() {
             String payload = issue();
 
-            CheckInResponse response = checkInService.checkIn(storeId, payload);
+            CheckInResponse response = checkInService.checkIn(storeId, payload, ADMIN);
             entityManager.flush();
             entityManager.clear();
 
@@ -147,7 +157,7 @@ class CheckInServiceTest extends PostgresContainerTest {
             String payload = issue();
             LocalDateTime before = LocalDateTime.now();
 
-            CheckInResponse response = checkInService.checkIn(storeId, payload);
+            CheckInResponse response = checkInService.checkIn(storeId, payload, ADMIN);
 
             LocalDateTime after = LocalDateTime.now();
             entityManager.flush();
@@ -163,8 +173,8 @@ class CheckInServiceTest extends PostgresContainerTest {
         void allowsRepeatedCheckIns() {
             String payload = issue();
 
-            checkInService.checkIn(storeId, payload);
-            checkInService.checkIn(storeId, payload);
+            checkInService.checkIn(storeId, payload, ADMIN);
+            checkInService.checkIn(storeId, payload, ADMIN);
             entityManager.flush();
 
             assertThat(checkInRepository.count()).isEqualTo(2);
@@ -179,7 +189,7 @@ class CheckInServiceTest extends PostgresContainerTest {
             entityManager.clear();
             String payload = issue();
 
-            checkInService.checkIn(storeId, payload);
+            checkInService.checkIn(storeId, payload, ADMIN);
             entityManager.flush();
             entityManager.clear();
 
@@ -199,7 +209,7 @@ class CheckInServiceTest extends PostgresContainerTest {
             String oldPayload = issue();
             issue();
 
-            assertThatThrownBy(() -> checkInService.checkIn(storeId, oldPayload))
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, oldPayload, ADMIN))
                     .isInstanceOf(CustomException.class)
                     .extracting(CheckInServiceTest::errorCodeOf)
                     .isEqualTo(ErrorCode.INVALID_QR_TOKEN);
@@ -211,7 +221,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         void rejectsUnknownPayload() {
             issue();
 
-            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1." + "A".repeat(43)))
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1." + "A".repeat(43), ADMIN))
                     .isInstanceOf(CustomException.class)
                     .extracting(CheckInServiceTest::errorCodeOf)
                     .isEqualTo(ErrorCode.INVALID_QR_TOKEN);
@@ -221,7 +231,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         @Test
         @DisplayName("형식이 틀린 QR 이면 500 이 아니라 INVALID_QR_TOKEN")
         void rejectsMalformedPayload() {
-            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1.!!!"))
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1.!!!", ADMIN))
                     .isInstanceOf(CustomException.class)
                     .extracting(CheckInServiceTest::errorCodeOf)
                     .isEqualTo(ErrorCode.INVALID_QR_TOKEN);
@@ -233,7 +243,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         void rejectsMissingStore() {
             String payload = issue();
 
-            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, payload))
+            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, payload, ADMIN))
                     .isInstanceOf(CustomException.class)
                     .extracting(CheckInServiceTest::errorCodeOf)
                     .isEqualTo(ErrorCode.STORE_NOT_FOUND);
@@ -243,11 +253,178 @@ class CheckInServiceTest extends PostgresContainerTest {
         @Test
         @DisplayName("없는 가게 + 틀린 QR 이면 가게 쪽 에러가 먼저 나간다")
         void checksStoreBeforeQr() {
-            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, "v1.!!!"))
+            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, "v1.!!!", ADMIN))
                     .isInstanceOf(CustomException.class)
                     .extracting(CheckInServiceTest::errorCodeOf)
                     .isEqualTo(ErrorCode.STORE_NOT_FOUND);
             assertThat(checkInRepository.count()).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("가게 연결 확인 — 점주는 자기에게 연결된 가게에만 기록한다")
+    class StoreLink {
+
+        private static final LocalDateTime LINKED_AT = LocalDateTime.of(2026, 10, 6, 10, 0);
+
+        private Member persistOwner(String email) {
+            Member owner = Member.ownerApplicant(email, "hash", new OwnerInfo("0000000000", "예시분식", "홍길동", "01000000000"));
+            owner.approve(LINKED_AT);
+            return entityManager.persistAndFlush(owner);
+        }
+
+        private void link(Long linkedStoreId, Member owner) {
+            Member admin = entityManager.persistAndFlush(Member.admin("admin@example.com", "hash"));
+            Store store = entityManager.find(Store.class, linkedStoreId);
+            entityManager.persistAndFlush(StoreOwner.link(store, owner, admin, LINKED_AT));
+            entityManager.clear();
+        }
+
+        private Long persistAnotherStore() {
+            return entityManager.persistAndFlush(Store.builder()
+                    .name("샘플카페")
+                    .nameNormalized("샘플카페")
+                    .addressRoad("가상특별시 예시구 샘플로 456")
+                    .addressNormalized("가상특별시예시구샘플로456")
+                    .status(StoreStatus.OPEN)
+                    .build()).getStoreId();
+        }
+
+        private AuthMember loginAs(Member owner) {
+            return new AuthMember(owner.getMemberId(), MemberRole.OWNER);
+        }
+
+        @Test
+        @DisplayName("연결된 가게에는 체크인할 수 있다")
+        void linkedOwnerCanCheckIn() {
+            Member owner = persistOwner("owner@example.com");
+            link(storeId, owner);
+            String payload = issue();
+
+            checkInService.checkIn(storeId, payload, loginAs(owner));
+            entityManager.flush();
+
+            assertThat(checkInRepository.count()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("어느 가게에도 연결되지 않은 점주는 FORBIDDEN — 기록이 남지 않는다")
+        void rejectsOwnerWithoutLink() {
+            Member owner = persistOwner("owner@example.com");
+            String payload = issue();
+
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, payload, loginAs(owner)))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(CheckInServiceTest::errorCodeOf)
+                    .isEqualTo(ErrorCode.FORBIDDEN);
+            assertThat(checkInRepository.count()).isZero();
+        }
+
+        @Test
+        @DisplayName("다른 가게에 연결된 점주는 이 가게에 기록할 수 없다")
+        void rejectsOwnerLinkedToAnotherStore() {
+            Member owner = persistOwner("owner@example.com");
+            Long anotherStoreId = persistAnotherStore();
+            link(anotherStoreId, owner);
+            String payload = issue();
+
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, payload, loginAs(owner)))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(CheckInServiceTest::errorCodeOf)
+                    .isEqualTo(ErrorCode.FORBIDDEN);
+            assertThat(checkInRepository.count()).isZero();
+        }
+
+        @Test
+        @DisplayName("이 가게에 다른 점주가 연결돼 있어도, 연결되지 않은 점주는 기록할 수 없다")
+        void linkBelongsToEachOwner() {
+            Member linked = persistOwner("linked@example.com");
+            Member stranger = persistOwner("stranger@example.com");
+            link(storeId, linked);
+            String payload = issue();
+
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, payload, loginAs(stranger)))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(CheckInServiceTest::errorCodeOf)
+                    .isEqualTo(ErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("남의 가게면 QR 을 보기 전에 끝난다 — 남의 가게 번호로 QR 이 유효한지 알아볼 수 없다")
+        void checksLinkBeforeQr() {
+            Member owner = persistOwner("owner@example.com");
+
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1.!!!", loginAs(owner)))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(CheckInServiceTest::errorCodeOf)
+                    .isEqualTo(ErrorCode.FORBIDDEN);
+            assertThat(qrFailureLogs()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("연결되지 않은 점주에게는 없는 가게도 FORBIDDEN — 404 와 403 의 차이로 가게가 있는지 알아낼 수 없다")
+        void hidesStoreExistenceFromUnlinkedOwner() {
+            Member owner = persistOwner("owner@example.com");
+            String payload = issue();
+
+            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, payload, loginAs(owner)))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(CheckInServiceTest::errorCodeOf)
+                    .isEqualTo(ErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("관리자에게는 없는 가게가 STORE_NOT_FOUND 로 그대로 보인다")
+        void adminSeesMissingStore() {
+            String payload = issue();
+
+            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, payload, ADMIN))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(CheckInServiceTest::errorCodeOf)
+                    .isEqualTo(ErrorCode.STORE_NOT_FOUND);
+        }
+
+        @ParameterizedTest(name = "[{index}] {0}")
+        @EnumSource(MemberRole.class)
+        @DisplayName("통과시키는 것은 관리자와 연결된 점주뿐이다 — 연결 없는 역할은 관리자가 아니면 모두 거절된다")
+        void onlyAdminPassesWithoutLink(MemberRole role) {
+            // 역할이 새로 생겨도 이 테스트가 그 역할로 한 번 돈다. "점주가 아니면 통과"로 되돌아가면 여기서 걸린다
+            String payload = issue();
+            AuthMember member = new AuthMember(999L, role);
+
+            if (role == MemberRole.ADMIN) {
+                checkInService.checkIn(storeId, payload, member);
+                entityManager.flush();
+                assertThat(checkInRepository.count()).isEqualTo(1);
+            } else {
+                assertThatThrownBy(() -> checkInService.checkIn(storeId, payload, member))
+                        .isInstanceOf(CustomException.class)
+                        .extracting(CheckInServiceTest::errorCodeOf)
+                        .isEqualTo(ErrorCode.FORBIDDEN);
+                assertThat(checkInRepository.count()).isZero();
+            }
+        }
+
+        @Test
+        @DisplayName("관리자는 연결이 없어도 어느 가게에나 기록할 수 있다")
+        void adminSkipsLinkCheck() {
+            String payload = issue();
+
+            checkInService.checkIn(storeId, payload, ADMIN);
+            entityManager.flush();
+
+            assertThat(checkInRepository.count()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("로그인 정보 없이 들어온 요청(권한 검사 스위치가 꺼진 동안)은 연결을 확인하지 않는다")
+        void skipsLinkCheckWithoutLogin() {
+            String payload = issue();
+
+            checkInService.checkIn(storeId, payload, null);
+            entityManager.flush();
+
+            assertThat(checkInRepository.count()).isEqualTo(1);
         }
     }
 
@@ -260,7 +437,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         void logsFormatReasonWithoutPayload() {
             String malformed = "v1.SECRETPAYLOAD!!!";
 
-            assertThatThrownBy(() -> checkInService.checkIn(storeId, malformed))
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, malformed, ADMIN))
                     .isInstanceOf(CustomException.class);
 
             assertThat(qrFailureLogs()).containsExactly("QR 체크인 실패 - storeId=" + storeId + ", reason=FORMAT");
@@ -273,7 +450,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         void logsNotFoundReasonWithoutTokenOrHash() {
             String token = "B".repeat(43);
 
-            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1." + token))
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, "v1." + token, ADMIN))
                     .isInstanceOf(CustomException.class);
 
             assertThat(qrFailureLogs()).containsExactly("QR 체크인 실패 - storeId=" + storeId + ", reason=NOT_FOUND");
@@ -288,7 +465,7 @@ class CheckInServiceTest extends PostgresContainerTest {
             String oldPayload = issue();
             issue();
 
-            assertThatThrownBy(() -> checkInService.checkIn(storeId, oldPayload))
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, oldPayload, ADMIN))
                     .isInstanceOf(CustomException.class);
 
             assertThat(qrFailureLogs()).containsExactly("QR 체크인 실패 - storeId=" + storeId + ", reason=NOT_FOUND");
@@ -299,7 +476,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         void noFailureLogOnSuccess() {
             String payload = issue();
 
-            checkInService.checkIn(storeId, payload);
+            checkInService.checkIn(storeId, payload, ADMIN);
 
             assertThat(qrFailureLogs()).isEmpty();
         }
@@ -307,7 +484,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         @Test
         @DisplayName("가게가 없으면 QR 을 보기 전에 끝나므로 QR 실패 로그가 없다")
         void noQrFailureLogWhenStoreMissing() {
-            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, "v1.!!!"))
+            assertThatThrownBy(() -> checkInService.checkIn(MISSING_STORE_ID, "v1.!!!", ADMIN))
                     .isInstanceOf(CustomException.class);
 
             assertThat(qrFailureLogs()).isEmpty();

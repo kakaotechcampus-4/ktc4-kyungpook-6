@@ -53,13 +53,14 @@ from src.investigation.web_research import (  # noqa: E402
     ResearchResult,
     Source,
     VertexResearchProvider,
+    normalize_date,
 )
 
 PAUSE_SECONDS = 3.0  # 1초 간격에서도 429 가 났다
 
 FINDING_COLUMNS = ["AI판정", "수정안", "신호", "근거"]
 # "카카오" 칸에는 확인 결과(상태·place_url)만 남긴다 — 카카오 응답의 장소명·전화·좌표는 저장하지 않는다.
-COLUMNS = ["storeId", "그룹", "사업장명", "주소", *FINDING_COLUMNS, "관측", "카카오", "실패"]
+COLUMNS = ["storeId", "그룹", "사업장명", "주소", *FINDING_COLUMNS, "관측", "카카오", "실패", "검색어", "초"]
 
 
 def _force_utf8_output() -> None:
@@ -79,10 +80,14 @@ class CapturingProvider:
     def __init__(self, inner: VertexResearchProvider) -> None:
         self._inner = inner
         self.last: ResearchResult | None = None
+        self.queries: list[str] = []  # 이 가게에서 부른 모든 호출의 검색어(재시도 포함)
+
+    def reset(self) -> None:
+        self.last, self.queries = None, []
 
     def research(self, target: InvestigationTarget) -> ResearchResult:
-        self.last = None
         self.last = self._inner.research(target)
+        self.queries += self.last.queries
         return self.last
 
 
@@ -95,6 +100,8 @@ def _load_observations(text: str) -> ResearchResult:
     for o in json.loads(text or "[]"):
         o["field"] = ChangeField(o["field"])
         o["sources"] = tuple(Source(**s) for s in o["sources"])
+        # 예전 시트는 모델이 적은 날짜를 그대로 담았다 — 지금의 파서와 같게 고친다.
+        o["observed_at"] = normalize_date(o.get("observed_at", ""))
         observations.append(Observation(**o))
     return ResearchResult(observations)
 
@@ -157,6 +164,7 @@ def run(tag: str) -> int:
             "주소": target.address or "",
         }
         started = time.time()
+        provider.reset()
         try:
             found = investigator.investigate(target)
             out |= _finding_columns(found)
@@ -164,6 +172,10 @@ def run(tag: str) -> int:
             out["카카오"] = found.map_check.model_dump_json() if found.map_check else ""
         except Exception as e:  # noqa: BLE001 - 한 건 실패로 표본 전체를 버리지 않는다
             out["AI판정"], out["실패"] = "실패", f"{type(e).__name__}: {e}"
+        out |= {
+            "검색어": json.dumps(provider.queries, ensure_ascii=False),
+            "초": f"{time.time() - started:.0f}",
+        }
         kept.append(out)
         _write(sheet, kept)  # 매 건 저장 — 끊겨도 이어서 돌린다
         print(
