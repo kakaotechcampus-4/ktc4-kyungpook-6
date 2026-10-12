@@ -2,11 +2,14 @@ package com.ktc4.backend.domain.member.controller;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
+import com.ktc4.backend.domain.member.dto.SignupMenuResponse;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.enums.NameMatch;
 import com.ktc4.backend.domain.member.service.OwnerApprovalService;
+import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
+import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
@@ -63,7 +66,10 @@ class OwnerAdminControllerTest {
 
     private static OwnerApplicationResponse sample(MemberStatus status) {
         return new OwnerApplicationResponse(3L, "owner@example.com", "1234567890", "예시분식", "홍길동",
-                "01000000000", status, LocalDateTime.of(2026, 9, 29, 9, 0), null);
+                "01000000000", "대구광역시 북구 대학로 80", "053-123-4567",
+                List.of(new BusinessHourResponse(BusinessDay.SAT, "21:00", "02:00")),
+                List.of(new SignupMenuResponse("김치찌개")),
+                status, LocalDateTime.of(2026, 9, 29, 9, 0), null);
     }
 
     // 승인은 "누가 인정했는지"를 남기므로 실제 토큰 필터가 넣는 것과 같은 모양(AuthMember)으로 로그인시킨다.
@@ -87,7 +93,14 @@ class OwnerAdminControllerTest {
                 .andExpect(jsonPath("$.content[0].memberId").value(3))
                 .andExpect(jsonPath("$.content[0].bizNo").value("1234567890"))
                 .andExpect(jsonPath("$.content[0].phone").value("01000000000"))
-                .andExpect(jsonPath("$.content[0].status").value("PENDING"));
+                .andExpect(jsonPath("$.content[0].status").value("PENDING"))
+                // 가입 때 받은 가게 정보 — 관리자가 어느 가게인지 찾고 승인할지 판단하는 자료
+                .andExpect(jsonPath("$.content[0].storeAddress").value("대구광역시 북구 대학로 80"))
+                .andExpect(jsonPath("$.content[0].storePhone").value("053-123-4567"))
+                .andExpect(jsonPath("$.content[0].businessHours[0].day").value("SAT"))
+                .andExpect(jsonPath("$.content[0].businessHours[0].open").value("21:00"))
+                .andExpect(jsonPath("$.content[0].businessHours[0].close").value("02:00"))
+                .andExpect(jsonPath("$.content[0].menus[0].name").value("김치찌개"));
 
         verify(ownerApprovalService).getApplications(MemberStatus.PENDING, 0, 20);
     }

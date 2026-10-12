@@ -5,10 +5,15 @@ import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
+import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStore;
+import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.AuthMember;
@@ -31,11 +36,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,6 +63,9 @@ class AuthServiceTest {
     @Mock
     private MemberRepository memberRepository;
 
+    @Mock
+    private StoreOwnerRepository storeOwnerRepository;
+
     private JwtProvider jwtProvider;
     private AuthService authService;
 
@@ -63,7 +73,7 @@ class AuthServiceTest {
     void setUp() {
         jwtProvider = new JwtProvider("test-only-jwt-secret-at-least-32-bytes-long",
                 Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC));
-        authService = new AuthService(memberRepository, ENCODER, jwtProvider);
+        authService = new AuthService(memberRepository, storeOwnerRepository, ENCODER, jwtProvider);
     }
 
     // 점주 가입 기능이 아직 없어 관리자로 만든 뒤 역할·상태를 바꿔 쓴다.
@@ -167,6 +177,45 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("내 정보에 연결된 가게를 토큰의 회원 ID 로 찾아, 리포지토리가 준 순서 그대로 담는다")
+    void getsMeWithLinkedStoresInOrder() {
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(member(MemberRole.OWNER, MemberStatus.APPROVED)));
+        when(storeOwnerRepository.findLinkedStoresByMemberId(1L))
+                .thenReturn(List.of(linkedStore(12L, "예시분식"), linkedStore(5L, "샘플카페")));
+
+        MemberResponse me = authService.getMe(1L);
+
+        assertThat(me.stores()).extracting("storeId", "name")
+                .containsExactly(tuple(12L, "예시분식"),
+                        tuple(5L, "샘플카페"));
+    }
+
+    @Test
+    @DisplayName("토큰 발급 뒤 계정이 지워졌으면 연결 가게를 찾지 않는다")
+    void getMeDoesNotLookUpStoresWhenDeleted() {
+        when(memberRepository.findById(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.getMe(1L))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
+        verifyNoInteractions(storeOwnerRepository);
+    }
+
+    private static LinkedStore linkedStore(Long storeId, String name) {
+        return new LinkedStore() {
+            @Override
+            public Long getStoreId() {
+                return storeId;
+            }
+
+            @Override
+            public String getName() {
+                return name;
+            }
+        };
+    }
+
+    @Test
     @DisplayName("토큰 발급 뒤 계정이 지워졌으면 MEMBER_NOT_FOUND")
     void getMeFailsWhenDeleted() {
         when(memberRepository.findById(1L)).thenReturn(Optional.empty());
@@ -183,7 +232,9 @@ class AuthServiceTest {
     }
 
     private static OwnerSignupRequest signup(String email, String password, String bizNo, String phone) {
-        return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ", phone);
+        return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ", phone,
+                "대구광역시 북구 대학로 80", "053-123-4567",
+                List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")), List.of(new SignupMenuRequest("김치찌개")));
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\"")
