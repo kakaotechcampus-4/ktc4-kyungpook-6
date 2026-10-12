@@ -32,6 +32,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -190,5 +191,33 @@ class SecurityConfigNotEnforcedTest {
     @DisplayName("내 정보 조회는 꺼져 있어도 토큰이 있어야 한다")
     void meStillRequiresToken() throws Exception {
         mockMvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("가게 상세 조회·운영 정보 저장은 꺼져 있어도 토큰이 있어야 한다 — 새로 만든 API 라 스위치를 따르지 않는다")
+    void storeDetailAndOperatingInfoAlwaysRequireToken() throws Exception {
+        String saveBody = "{\"phone\":\"053-123-4567\","
+                + "\"businessHours\":[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}],"
+                + "\"menus\":[{\"name\":\"김치찌개\",\"onSale\":true}]}";
+        String owner = "Bearer " + jwtProvider.issue(1L, MemberRole.OWNER).value();
+
+        expectProblem(mockMvc.perform(get("/api/stores/1")), ErrorCode.UNAUTHORIZED);
+        expectProblem(mockMvc.perform(put("/api/stores/1/operating-info")
+                .contentType(MediaType.APPLICATION_JSON).content(saveBody)), ErrorCode.UNAUTHORIZED);
+        mockMvc.perform(get("/api/stores/1").header(HttpHeaders.AUTHORIZATION, owner))
+                .andExpect(status().isNotImplemented());
+        mockMvc.perform(put("/api/stores/1/operating-info").header(HttpHeaders.AUTHORIZATION, owner)
+                        .contentType(MediaType.APPLICATION_JSON).content(saveBody))
+                .andExpect(status().isNotImplemented());
+        mockMvc.perform(get("/api/stores/1")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.ADMIN).value()))
+                .andExpect(status().isNotImplemented());
+
+        // 꺼져 있어도 승인 전 신청자는 가게를 보거나 고칠 수 없다
+        String applicant = "Bearer " + jwtProvider.issueSignupStatus(3L).value();
+        expectProblem(mockMvc.perform(get("/api/stores/1").header(HttpHeaders.AUTHORIZATION, applicant)),
+                ErrorCode.FORBIDDEN);
+        expectProblem(mockMvc.perform(put("/api/stores/1/operating-info").header(HttpHeaders.AUTHORIZATION, applicant)
+                .contentType(MediaType.APPLICATION_JSON).content(saveBody)), ErrorCode.FORBIDDEN);
     }
 }

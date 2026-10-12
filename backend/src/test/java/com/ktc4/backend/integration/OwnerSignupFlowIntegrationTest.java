@@ -98,6 +98,16 @@ class OwnerSignupFlowIntegrationTest {
         return sb.append('}').toString();
     }
 
+    // 가입 신청 본문. 가게 정보(주소·가게 전화·영업시간·메뉴)는 필수라 늘 같은 값을 붙인다
+    private static String signupJson(String email, String phone) {
+        String account = json("email", email, "password", "owner-password", "bizNo", "123-45-67890",
+                "storeName", "예시분식", "representativeName", "홍길동", "phone", phone,
+                "storeAddress", "가상특별시 예시구 샘플로 123", "storePhone", "053-000-0009");
+        return account.substring(0, account.length() - 1)
+                + ",\"businessHours\":[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}]"
+                + ",\"menus\":[{\"name\":\"김치찌개\"}]}";
+    }
+
     private String login(String email, String password) throws Exception {
         String body = mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content(json("email", email, "password", password)))
@@ -136,9 +146,7 @@ class OwnerSignupFlowIntegrationTest {
 
         // 1. 점주 가입 신청 — 사업자번호는 하이픈을 붙여 보내도 10자리로 저장된다
         String signupBody = mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(json("email", "flow-owner@example.com", "password", "owner-password",
-                                "bizNo", "123-45-67890", "storeName", "예시분식", "representativeName", "홍길동",
-                                "phone", "010-0000-0001")))
+                        .content(signupJson("flow-owner@example.com", "010-0000-0001")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -149,7 +157,8 @@ class OwnerSignupFlowIntegrationTest {
         mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, statusToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.memberId").value(ownerId))
-                .andExpect(jsonPath("$.status").value("PENDING"));
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.stores.length()").value(0));   // 승인 전이라 연결된 가게가 없다
         mockMvc.perform(post("/api/stores/" + myStoreId + "/check-ins").header(HttpHeaders.AUTHORIZATION, statusToken)
                         .contentType(MediaType.APPLICATION_JSON).content(json("qrPayload", "v1.!!!")))
                 .andExpect(status().isForbidden())
@@ -164,8 +173,11 @@ class OwnerSignupFlowIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/owner-pending-approval")));
 
-        // 3. 관리자 로그인 → 대기 목록에 방금 신청이 보인다
+        // 3. 관리자 로그인 → 대기 목록에 방금 신청이 보인다. 관리자는 가게에 연결되지 않으므로 내 정보의 가게는 비어 있다
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stores.length()").value(0));
         String listBody = mockMvc.perform(get("/api/admin/owners").header(HttpHeaders.AUTHORIZATION, admin))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -231,7 +243,10 @@ class OwnerSignupFlowIntegrationTest {
         mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, owner))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("OWNER"))
-                .andExpect(jsonPath("$.status").value("APPROVED"));
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.stores.length()").value(1))   // 승인 때 고른 가게 — 점주 앱은 이 번호로 체크인한다
+                .andExpect(jsonPath("$.stores[0].storeId").value(myStoreId))
+                .andExpect(jsonPath("$.stores[0].name").value("통합테스트전용가게"));
 
         // 8. 점주 토큰으로 승인 API·관리자 API 는 403
         mockMvc.perform(get("/api/admin/owners").header(HttpHeaders.AUTHORIZATION, owner))
@@ -274,6 +289,8 @@ class OwnerSignupFlowIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/forbidden")));
         org.assertj.core.api.Assertions.assertThat(storeOwnerRepository.count()).isEqualTo(1);
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, owner))
+                .andExpect(jsonPath("$.stores.length()").value(0));   // 끊긴 연결은 내 가게에서 빠진다
         // 가게에 적혀 있던 번호가 이 점주의 번호(표기만 다름)라 함께 지워졌다 — 번호로는 더 이상 후보가 아니다
         mockMvc.perform(get(candidates).header(HttpHeaders.AUTHORIZATION, admin))
                 .andExpect(status().isOk())
@@ -286,6 +303,8 @@ class OwnerSignupFlowIntegrationTest {
         // 11. 다시 연결하면 체크인이 QR 검사까지 간다. 같은 가게에 또 연결하면 409 이고 행은 하나 그대로다
         mockMvc.perform(post(link).header(HttpHeaders.AUTHORIZATION, admin))
                 .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, owner))
+                .andExpect(jsonPath("$.stores[0].storeId").value(myStoreId));
         mockMvc.perform(post("/api/stores/" + myStoreId + "/check-ins").header(HttpHeaders.AUTHORIZATION, owner)
                         .contentType(MediaType.APPLICATION_JSON).content(wrongQr))
                 .andExpect(status().isBadRequest())
@@ -300,9 +319,7 @@ class OwnerSignupFlowIntegrationTest {
         long storeId = otherStoreId;
         String rejectedSignupBody = mockMvc.perform(post("/api/auth/owners/signup")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json("email", "flow-rejected@example.com", "password", "owner-password",
-                                "bizNo", "123-45-67890", "storeName", "예시분식", "representativeName", "홍길동",
-                                "phone", "010-0000-0003")))
+                        .content(signupJson("flow-rejected@example.com", "010-0000-0003")))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long applicantId = JSON.readTree(rejectedSignupBody).get("memberId").asLong();

@@ -2,12 +2,14 @@ package com.ktc4.backend.domain.auth.service;
 
 import com.ktc4.backend.domain.auth.dto.LoginRequest;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
+import com.ktc4.backend.domain.auth.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.IssuedToken;
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -30,14 +33,17 @@ public class AuthService {
     private static final int MAX_PASSWORD_BYTES = 72;
 
     private final MemberRepository memberRepository;
+    private final StoreOwnerRepository storeOwnerRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
 
     // 없는 이메일일 때도 비밀번호 비교를 한 번 해서, 응답 시간 차이로 가입 여부를 알아내지 못하게 한다.
     private final String dummyPasswordHash;
 
-    public AuthService(MemberRepository memberRepository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider) {
+    public AuthService(MemberRepository memberRepository, StoreOwnerRepository storeOwnerRepository,
+                       PasswordEncoder passwordEncoder, JwtProvider jwtProvider) {
         this.memberRepository = memberRepository;
+        this.storeOwnerRepository = storeOwnerRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-timing");
@@ -135,15 +141,21 @@ public class AuthService {
     }
 
     /**
-     * 로그인한 본인 정보를 조회한다. 가입 상태 확인용 토큰으로 부르면 승인 전 신청자의 현재 상태가 나온다.
+     * 로그인한 본인 정보와 연결된 가게를 조회한다. 가입 상태 확인용 토큰으로 부르면 승인 전 신청자의 현재 상태가 나온다.
+     *
+     * <p>점주 앱은 여기서 받은 가게 ID 로 체크인한다. 연결은 승인·연결·끊기 때마다 바뀌므로 토큰에 넣지 않고 매번 읽는다 —
+     * 관리자가 연결을 끊으면 이미 받은 토큰이어도 다음 조회부터 빠진다.
      *
      * @param memberId 토큰에 담긴 회원 ID
-     * @return 본인 정보
+     * @return 본인 정보. 연결된 가게가 없으면(관리자·승인 전 신청자 포함) 가게는 빈 목록
      * @throws CustomException 토큰 발급 뒤 계정이 지워졌으면 {@code MEMBER_NOT_FOUND}
      */
     public MemberResponse getMe(Long memberId) {
-        return memberRepository.findById(memberId)
-                .map(MemberResponse::from)
+        Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new CustomException(ErrorCode.MEMBER_NOT_FOUND));
+        List<LinkedStoreResponse> stores = storeOwnerRepository.findLinkedStoresByMemberId(memberId).stream()
+                .map(store -> new LinkedStoreResponse(store.getStoreId(), store.getName()))
+                .toList();
+        return MemberResponse.of(member, stores);
     }
 }

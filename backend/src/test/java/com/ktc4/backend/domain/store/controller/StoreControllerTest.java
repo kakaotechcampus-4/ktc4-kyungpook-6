@@ -23,9 +23,12 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -38,6 +41,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -382,6 +387,152 @@ class StoreControllerTest {
         void rejectsNegativePage() throws Exception {
             mockMvc.perform(get(NTS_CHECK_PATH).param("page", "-1"))
                     .andExpect(status().isBadRequest());
+        }
+    }
+
+    /**
+     * 가게 상세 조회·운영 정보 저장의 계약. 지금은 인터페이스만 공개하고 본문 없이 501 을 준다.
+     *
+     * <p>요청 검증은 구현 뒤에도 그대로 남는 실제 동작이라 여기서 고정한다. 값 하나하나의 경계(시간 형식, 메뉴 이름)는
+     * {@code BusinessHourRequestTest}·{@code MenuRequestTest} 가 맡고, 여기서는 그 검증이 이 API 에서 실제로 돌고
+     * 오류가 어느 칸인지 응답에 실리는지, 개수 경계가 맞는지 본다.
+     */
+    @Nested
+    @DisplayName("가게 상세 조회·운영 정보 저장 (스텁)")
+    class OperatingInfo {
+
+        private static final String OPERATING_INFO_PATH = "/api/stores/1/operating-info";
+        private static final String HOUR = "{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}";
+        private static final String MENU = "{\"menuId\":3,\"name\":\"김치찌개\",\"onSale\":true}";
+
+        private static String repeat(String item, int count) {
+            return "[" + String.join(",", Collections.nCopies(count, item)) + "]";
+        }
+
+        // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다
+        private static String body(String phone, String hours, String menus) {
+            List<String> fields = new ArrayList<>();
+            if (phone != null) {
+                fields.add("\"phone\":\"" + phone + "\"");
+            }
+            if (hours != null) {
+                fields.add("\"businessHours\":" + hours);
+            }
+            if (menus != null) {
+                fields.add("\"menus\":" + menus);
+            }
+            return "{" + String.join(",", fields) + "}";
+        }
+
+        private static String validBody() {
+            return body("053-123-4567", repeat(HOUR, 1), repeat(MENU, 1));
+        }
+
+        private ResultActions save(String content) throws Exception {
+            return mockMvc.perform(put(OPERATING_INFO_PATH).contentType(MediaType.APPLICATION_JSON).content(content));
+        }
+
+        @Test
+        @DisplayName("가게 상세 조회는 아직 구현 전이라 본문 없이 501 이다")
+        void getStoreIsNotImplementedYet() throws Exception {
+            mockMvc.perform(get(STORE_PATH))
+                    .andExpect(status().isNotImplemented())
+                    .andExpect(content().string(""));
+        }
+
+        @Test
+        @DisplayName("올바른 저장 요청은 검증을 통과해 501 까지 간다 — 새 메뉴는 menuId 없이, 24시간·자정 넘김 시간 포함")
+        void validSaveReachesStub() throws Exception {
+            String hours = "[{\"day\":\"MON\",\"open\":\"00:00\",\"close\":\"24:00\"},"
+                    + "{\"day\":\"FRI\",\"open\":\"21:00\",\"close\":\"02:00\"}]";
+            String menus = "[" + MENU + ",{\"name\":\"새 메뉴\",\"onSale\":false}]";
+
+            save(body("053-123-4567", hours, menus))
+                    .andExpect(status().isNotImplemented())
+                    .andExpect(content().string(""));
+        }
+
+        @Test
+        @DisplayName("전화번호·영업시간·메뉴는 모두 보내야 한다 — 통째로 바꾸는 저장이라 빠진 칸의 뜻이 없다")
+        void requiresAllFields() throws Exception {
+            save(body(null, repeat(HOUR, 1), repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("phone"));
+            save(body("053-123-4567", null, repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("businessHours"));
+            save(body("053-123-4567", repeat(HOUR, 1), null))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("menus"));
+        }
+
+        @Test
+        @DisplayName("전화번호는 비울 수 없고 20자까지 받는다 — 가입 때 필수인 값을 저장으로 지우지 못하게")
+        void phoneRules() throws Exception {
+            save(body("", repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isBadRequest());
+            save(body("   ", repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isBadRequest());
+            save(body("0".repeat(21), repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isBadRequest());
+            save(body("0".repeat(20), repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isNotImplemented());
+            save(body("053\\n123", repeat(HOUR, 1), repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("phone"));
+        }
+
+        @Test
+        @DisplayName("영업시간은 1~21줄이다")
+        void businessHourCount() throws Exception {
+            save(body("053-123-4567", "[]", repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("businessHours"));
+            save(body("053-123-4567", repeat(HOUR, 21), repeat(MENU, 1))).andExpect(status().isNotImplemented());
+            save(body("053-123-4567", repeat(HOUR, 22), repeat(MENU, 1))).andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("메뉴는 1~50개다")
+        void menuCount() throws Exception {
+            save(body("053-123-4567", repeat(HOUR, 1), "[]"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("menus"));
+            save(body("053-123-4567", repeat(HOUR, 1), repeat(MENU, 50))).andExpect(status().isNotImplemented());
+            save(body("053-123-4567", repeat(HOUR, 1), repeat(MENU, 51))).andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("영업시간·메뉴 한 줄 안의 오류는 몇 번째 줄의 어느 칸인지 응답에 실린다")
+        void nestedErrorsPointToTheRow() throws Exception {
+            String hours = "[" + HOUR + ",{\"day\":\"TUE\",\"open\":\"9:00\",\"close\":\"21:00\"}]";
+            save(body("053-123-4567", hours, repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("businessHours[1].open"));
+
+            save(body("053-123-4567", repeat(HOUR, 1), "[{\"name\":\"김치찌개\"}]"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("menus[0].onSale"));
+
+            String sameTimes = "[{\"day\":\"MON\",\"open\":\"12:00\",\"close\":\"12:00\"}]";
+            save(body("053-123-4567", sameTimes, repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("businessHours[0].openDifferentFromClose"));
+        }
+
+        @Test
+        @DisplayName("목록 안에 null 이 섞이면 거절한다")
+        void rejectsNullRows() throws Exception {
+            save(body("053-123-4567", "[null]", repeat(MENU, 1))).andExpect(status().isBadRequest());
+            save(body("053-123-4567", repeat(HOUR, 1), "[null]")).andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("요일은 MON~SUN 만 받는다 — 읽기 단계에서 걸려 칸별 errors 없이 invalid-request")
+        void rejectsUnknownDay() throws Exception {
+            for (String day : List.of("MONDAY", "월", "mon")) {
+                String hours = "[{\"day\":\"" + day + "\",\"open\":\"11:00\",\"close\":\"21:00\"}]";
+                save(body("053-123-4567", hours, repeat(MENU, 1)))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.type").value(
+                                "https://kakaotechcampus-4.github.io/ktc4-kyungpook-6/errors/invalid-request"));
+            }
         }
     }
 }

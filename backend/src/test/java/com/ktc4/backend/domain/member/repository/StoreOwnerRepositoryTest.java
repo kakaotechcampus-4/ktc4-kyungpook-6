@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.member.repository;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.entity.StoreOwner;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStore;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -194,5 +195,59 @@ class StoreOwnerRepositoryTest extends PostgresContainerTest {
 
         assertThat(counts).extracting(OwnerCount::getStoreId, OwnerCount::getOwnerCount)
                 .containsExactlyInAnyOrder(tuple(two.getStoreId(), 2L), tuple(one.getStoreId(), 1L));
+    }
+
+    @Test
+    void 회원의_가게는_처음_연결한_순서대로_나오고_끊긴_연결과_다른_회원의_연결은_빠진다() {
+        Store first = persistStore("예시분식");
+        Store second = persistStore("샘플카페");
+        Store unlinked = persistStore("예시국밥");
+        Store others = persistStore("샘플제과");
+        Member owner = persistOwner("owner@example.com");
+        Member other = persistOwner("other@example.com");
+        // 연결 시각은 일부러 거꾸로 둔다 — 순서는 시각이 아니라 처음 연결한 순서다
+        entityManager.persistAndFlush(StoreOwner.link(second, owner, admin, LINKED_AT.plusDays(1)));
+        entityManager.persistAndFlush(StoreOwner.link(first, owner, admin, LINKED_AT));
+        StoreOwner cut = entityManager.persistAndFlush(StoreOwner.link(unlinked, owner, admin, LINKED_AT));
+        cut.unlink(admin, LINKED_AT.plusDays(2));
+        link(others, other);
+        entityManager.flush();
+        entityManager.clear();
+
+        List<LinkedStore> stores = storeOwnerRepository.findLinkedStoresByMemberId(owner.getMemberId());
+
+        assertThat(stores).extracting(LinkedStore::getStoreId, LinkedStore::getName)
+                .containsExactly(tuple(second.getStoreId(), "샘플카페"), tuple(first.getStoreId(), "예시분식"));
+    }
+
+    @Test
+    void 끊었다_다시_이어도_가게_순서는_그대로다() {
+        Store firstLinked = persistStore("예시분식");
+        Store secondLinked = persistStore("샘플카페");
+        Member owner = persistOwner("owner@example.com");
+        StoreOwner firstLink = entityManager.persistAndFlush(StoreOwner.link(firstLinked, owner, admin, LINKED_AT));
+        link(secondLinked, owner);
+
+        // 다시 이으면 연결 시각이 가장 늦어진다. 그래도 앱이 쓰는 첫 번째 가게가 바뀌면 안 된다
+        firstLink.unlink(admin, LINKED_AT.plusDays(1));
+        entityManager.flush();
+        firstLink.relink(admin, LINKED_AT.plusDays(2));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<LinkedStore> stores = storeOwnerRepository.findLinkedStoresByMemberId(owner.getMemberId());
+
+        assertThat(stores).extracting(LinkedStore::getStoreId)
+                .containsExactly(firstLinked.getStoreId(), secondLinked.getStoreId());
+    }
+
+    @Test
+    void 연결된_가게가_없는_회원은_빈_목록이다() {
+        persistStore("예시분식");
+        Member owner = persistOwner("owner@example.com");
+        entityManager.clear();
+
+        assertThat(storeOwnerRepository.findLinkedStoresByMemberId(owner.getMemberId())).isEmpty();
+        assertThat(storeOwnerRepository.findLinkedStoresByMemberId(admin.getMemberId())).isEmpty();
     }
 }

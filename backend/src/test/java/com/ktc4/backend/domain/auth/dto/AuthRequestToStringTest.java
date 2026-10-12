@@ -1,7 +1,11 @@
 package com.ktc4.backend.domain.auth.dto;
 
+import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.enums.BusinessDay;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,13 +17,17 @@ class AuthRequestToStringTest {
     @DisplayName("가입 요청은 비밀번호·대표자 이름·휴대폰 번호를 가리고 이메일은 일부만 보인다")
     void signupRequestMasksPersonalData() {
         String text = new OwnerSignupRequest("owner@example.com", "secret-password", "1234567890",
-                "예시분식", "홍길동", "010-0000-0000").toString();
+                "예시분식", "홍길동", "010-0000-0000", "대구광역시 북구 대학로 80", "053-123-4567",
+                List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")),
+                List.of(new SignupMenuRequest("김치찌개"))).toString();
 
         assertThat(text).contains("o***@example.com")
                 .doesNotContain("owner@example.com")
                 .doesNotContain("secret-password")
                 .doesNotContain("홍길동")
-                .doesNotContain("010-0000-0000");
+                .doesNotContain("010-0000-0000")
+                .doesNotContain("053-123-4567")
+                .doesNotContain("김치찌개");
     }
 
     @Test

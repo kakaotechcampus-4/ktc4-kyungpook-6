@@ -104,7 +104,14 @@ public class SecurityConfig {
                             // 관리자 조사(Job)도 새로 만든 API 다. AI 호출 비용이 드는 API 라 스위치와 무관하게 관리자만 부른다.
                             .requestMatchers("/api/jobs/**").hasRole("ADMIN")
                             // 조사 결과로 가게 정보를 바꾼다 — 스위치와 무관하게 관리자만
-                            .requestMatchers("/api/tasks/**").hasRole("ADMIN");
+                            .requestMatchers("/api/tasks/**").hasRole("ADMIN")
+                            // 점주 앱의 가게 상세 조회·운영 정보 저장도 새로 만든 API 다 — 스위치와 무관하게 점주·관리자만.
+                            // "그 가게에 연결된 점주인지"는 서비스가 본다(체크인과 같은 방식).
+                            // 가게 ID 를 숫자로 좁히는 이유: GET /api/stores/* 로 두면 GET /api/stores/nts-checks 와도 맞아,
+                            // 아래 nts-checks 규칙보다 먼저 걸린다 — AI 서버 키는 막히고 점주에게는 국세청 대조 자료가 열린다.
+                            .requestMatchers(HttpMethod.GET, "/api/stores/{storeId:\\d+}").hasAnyRole("OWNER", "ADMIN")
+                            .requestMatchers(HttpMethod.PUT, "/api/stores/{storeId:\\d+}/operating-info")
+                            .hasAnyRole("OWNER", "ADMIN");
                     // ⚠️ 임시 분기 — 2026-10-14 까지 제거 (클래스 주석 참고)
                     if (!enforce) {
                         auth.anyRequest().permitAll();
