@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.auth.controller;
 
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
+import com.ktc4.backend.domain.auth.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
@@ -26,8 +27,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -142,6 +146,20 @@ class AuthControllerTest {
         verify(authService).getMe(7L);
     }
 
+    @Test
+    @DisplayName("내 정보의 연결된 가게는 stores[].storeId·stores[].name 으로 나간다 — 점주 앱이 체크인 경로에 쓰는 필드")
+    void meReturnsLinkedStores() throws Exception {
+        when(authService.getMe(7L)).thenReturn(new MemberResponse(7L, "owner@example.com", MemberRole.OWNER,
+                MemberStatus.APPROVED, List.of(new LinkedStoreResponse(12L, "예시분식"))));
+        String token = jwtProvider.issue(7L, MemberRole.OWNER).value();
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stores.length()").value(1))
+                .andExpect(jsonPath("$.stores[0].storeId").value(12))
+                .andExpect(jsonPath("$.stores[0].name").value("예시분식"));
+    }
+
     private static final String PHONE = "010-0000-0000";
 
     private static String signupBody(String email, String password, String bizNo,
@@ -151,9 +169,143 @@ class AuthControllerTest {
 
     private static String signupBody(String email, String password, String bizNo,
                                      String storeName, String representativeName, String phone) {
+        return accountPart(email, password, bizNo, storeName, representativeName, phone) + STORE_INFO + "}";
+    }
+
+    private static String accountPart(String email, String password, String bizNo,
+                                      String storeName, String representativeName, String phone) {
         return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"bizNo\":\"" + bizNo
                 + "\",\"storeName\":\"" + storeName + "\",\"representativeName\":\"" + representativeName
-                + "\",\"phone\":\"" + phone + "\"}";
+                + "\",\"phone\":\"" + phone + "\"";
+    }
+
+    // ── 가입 때 받는 가게 정보 (주소·가게 전화·영업시간·메뉴) ─────────────────────────
+
+    private static final String HOUR = "{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}";
+    private static final String MENU = "{\"name\":\"김치찌개\"}";
+    private static final String STORE_INFO = storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), list(MENU, 1));
+
+    private static String list(String item, int count) {
+        return "[" + String.join(",", Collections.nCopies(count, item)) + "]";
+    }
+
+    // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다
+    private static String storeInfo(String storeAddress, String storePhone, String businessHours, String menus) {
+        StringBuilder sb = new StringBuilder();
+        if (storeAddress != null) {
+            sb.append(",\"storeAddress\":\"").append(storeAddress).append('"');
+        }
+        if (storePhone != null) {
+            sb.append(",\"storePhone\":\"").append(storePhone).append('"');
+        }
+        if (businessHours != null) {
+            sb.append(",\"businessHours\":").append(businessHours);
+        }
+        if (menus != null) {
+            sb.append(",\"menus\":").append(menus);
+        }
+        return sb.toString();
+    }
+
+    private ResultActions signupWithStoreInfo(String storeInfo) throws Exception {
+        String body = accountPart("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", PHONE)
+                + storeInfo + "}";
+        return mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    @Test
+    @DisplayName("가입 신청에는 가게 주소·가게 전화·영업시간·메뉴가 모두 필요하다")
+    void signupRequiresStoreInfo() throws Exception {
+        signupWithStoreInfo(storeInfo(null, "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeAddress"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", null, list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storePhone"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", null, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), null))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("menus"));
+    }
+
+    @Test
+    @DisplayName("가게 주소는 비울 수 없고 500자까지 받는다")
+    void storeAddressRules() throws Exception {
+        signupWithStoreInfo(storeInfo("가".repeat(500), "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo("가".repeat(501), "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo("   ", "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeAddress"));
+    }
+
+    @Test
+    @DisplayName("가게 전화는 매장 유선 번호도 받는다 — 대표자 휴대폰과 달리 휴대폰 형식을 보지 않는다. 비울 수 없고 20자까지")
+    void storePhoneRules() throws Exception {
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "0".repeat(20), list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "0".repeat(21), list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", " ", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storePhone"));
+    }
+
+    @Test
+    @DisplayName("가입 때 영업시간은 1~21줄, 메뉴는 1~50개다")
+    void storeInfoCounts() throws Exception {
+        String address = "대구광역시 북구 대학로 80";
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", "[]", list(MENU, 1))).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 21), list(MENU, 1))).andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 22), list(MENU, 1))).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), "[]")).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), list(MENU, 50))).andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), list(MENU, 51))).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("가입 때 영업시간·메뉴에 빈 줄이 있거나, 요일이 MON~SUN 이 아니거나, 여닫는 시간이 같으면 400")
+    void signupRejectsNullRowsUnknownDayAndSameTimes() throws Exception {
+        String address = "대구광역시 북구 대학로 80";
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", "[null]", list(MENU, 1))).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), "[null]")).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567",
+                "[{\"day\":\"MONDAY\",\"open\":\"11:00\",\"close\":\"21:00\"}]", list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
+        signupWithStoreInfo(storeInfo(address, "053-123-4567",
+                "[{\"day\":\"MON\",\"open\":\"12:00\",\"close\":\"12:00\"}]", list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours[0].openDifferentFromClose"));
+    }
+
+    @Test
+    @DisplayName("가게 주소·가게 전화에 줄바꿈이나 보이지 않는 글자가 있으면 400 — 관리자 화면·로그에 그대로 보이는 값")
+    void rejectsInvisibleCharactersInStoreAddressAndPhone() throws Exception {
+        signupWithStoreInfo(storeInfo("대구광역시\\n북구", "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeAddress"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053\\u200B123", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storePhone"));
+    }
+
+    @Test
+    @DisplayName("가입 때의 영업시간·메뉴 오류도 몇 번째 줄의 어느 칸인지 응답에 실린다")
+    void signupNestedErrorsPointToTheRow() throws Exception {
+        String badClose = "[{\"day\":\"SUN\",\"open\":\"21:00\",\"close\":\"00:00\"}]";
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", badClose, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours[0].close"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1),
+                        "[" + MENU + ",{\"name\":\"\\u3164\"}]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("menus[1].name"));
     }
 
     @Test
@@ -161,8 +313,10 @@ class AuthControllerTest {
     void rejectsMissingPhone() throws Exception {
         mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
-                                + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\"}"))
+                                + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\""
+                                + STORE_INFO + "}"))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(1))
                 .andExpect(jsonPath("$.errors[0].field").value("phone"));
         mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
                         .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", " ")))
@@ -229,7 +383,7 @@ class AuthControllerTest {
     @DisplayName("가입 상태 확인용 토큰으로 내 정보를 조회하면 토큰의 회원 ID 로 상태를 돌려준다")
     void meWithSignupStatusToken() throws Exception {
         when(authService.getMe(7L)).thenReturn(
-                new MemberResponse(7L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING));
+                new MemberResponse(7L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING, List.of()));
         String token = jwtProvider.issueSignupStatus(7L).value();
 
         mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))

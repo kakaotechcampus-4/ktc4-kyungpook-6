@@ -55,11 +55,40 @@ public interface StoreOwnerRepository extends JpaRepository<StoreOwner, Long> {
             """)
     List<OwnerCount> countOwnersByStoreIds(@Param("storeIds") Collection<Long> storeIds);
 
+    /**
+     * 회원에게 연결된 가게를 처음 연결한 순서대로 읽는다. 끊긴 연결은 뺀다.
+     *
+     * <p>점주 앱은 첫 번째 가게로 체크인하므로 순서가 바뀌지 않아야 한다. 그래서 {@code linkedAt} 이 아니라 연결 행의 ID 로
+     * 정렬한다 — 끊었다 다시 이으면 같은 행을 되살리면서 {@code linkedAt} 만 새 시각이 되는데({@link StoreOwner#relink}),
+     * {@code linkedAt} 으로 정렬하면 그때 순서가 뒤집혀 앱이 다른 가게로 체크인하게 된다. 가게 이름까지 한 번에 읽어
+     * 가게마다 따로 조회하지 않는다.
+     *
+     * @param memberId 회원 ID
+     * @return 연결된 가게. 없으면 빈 목록
+     */
+    @Query("""
+            select s.storeId as storeId, s.name as name
+            from StoreOwner so
+            join so.store s
+            where so.member.memberId = :memberId
+              and so.unlinkedAt is null
+            order by so.storeOwnerId asc
+            """)
+    List<LinkedStore> findLinkedStoresByMemberId(@Param("memberId") Long memberId);
+
     /** 가게 한 곳에 연결된 점주 수. */
     interface OwnerCount {
 
         Long getStoreId();
 
         long getOwnerCount();
+    }
+
+    /** 회원에게 연결된 가게 한 곳. */
+    interface LinkedStore {
+
+        Long getStoreId();
+
+        String getName();
     }
 }
