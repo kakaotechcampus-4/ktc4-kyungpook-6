@@ -188,9 +188,13 @@ def backend_health(
 
     **닿지 않으면 503으로 답한다.** 본문에만 `unreachable`을 적고 200을 주면
     모니터링·컨테이너 프로브는 본문을 읽지 않으므로 "정상"으로 집계된다.
+
+    `GET /api/stores`가 아니라 `/api/stores/nts-checks`를 부른다. 백엔드가 AI 서버 키에
+    열어 둔 조회는 그 하나뿐이라(`SecurityConfig`), 권한 검사 스위치가 켜지면 `/api/stores`는
+    403이 되어 **연결이 멀쩡한데도 이 헬스체크가 영구 503이 된다.** 실제로 그렇게 나왔다.
     """
     try:
-        client.get_stores(page=0, limit=1)
+        client.get_nts_checks(page=0, limit=1)
     except BackendError as e:
         logger.warning("백엔드 헬스체크 실패: %s", e)
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
