@@ -190,6 +190,32 @@ public class OwnerApprovalService {
      *                         가게가 없으면 {@code STORE_NOT_FOUND},
      *                         이미 연결돼 있으면 {@code STORE_ALREADY_LINKED}
      */
+    /**
+     * 거절한 가입 신청을 다시 승인 대기로 되돌린다.
+     *
+     * <p>거절된 계정은 로그인할 수 없고 같은 이메일로 다시 가입할 수도 없어서, <b>잘못 거절하면 되돌릴
+     * 방법이 없었다</b>(PROMPT-150). 되돌리면 처리 기록(언제·누가 거절했는지)을 지우고 다시 대기로 둔다 —
+     * 기록이 남아 있으면 화면이 처리된 건으로 읽는다.
+     *
+     * <p>되돌릴 수 있는 건 <b>거절된 신청뿐</b>이다. 승인된 점주는 가게 연결 끊기로 다룬다.
+     *
+     * @param memberId 되돌릴 점주 회원 ID
+     * @param adminId  되돌리는 관리자 ID
+     * @return 대기로 돌아간 신청
+     * @throws CustomException 점주가 아니거나 없으면 {@code MEMBER_NOT_FOUND},
+     *                         거절된 신청이 아니면 {@code OWNER_NOT_REJECTED}
+     */
+    @Transactional
+    public OwnerApplicationResponse reopen(Long memberId, Long adminId) {
+        Member member = findOwnerForUpdate(memberId);
+        if (member.getStatus() != MemberStatus.REJECTED) {
+            throw new CustomException(ErrorCode.OWNER_NOT_REJECTED);
+        }
+        member.reopen();
+        log.info("점주 가입 거절 되돌림 - memberId={}, adminId={}", memberId, adminId);
+        return OwnerApplicationResponse.from(member);
+    }
+
     @Transactional
     public void linkStore(Long memberId, Long storeId, Long adminId) {
         // 잠그고 읽는다 — 같은 연결을 동시에 두 번 만들지 않게.

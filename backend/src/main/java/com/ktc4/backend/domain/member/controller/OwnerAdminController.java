@@ -161,6 +161,32 @@ public class OwnerAdminController {
         return ownerApprovalService.reject(memberId, admin.memberId());
     }
 
+    @Operation(summary = "가입 거절 되돌리기",
+            description = """
+                    **잘못 거절한 신청을 다시 승인 대기로 되돌립니다.**
+
+                    거절된 계정은 로그인할 수 없고 같은 이메일로 다시 가입할 수도 없어서, 손이 미끄러진 한 번이
+                    그 점주의 가입을 영영 막았습니다. 되돌리면 처리 기록(언제·누가 거절했는지)을 지우고 다시 대기로 둡니다.
+
+                    되돌릴 수 있는 건 **거절된 신청뿐**입니다. 승인된 점주를 대기로 되돌리면 이미 연결된 가게와
+                    체크인 권한이 어떤 상태인지 말할 수 없어집니다 — 그건 `DELETE .../stores/{storeId}`(연결 끊기)로 다룹니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "되돌림 — 상태는 PENDING"),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없는 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "거절된 신청이 아닌 경우(owner-not-rejected)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @PostMapping("/{memberId}/reopen")
+    public OwnerApplicationResponse reopen(
+            @Parameter(description = "점주 회원 ID", example = "3") @PathVariable Long memberId,
+            @AuthenticationPrincipal AuthMember admin) {
+        return ownerApprovalService.reopen(memberId, admin.memberId());
+    }
+
     @Operation(summary = "점주를 가게에 연결",
             description = """
                     이미 승인된 점주를 가게에 연결합니다. 가게를 잘못 골라 승인했거나 실수로 연결을 끊었을 때 바로잡는 데 씁니다.
