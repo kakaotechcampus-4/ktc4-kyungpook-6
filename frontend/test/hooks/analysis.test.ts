@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { toAnalysisTask } from '../../src/hooks/analysis';
-import type { TaskResponse } from '../../src/services/analysis';
+import { progressLabelOf, toAnalysisTask } from '../../src/hooks/analysis';
+import type { JobResultResponse, TaskResponse } from '../../src/services/analysis';
 
 /** 성공·변화 없음 기본값. 각 테스트는 보는 칸만 덮어쓴다. */
 const BASE: TaskResponse = {
@@ -101,5 +101,46 @@ describe('toAnalysisTask — 근거 출처', () => {
     );
 
     expect(result.evidences[0].sourceLabel).toBe('근거 - 국세청 사업자등록 상태');
+  });
+});
+
+const JOB: JobResultResponse = {
+  jobId: 1,
+  status: 'IN_PROGRESS',
+  targetCount: 3,
+  completedCount: 1,
+  createdAt: '2026-10-13T20:55:00',
+  finishedAt: null,
+  errorMessage: null,
+  tasks: [],
+};
+
+/**
+ * 조사는 가게 한 곳에 최대 60초가 걸린다. 진행 상황이 없으면 "조사 시작하기" 로 넘어온
+ * 담당자가 멈춘 화면을 보고 새로고침해야 했다.
+ */
+describe('progressLabelOf — 진행 상황', () => {
+  it('도는 중이면 끝난 곳 수를 알려 준다', () => {
+    expect(progressLabelOf(JOB)).toBe('조사 중 · 3곳 중 1곳 끝남');
+  });
+
+  it('아직 시작 전(PENDING)도 도는 중으로 본다', () => {
+    expect(progressLabelOf({ ...JOB, status: 'PENDING', completedCount: 0 })).toBe(
+      '조사 중 · 3곳 중 0곳 끝남',
+    );
+  });
+
+  it('끝났으면 아무것도 적지 않는다', () => {
+    expect(progressLabelOf({ ...JOB, status: 'DONE', completedCount: 3 })).toBeUndefined();
+  });
+
+  it('멈춘 조사는 이유를 보여준다 — 결과가 적은 게 정상인지 아닌지 알아야 한다', () => {
+    expect(
+      progressLabelOf({ ...JOB, status: 'FAILED', errorMessage: 'AI 사용량 한도를 넘었습니다' }),
+    ).toBe('조사가 멈췄습니다 — AI 사용량 한도를 넘었습니다');
+  });
+
+  it('조사를 못 받아 왔으면 아무것도 적지 않는다', () => {
+    expect(progressLabelOf(undefined)).toBeUndefined();
   });
 });

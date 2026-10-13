@@ -65,6 +65,34 @@ export type AnalysisTask = {
 /** 분류별로 나눈 Task 목록. 화면의 네 섹션과 1:1로 대응한다. */
 export type AnalysisTaskGroups = Record<TaskClassification, AnalysisTask[]>;
 
+/** 아직 돌고 있는 조사인가. 이 동안에는 결과를 주기적으로 다시 받아 온다. */
+function isRunning(status: JobResultResponse['status'] | undefined): boolean {
+  return status === 'PENDING' || status === 'IN_PROGRESS';
+}
+
+/** 조사가 도는 동안 다시 물어보는 간격(ms). AI 는 가게 한 곳에 최대 60초를 쓴다. */
+const POLL_INTERVAL_MS = 3_000;
+
+/**
+ * 진행 상황 한 줄. 끝난 조사면 undefined 다.
+ *
+ * 이게 없으면 "조사 시작하기" 로 넘어온 담당자가 **멈춘 화면**을 본다 — 결과가 하나씩 쌓이는데
+ * 화면은 그대로라, 새로고침해야 나머지가 보였다(PROMPT-150).
+ */
+export function progressLabelOf(
+  result: JobResultResponse | undefined,
+): string | undefined {
+  if (!result) return undefined;
+  if (result.status === 'FAILED') {
+    return result.errorMessage
+      ? `조사가 멈췄습니다 — ${result.errorMessage}`
+      : '조사가 멈췄습니다.';
+  }
+  if (!isRunning(result.status)) return undefined;
+
+  return `조사 중 · ${result.targetCount}곳 중 ${result.completedCount}곳 끝남`;
+}
+
 /** 확인 기록을 카드에 찍을 한 줄로 만든다. */
 function toVerifiedLabel(
   verification: VerificationResponse | null,
@@ -252,6 +280,8 @@ export type UseAnalysisResultPageResult = {
   isPending: boolean;
   /** 조회 실패 여부. 목업 결과로 대체해 보여준다. */
   isError: boolean;
+  /** 조사가 아직 도는 중이면 진행 상황 한 줄. 끝났으면 undefined. */
+  progressLabel: string | undefined;
   /** 수정안 반영 중인 Task id. 버튼을 잠그는 데 쓴다. */
   processingTaskId: number | null;
   /** 반영·확인에 실패했을 때 담당자에게 보일 문구. */
@@ -280,6 +310,9 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     queryKey,
     queryFn: () => getJobResult(jobId),
     retry: false,
+    /* 조사가 도는 동안만 다시 물어본다. 끝나면 false 라 더 부르지 않는다. */
+    refetchInterval: (query) =>
+      isRunning(query.state.data?.status) ? POLL_INTERVAL_MS : false,
   });
 
   /*
@@ -311,6 +344,7 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     groups,
     isPending,
     isError,
+    progressLabel: progressLabelOf(isError ? undefined : data),
     processingTaskId: mutation.isPending ? mutation.variables.taskId : null,
     actionErrorMessage,
     applyChanges,

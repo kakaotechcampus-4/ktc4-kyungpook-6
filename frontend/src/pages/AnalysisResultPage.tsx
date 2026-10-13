@@ -41,6 +41,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
     groups,
     isPending,
     isError,
+    progressLabel,
     processingTaskId,
     actionErrorMessage,
     applyChanges,
@@ -91,6 +92,12 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
         {isError && (
           <p role="status" className="px-3.5 pt-3.5 text-sm text-[#64748b]">
             조사 결과를 불러오지 못해 목업 데이터를 표시합니다.
+          </p>
+        )}
+
+        {progressLabel && (
+          <p role="status" className="px-3.5 pt-3.5 text-sm text-[#475569]">
+            {progressLabel}
           </p>
         )}
 
