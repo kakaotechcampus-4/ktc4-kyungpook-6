@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import MockupDataPage from "./pages/MockupDataPage";
 import AnalysisResultPage from "./pages/AnalysisResultPage";
 import LoginPage from "./pages/LoginPage";
+import OwnerApprovalPage from "./pages/OwnerApprovalPage";
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
         {/* jobId가 없으면 가장 최근 조사 결과를 본다. */}
         <Route path="/analysis" element={<AnalysisResultPage />} />
         <Route path="/analysis/:jobId" element={<AnalysisResultPage />} />
+        <Route path="/owners" element={<OwnerApprovalPage />} />
       </Routes>
     </BrowserRouter>
   );
