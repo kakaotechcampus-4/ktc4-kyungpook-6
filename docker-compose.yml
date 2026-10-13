@@ -28,6 +28,13 @@ services:
       DB_USERNAME: ${DB_USERNAME:-ktc4}
       DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      # AI 조사 서버 주소. **기본값을 여기서 주지 않으면 조사가 한 건도 안 된다** —
+      # application.yml 의 기본값은 http://localhost:8000 이고, 컨테이너 안에서 localhost 는
+      # 백엔드 자기 자신이라 AI 에 닿지 않는다(아래 ai 서비스 주석과 같은 주소를 쓴다).
+      AI_BASE_URL: ${AI_BASE_URL:-http://ai:8000}
+      # AI 가 X-API-KEY 로 확인하는 키. 백엔드도 AI 를 부를 때 같은 키를 싣는다.
+      # 비우면 AI 쪽 검사가 꺼지므로 로컬에서는 없어도 돈다.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
