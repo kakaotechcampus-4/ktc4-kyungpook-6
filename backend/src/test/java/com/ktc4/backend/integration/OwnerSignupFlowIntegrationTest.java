@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * </pre>
  * 끝에 다른 신청자의 가입 거절도 확인한다 — 거절된 신청자는 로그인도, 승인도, 가게 연결도 되지 않는다.
  *
- * <p>관리자 계정은 실제 운영과 같은 경로(기동 시 환경변수)로 만든다. 권한 검사 스위치를 켜서 실제 규칙으로 돈다.
+ * <p>관리자 계정은 실제 운영과 같은 경로(기동 시 환경변수)로 만든다. 권한 검사도 실제 규칙으로 돈다.
  * {@code @SpringBootTest} 는 롤백하지 않으므로 끝나면 회원 테이블을 비운다 — 같은 컨테이너를 쓰는 다른 테스트가
  * 빈 테이블을 전제하기 때문이다. 계정 정보는 모두 가짜 값이다.
  */
@@ -60,7 +60,6 @@ class OwnerSignupFlowIntegrationTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("auth.enforce", () -> "true");
         registry.add("auth.admin.email", () -> ADMIN_EMAIL);
         registry.add("auth.admin.password", () -> ADMIN_PASSWORD);
     }
