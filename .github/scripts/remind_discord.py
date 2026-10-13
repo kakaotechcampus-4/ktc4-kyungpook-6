@@ -53,21 +53,30 @@ NO_REVIEW_SECOND_HOURS = 4   # 2차 독촉 — 작성자도 같이 부른다
 # 이쪽이 더 막힌 상태라, 여기서만 테크리더를 부른다.
 NO_REVIEWER_HOURS = 2
 # 1·4시간 독촉을 지나고도 리뷰가 없으면 그 뒤로는 아무 말이 없었다 — 실제로 24시간·19시간째
-# 리뷰 0건인 PR 이 생겼다(2026-10-07). 그래서 **하루 한 번 정해진 시각에** 다시 부른다.
+# 리뷰 0건인 PR 이 생겼다(2026-10-07). 그래서 **정해진 시각마다** 다시 부른다.
 #
 # 처음에는 "24시간을 넘긴 건" 만 봤는데, 그러면 2차 독촉과 이 알림 사이가 통째로 빈다.
 # 밤에 올라온 PR 은 그 구멍이 하루를 넘긴다 — 21:52 에 올라온 PR 은 2차 독촉(조용한 시간이라
 # 08:00 으로 밀림) 다음 알림이 **36시간째**(이틀 뒤 10:00)였다. 그 사이 10:00 에는 열린 지
 # 12시간이라 24시간 조건에 걸리지 않아 그날이 통째로 조용했다(2026-10-13, 스크립트를 그대로
-# 돌려 확인). 그래서 **2차 독촉을 지났는데도 리뷰가 0건이면** 매일 부른다.
-#
-# 매번 보지 않는 이유 — 하루 종일 같은 PR 로 울리면 알림이 무뎌진다. 하루 한 번이면
-# 그 PR 당 정확히 한 번이라 중복도 없다.
+# 돌려 확인). 그래서 **2차 독촉을 지났는데도 리뷰가 0건이면** 그 뒤로 계속 부른다.
 #
 # STALE_REVIEW_HOURS 는 이제 "부를지 말지" 가 아니라 **말투를 가르는 선**이다
 # (넘겼으면 기한 초과, 아직이면 그냥 알림). 팀 규칙은 "리뷰 기한 PR 작성 후 24시간".
 STALE_REVIEW_HOURS = 24
-STALE_CHECK_HOUR = 10   # KST. 조용한 시간 밖이라 따로 밀 필요가 없다
+
+# 리뷰가 없는 동안 **하루에 몇 번** 부를 것인가 (KST). 조용한 시간 밖이라 따로 밀 필요가 없다.
+#
+# 처음에는 10:00 하루 한 번이었는데 그걸로는 모자랐다. 우리 PR 사이클은 3일이고 **PR 이
+# 마감 몇 시간 전에 올라오는 일이 잦다.** 하루 한 번이면 그런 PR 은 리뷰어가 한 번 놓친 뒤
+# 반나절을 통째로 기다린다 — 사이클 안에 리뷰가 들어올 자리가 없어진다.
+#
+# 그래서 깨어 있는 시간을 4시간 간격으로 끊는다. 2차 독촉(4시간)과 같은 리듬이라
+# "리뷰가 없으면 4시간마다" 하나로 설명된다. 22:00 다음은 조용한 시간을 지나 10:00 이다.
+STALE_CHECK_HOURS = (10, 14, 18, 22)
+# 직전 독촉과 이만큼은 떨어뜨린다. 조용한 시간에 4시간을 넘긴 건은 2차가 08:00 으로 밀리는데,
+# 그러면 10:00 슬롯과 2시간밖에 안 떨어져 같은 PR 로 연달아 두 번 울린다.
+STALE_MIN_GAP_HOURS = 3
 
 # 승인됐는데 머지되지 않고 이만큼 지나면 알린다 (시간)
 APPROVED_UNMERGED_HOURS = 6
@@ -253,22 +262,23 @@ def slot_due(now: datetime, hour: int, weekday: int | None = None) -> bool:
 
 
 def stale_nudge_due(created: datetime, now: datetime, opened_hours: float) -> bool:
-    """하루 한 번 "아직 리뷰가 없다"를 보낼 차례인가. **시각 조건만** 본다.
+    """"아직 리뷰가 없다"를 다시 보낼 차례인가. **시각 조건만** 본다.
 
-    "리뷰 0건" 과 10:00 슬롯은 호출부가 본다. 여기서 보는 건 둘이다.
+    "리뷰 0건" 과 슬롯(STALE_CHECK_HOURS)은 호출부가 본다. 여기서 보는 건 둘이다.
 
     1. **2차 독촉을 지났는가.** 예전에는 24시간을 넘긴 건만 봤는데, 그러면 2차 독촉과
        이 알림 사이가 통째로 빈다. 13:00 에 올라온 PR 은 2차(17:00) 다음 알림이
        **다음다음 날 10:00**(45시간째)이었다 — 그 사이 10:00 에는 21시간째라 24시간 조건에
        걸리지 않았다.
-    2. **그날 2차가 이미 울리지 않았는가.** 조용한 시간에 4시간을 넘긴 건은 08:00 으로
+    2. **2차 독촉과 너무 붙지 않는가.** 조용한 시간에 4시간을 넘긴 건은 2차가 08:00 으로
        밀리는데, 막지 않으면 08:00·10:00 에 같은 PR 로 두 번 울린다. 두 알림은 서로 다른
-       실행에서 나가므로 한 실행 안에서만 보면 못 막는다. 그래서 날짜로 본다.
+       실행에서 나가므로 한 실행 안에서만 보면 못 막는다. 그래서 **2차가 실제로 나간 시각**
+       (`wake_at`)에서 얼마나 지났는지로 본다 — 날짜로 끊으면 그날 남은 슬롯까지 같이 죽는다.
     """
     if opened_hours < NO_REVIEW_SECOND_HOURS:
         return False
     second_wake = wake_at(created + timedelta(hours=NO_REVIEW_SECOND_HOURS))
-    return second_wake.astimezone(KST).date() != now.astimezone(KST).date()
+    return now - second_wake >= timedelta(hours=STALE_MIN_GAP_HOURS)
 
 
 def latest_review_state(reviews: list[dict]) -> str | None:
@@ -377,13 +387,13 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "mention": dm.mentions(assigned + [pr["user"]["login"]]),
                 })
 
-        # 리뷰가 아직 없는 PR 을 **하루 한 번** 다시 부른다.
+        # 리뷰가 아직 없는 PR 을 **깨어 있는 시간 동안 4시간마다** 다시 부른다.
         #
         # 리뷰어가 있든 없든 본다 — 리뷰어가 없는 채로 묵은 PR 이 더 나쁜 상태인데,
         # 그쪽은 2시간 독촉 뒤로 아무 말이 없었다.
         #
         # 보낼 차례인지는 stale_nudge_due 가 판정한다(그 함수 주석에 이유가 있다).
-        if (not reviews and slot_due(now, STALE_CHECK_HOUR)
+        if (not reviews and any(slot_due(now, h) for h in STALE_CHECK_HOURS)
                 and stale_nudge_due(created, now, opened_hours)):
             overdue = opened_hours >= STALE_REVIEW_HOURS
             # 일수를 머리말에 넣지 않는다. cron 이 불규칙해서 하루 독촉이 18시간 간격으로
