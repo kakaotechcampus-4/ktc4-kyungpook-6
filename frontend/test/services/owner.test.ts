@@ -6,6 +6,7 @@ import {
   getStoreCandidates,
   linkStore,
   rejectOwner,
+  reopenOwner,
   unlinkStore,
 } from '../../src/services/owner';
 import { deleteRequest, getRequest, postRequest } from '../../src/services/api';
@@ -67,6 +68,12 @@ describe('승인·거절', () => {
     expect(postRequest).toHaveBeenCalledWith('/api/admin/owners/3/approve', {
       storeId: 123,
     });
+  });
+
+  it('되돌리기는 /reopen 으로 보낸다 — 거절된 신청만 되돌릴 수 있다', () => {
+    reopenOwner(3);
+
+    expect(postRequest).toHaveBeenCalledWith('/api/admin/owners/3/reopen', undefined);
   });
 
   it('거절은 본문이 없다', () => {

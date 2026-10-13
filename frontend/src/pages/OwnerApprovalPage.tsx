@@ -48,13 +48,14 @@ type AppProps = {
   onApprove: (storeId: number) => void;
   onReject: () => void;
   onDetach: (storeId: number) => void;
+  onReopen: () => void;
 };
 
 /**
  * 가입 신청 한 건.
  *
- * 승인 대기만 펼쳐서 처리할 수 있다. 이미 처리한 신청은 되돌릴 방법이 서버에 없어서
- * (거절을 취소하는 API 가 없다) 버튼을 아예 두지 않는다 — 눌러도 409 만 나는 버튼은
+ * 상태마다 할 수 있는 일이 다르다. 대기는 승인·거절, 승인됨은 연결된 가게 보기·끊기,
+ * 거절됨은 되돌리기다. <b>할 수 없는 일에는 버튼을 두지 않는다</b> — 눌러도 409 만 나는 버튼은
  * 담당자에게 "할 수 있다" 는 잘못된 신호다.
  */
 function ApplicationCard({
@@ -65,9 +66,11 @@ function ApplicationCard({
   onApprove,
   onReject,
   onDetach,
+  onReopen,
 }: AppProps) {
   const pending = application.status === 'PENDING';
   const approved = application.status === 'APPROVED';
+  const rejected = application.status === 'REJECTED';
 
   return (
     <article className="flex w-full flex-col gap-3 rounded-lg border border-solid border-[#e2e8f0] p-3">
@@ -160,6 +163,22 @@ function ApplicationCard({
           ) : null}
         </div>
       ) : null}
+
+      {/*
+        거절을 되돌린다. 거절된 계정은 로그인도 재가입도 안 되므로, 되돌리지 못하면
+        손이 미끄러진 한 번이 그 점주의 가입을 영영 막는다.
+      */}
+      {rejected ? (
+        <button
+          type="button"
+          onClick={onReopen}
+          disabled={isProcessing}
+          className="flex h-10 w-full items-center justify-center gap-1 rounded-lg border border-solid border-[#e2e8f0] font-sans text-sm font-semibold leading-5 text-[#1e293b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#64748b] disabled:opacity-50"
+        >
+          <Icon icon="lucide:rotate-ccw" className="size-4 shrink-0" />
+          승인 대기로 되돌리기
+        </button>
+      ) : null}
     </article>
   );
 }
@@ -186,6 +205,7 @@ function OwnerApprovalPage({ className, ...props }: OwnerApprovalPageProps) {
     approve,
     reject,
     detachStore,
+    reopen,
   } = useOwnerApprovalPage();
 
   const rows = applications?.content ?? [];
@@ -263,6 +283,7 @@ function OwnerApprovalPage({ className, ...props }: OwnerApprovalPageProps) {
                 onApprove={(storeId) => approve(application.memberId, storeId)}
                 onReject={() => reject(application.memberId)}
                 onDetach={(storeId) => detachStore(application.memberId, storeId)}
+                onReopen={() => reopen(application.memberId)}
               />
             ))
           )}

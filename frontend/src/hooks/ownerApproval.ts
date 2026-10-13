@@ -6,6 +6,7 @@ import {
   getOwnerApplications,
   getStoreCandidates,
   rejectOwner,
+  reopenOwner,
   unlinkStore,
 } from '../services/owner';
 import type { MemberStatus } from '../services/owner';
@@ -34,6 +35,8 @@ export type UseOwnerApprovalPageResult = {
   reject: (memberId: number) => void;
   /** 연결 끊기. 행을 지우지 않고 끊은 사람·시각을 남기며 체크인 권한만 사라진다. */
   detachStore: (memberId: number, storeId: number) => void;
+  /** 잘못 거절한 신청을 다시 승인 대기로 되돌린다. */
+  reopen: (memberId: number) => void;
 };
 
 function useApplications(status: MemberStatus) {
@@ -98,7 +101,12 @@ export function useOwnerApprovalPage(): UseOwnerApprovalPageResult {
       memberId: number;
       storeId?: number;
       detach?: boolean;
+      reopen?: boolean;
     }): Promise<void> => {
+      if (input.reopen) {
+        await reopenOwner(input.memberId);
+        return;
+      }
       if (input.detach) {
         await unlinkStore(input.memberId, input.storeId as number);
         return;
@@ -139,5 +147,6 @@ export function useOwnerApprovalPage(): UseOwnerApprovalPageResult {
     reject: (memberId) => mutation.mutate({ memberId }),
     detachStore: (memberId, storeId) =>
       mutation.mutate({ memberId, storeId, detach: true }),
+    reopen: (memberId) => mutation.mutate({ memberId, reopen: true }),
   };
 }

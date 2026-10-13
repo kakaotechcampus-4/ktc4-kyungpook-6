@@ -108,6 +108,18 @@ export const rejectOwner = async (memberId: number) =>
     undefined,
   );
 
+/**
+ * 잘못 거절한 신청을 다시 승인 대기로 되돌린다.
+ *
+ * 거절된 계정은 로그인할 수 없고 같은 이메일로 다시 가입할 수도 없어서, 손이 미끄러진 한 번이
+ * 그 점주의 가입을 영영 막았다(PROMPT-150). 거절된 신청만 되돌릴 수 있고 그 밖에는 409 다.
+ */
+export const reopenOwner = async (memberId: number) =>
+  postRequest<OwnerApplicationResponse>(
+    `/api/admin/owners/${memberId}/reopen`,
+    undefined,
+  );
+
 /** 승인된 점주에게 가게를 하나 더 연결한다. */
 export const linkStore = async (memberId: number, storeId: number) =>
   postRequest<void>(`/api/admin/owners/${memberId}/stores/${storeId}`, undefined);
