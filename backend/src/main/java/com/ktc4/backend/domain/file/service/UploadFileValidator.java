@@ -57,10 +57,11 @@ public final class UploadFileValidator {
      *
      * @param kind 파일의 종류
      * @param file 올라온 파일
+     * @return 파일 앞부분으로 가린 실제 형식
      * @throws CustomException 빈 파일이면 {@code EMPTY_FILE}, 종류별 크기를 넘으면 {@code FILE_TOO_LARGE},
      *                         받지 않는 형식이면 {@code UNSUPPORTED_FILE_TYPE}
      */
-    public static void validate(UploadKind kind, MultipartFile file) {
+    public static FileType validate(UploadKind kind, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             log.info("업로드 거절 - 빈 파일, kind={}", kind);
             throw new CustomException(ErrorCode.EMPTY_FILE);
@@ -74,6 +75,7 @@ public final class UploadFileValidator {
             log.info("업로드 거절 - 받지 않는 형식, kind={}, detected={}", kind, type);
             throw new CustomException(ErrorCode.UNSUPPORTED_FILE_TYPE);
         }
+        return type;
     }
 
     private static byte[] readHead(MultipartFile file) {

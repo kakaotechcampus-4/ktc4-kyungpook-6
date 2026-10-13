@@ -125,14 +125,14 @@ class SignupRateLimitFilterTest {
         @DisplayName("거절된 요청은 컨트롤러에 닿지 않는다 — 본문(사진·서류)을 읽기 전에 막는다")
         void rejectedRequestNeverReachesController() throws Exception {
             // 서비스가 거절하는 가입(성공이 아님) — 하루 성공 수가 아니라 시도 횟수에 걸리게 한다
-            when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
+            when(authService.signupOwner(any(), any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
 
             for (int i = 0; i < 5; i++) {
                 mockMvc.perform(signupFrom("203.0.113.20", VALID_DATA));
             }
 
             // 다섯 번 보냈지만 서비스까지 간 것은 한도인 세 번뿐이다
-            verify(authService, times(3)).signupOwner(any());
+            verify(authService, times(3)).signupOwner(any(), any());
         }
 
         @Test
@@ -202,7 +202,7 @@ class SignupRateLimitFilterTest {
             mockMvc.perform(signupFrom("203.0.113.70", VALID_DATA))
                     .andExpect(status().isTooManyRequests())
                     .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
-            verify(authService, times(2)).signupOwner(any());
+            verify(authService, times(2)).signupOwner(any(), any());
         }
 
         @Test

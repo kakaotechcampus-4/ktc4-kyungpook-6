@@ -354,7 +354,7 @@ class AuthControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
 
-        verify(authService, never()).signupOwner(any());
+        verify(authService, never()).signupOwner(any(), any());
     }
 
     @Test
@@ -364,7 +364,7 @@ class AuthControllerTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_MEDIA_TYPE.getType().toString()));
 
-        verify(authService, never()).signupOwner(any());
+        verify(authService, never()).signupOwner(any(), any());
     }
 
     @Test
@@ -376,7 +376,7 @@ class AuthControllerTest {
         mockMvc.perform(multipart(SIGNUP_URL).file(untyped).file(jpeg("storeImage")).file(pdf("bizCert")))
                 .andExpect(status().isUnsupportedMediaType());
 
-        verify(authService, never()).signupOwner(any());
+        verify(authService, never()).signupOwner(any(), any());
     }
 
     @Test
@@ -396,7 +396,7 @@ class AuthControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_FILE_TYPE.getType().toString()));
 
-        verify(authService, never()).signupOwner(any());
+        verify(authService, never()).signupOwner(any(), any());
     }
 
     @Test
@@ -415,7 +415,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.type").value(ErrorCode.FILE_TOO_LARGE.getType().toString()))
                 .andExpect(jsonPath("$.title").value(ErrorCode.FILE_TOO_LARGE.getTitle()));
 
-        verify(authService, never()).signupOwner(any());
+        verify(authService, never()).signupOwner(any(), any());
     }
 
     @Test
@@ -473,7 +473,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("휴대폰 번호 형식이 아니면 400 invalid-phone")
     void mapsInvalidPhone() throws Exception {
-        when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
+        when(authService.signupOwner(any(), any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
 
         mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
                                 "053-000-0000")))
@@ -508,7 +508,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("가입 신청은 201 과 승인 대기 상태, 가입 상태 확인용 토큰을 돌려준다")
     void signupReturnsCreatedPending() throws Exception {
-        when(authService.signupOwner(any())).thenReturn(new OwnerSignupResponse(
+        when(authService.signupOwner(any(), any())).thenReturn(new OwnerSignupResponse(
                 3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
                 "issued-status-token", "Bearer", Instant.parse("2026-10-16T03:00:00Z")));
 
@@ -627,7 +627,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("이미 가입된 이메일이면 409 duplicate-email")
     void mapsDuplicateEmail() throws Exception {
-        when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.DUPLICATE_EMAIL));
+        when(authService.signupOwner(any(), any())).thenThrow(new CustomException(ErrorCode.DUPLICATE_EMAIL));
 
         mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동")))
                 .andExpect(status().isConflict())

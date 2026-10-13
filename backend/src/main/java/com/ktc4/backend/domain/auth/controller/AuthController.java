@@ -6,6 +6,7 @@ import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.auth.service.AuthService;
+import com.ktc4.backend.domain.file.dto.SignupFiles;
 import com.ktc4.backend.domain.file.service.UploadFileValidator;
 import com.ktc4.backend.global.error.ApiProblemDetail;
 import com.ktc4.backend.global.security.AuthMember;
@@ -104,7 +105,9 @@ public class AuthController {
                       `new Blob([JSON.stringify(data)], { type: "application/json" })` 로 싣습니다.
                     - 글자 정보의 형식 오류가 파일 오류보다 먼저 나갑니다.
 
-                    ⚠️ 파일도 아직 저장하지 않습니다(검증만 합니다). 저장은 다음 배포부터입니다.
+                    파일은 가입 신청과 함께 저장되고, 관리자가 신청을 검토할 때 봅니다
+                    (`GET /api/admin/owners/{memberId}/files`). 보낸 파일 이름은 저장하지 않습니다.
+                    사업자등록증은 관리자만 볼 수 있습니다.
 
                     같은 곳(IPv4 는 주소 하나, IPv6 는 /64 대역)에서 10분에 10번 넘게 보내거나(성공·실패를 가리지 않고 셉니다)
                     하루에 5건 넘게 가입에 성공하면 429 `too-many-requests` 입니다.
@@ -146,9 +149,10 @@ public class AuthController {
             @Parameter(description = "메뉴 사진 (0~2장)")
             @RequestPart(value = "menuImages", required = false) List<MultipartFile> menuImages,
             @Parameter(description = "사업자등록증 (PDF)") @RequestPart("bizCert") MultipartFile bizCert) {
-        // 글자 정보(@Valid)를 먼저 보고 파일을 본다. 파일은 아직 저장하지 않는다 — 저장이 붙으면 이 확인도 서비스로 옮긴다.
+        // 글자 정보(@Valid)를 먼저 보고 파일을 본다. 파일 확인을 여기서 하는 이유: 받을 수 없는 파일이면
+        // DB 를 읽기도 전에 거절한다. 저장하는 쪽도 형식을 다시 가리므로 이 확인이 빠져도 잘못된 형식으로 저장되지는 않는다.
         UploadFileValidator.validateSignupFiles(storeImage, menuImages, bizCert);
-        return authService.signupOwner(request);
+        return authService.signupOwner(request, new SignupFiles(storeImage, menuImages, bizCert));
     }
 
     @Operation(summary = "내 정보 조회", description = """

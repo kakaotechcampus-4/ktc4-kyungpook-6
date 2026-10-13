@@ -51,6 +51,7 @@ public enum ErrorCode {
     UNSUPPORTED_FILE_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 파일 형식입니다"),
     TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "파일 개수가 너무 많습니다"),
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "파일이 너무 큽니다"),
+    FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다"),
 
     // 가입 신청 남용 방어. TOO_MANY_REQUESTS 는 컨트롤러에 닿기 전 필터가 직접 응답한다.
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요"),

@@ -6,6 +6,8 @@ import com.ktc4.backend.domain.auth.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
+import com.ktc4.backend.domain.file.dto.SignupFiles;
+import com.ktc4.backend.domain.file.service.UploadFileService;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.enums.MemberRole;
@@ -43,16 +45,19 @@ public class AuthService {
     private final StoreOwnerRepository storeOwnerRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final UploadFileService uploadFileService;
 
     // 없는 이메일일 때도 비밀번호 비교를 한 번 해서, 응답 시간 차이로 가입 여부를 알아내지 못하게 한다.
     private final String dummyPasswordHash;
 
     public AuthService(MemberRepository memberRepository, StoreOwnerRepository storeOwnerRepository,
-                       PasswordEncoder passwordEncoder, JwtProvider jwtProvider) {
+                       PasswordEncoder passwordEncoder, JwtProvider jwtProvider,
+                       UploadFileService uploadFileService) {
         this.memberRepository = memberRepository;
         this.storeOwnerRepository = storeOwnerRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
+        this.uploadFileService = uploadFileService;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-timing");
     }
 
@@ -96,7 +101,10 @@ public class AuthService {
      * <p>가입 상태 확인용 토큰을 함께 준다. 신청자가 승인됐는지 보려고 비밀번호로 로그인을 되풀이하지 않게 하기 위해서다.
      * 이 토큰으로는 자기 가입 상태만 읽을 수 있고, 승인된 뒤에도 접근 토큰으로 바뀌지 않는다 — 로그인해야 한다.
      *
+     * <p>함께 온 사진·사업자등록증도 저장한다. 계정과 파일은 함께 남거나 함께 남지 않는다.
+     *
      * @param request 이메일·비밀번호·사업자 정보·휴대폰 번호
+     * @param files   가게 대표 사진·메뉴 사진·사업자등록증. 받아도 되는 파일인지는 컨트롤러가 먼저 확인한다
      * @return 만들어진 계정(승인 대기)과 가입 상태 확인용 토큰
      * @throws CustomException 비밀번호가 72바이트를 넘으면 {@code PASSWORD_TOO_LONG},
      *                         사업자등록번호가 10자리가 아니면 {@code INVALID_BIZ_NO},
@@ -105,7 +113,7 @@ public class AuthService {
      *                         승인 대기 신청이 너무 많이 쌓였으면 {@code SIGNUP_TEMPORARILY_CLOSED}
      */
     @Transactional
-    public OwnerSignupResponse signupOwner(OwnerSignupRequest request) {
+    public OwnerSignupResponse signupOwner(OwnerSignupRequest request, SignupFiles files) {
         if (request.password().getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
             throw new CustomException(ErrorCode.PASSWORD_TOO_LONG);
         }
@@ -133,9 +141,9 @@ public class AuthService {
 
         Member applicant = Member.ownerApplicant(email, passwordEncoder.encode(request.password()),
                 new OwnerInfo(bizNo, request.storeName().strip(), request.representativeName().strip(), phone));
+        Member saved;
         try {
-            Member saved = memberRepository.saveAndFlush(applicant);
-            return OwnerSignupResponse.of(saved, jwtProvider.issueSignupStatus(saved.getMemberId()));
+            saved = memberRepository.saveAndFlush(applicant);
         } catch (DataIntegrityViolationException e) {
             // 위 확인과 저장 사이에 같은 이메일로 동시에 가입한 경우. 이메일 유니크 제약이 최종 방어선이다.
             // 다른 제약 위반까지 "이미 가입된 이메일"로 바꾸면 원인을 잃으므로 그대로 던진다.
@@ -144,6 +152,10 @@ public class AuthService {
             }
             throw e;
         }
+        // 파일은 계정이 저장된 뒤에 쓴다 — 중복 이메일처럼 흔한 거절에 디스크를 쓰지 않는다.
+        // 파일 저장이 실패하면 이 트랜잭션이 되돌아가 계정도 남지 않고, 디스크에 쓴 파일은 저장하는 쪽이 치운다.
+        uploadFileService.storeSignupFiles(saved, files);
+        return OwnerSignupResponse.of(saved, jwtProvider.issueSignupStatus(saved.getMemberId()));
     }
 
     // 원인 사슬에서 Hibernate 가 알려준 제약 이름을 찾는다. 이름이 바뀌면 이 구분이 조용히 무너지므로

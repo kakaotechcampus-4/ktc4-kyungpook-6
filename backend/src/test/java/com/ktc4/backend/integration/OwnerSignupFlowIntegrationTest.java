@@ -2,6 +2,7 @@ package com.ktc4.backend.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ktc4.backend.domain.file.repository.UploadFileRepository;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.domain.store.entity.Store;
@@ -22,11 +23,20 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
+import static com.ktc4.backend.support.SignupMultipart.pdf;
 import static com.ktc4.backend.support.SignupMultipart.signupRequest;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -64,7 +74,22 @@ class OwnerSignupFlowIntegrationTest {
         registry.add("auth.enforce", () -> "true");
         registry.add("auth.admin.email", () -> ADMIN_EMAIL);
         registry.add("auth.admin.password", () -> ADMIN_PASSWORD);
+        // 가입하면 파일이 실제로 디스크에 쓰인다. 프로젝트 폴더가 아니라 임시 폴더에 쓰게 한다
+        registry.add("upload.dir", UPLOAD_DIR::toString);
     }
+
+    private static final Path UPLOAD_DIR = newTempDir();
+
+    private static Path newTempDir() {
+        try {
+            return Files.createTempDirectory("ktc4-upload-test");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    @Autowired
+    private UploadFileRepository uploadFileRepository;
 
     @Autowired
     private MockMvc mockMvc;
@@ -82,8 +107,9 @@ class OwnerSignupFlowIntegrationTest {
 
     @AfterEach
     void cleanUp() {
-        // 연결이 회원·가게를 가리키므로 연결부터 지운다
+        // 연결이 회원·가게를 가리키므로 연결부터 지운다. 파일 기록도 회원을 가리킨다
         storeOwnerRepository.deleteAll();
+        uploadFileRepository.deleteAll();
         memberRepository.deleteAll();
         storeRepository.deleteAllById(createdStoreIds);
     }
@@ -166,6 +192,34 @@ class OwnerSignupFlowIntegrationTest {
         mockMvc.perform(post("/api/admin/owners/" + ownerId + "/approve").header(HttpHeaders.AUTHORIZATION, statusToken)
                         .contentType(MediaType.APPLICATION_JSON).content(storeIdBody(myStoreId)))
                 .andExpect(status().isForbidden());
+
+        // 1-2. 가입과 함께 올린 파일이 저장됐다 — 관리자는 목록을 보고 열 수 있고, 신청자 본인의 토큰으로는 열 수 없다
+        String filesAdmin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        String filesBody = mockMvc.perform(get("/api/admin/owners/" + ownerId + "/files")
+                        .header(HttpHeaders.AUTHORIZATION, filesAdmin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].kind").value("STORE_IMAGE"))
+                .andExpect(jsonPath("$[0].fileType").value("JPEG"))
+                .andExpect(jsonPath("$[1].kind").value("BIZ_CERT"))
+                .andExpect(jsonPath("$[1].fileType").value("PDF"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        long bizCertId = JSON.readTree(filesBody).get(1).get("fileId").asLong();
+        mockMvc.perform(get("/api/admin/files/" + bizCertId).header(HttpHeaders.AUTHORIZATION, filesAdmin))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
+                        org.hamcrest.Matchers.startsWith("attachment")))
+                .andExpect(content().bytes(pdf("bizCert").getBytes()));
+        mockMvc.perform(get("/api/admin/files/" + bizCertId).header(HttpHeaders.AUTHORIZATION, statusToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/files/" + bizCertId)).andExpect(status().isUnauthorized());
+        // 디스크에는 서버가 지은 이름으로 두 개가 있다
+        try (Stream<Path> stored = Files.list(UPLOAD_DIR)) {
+            assertThat(stored.map(path -> path.getFileName().toString()))
+                    .hasSize(2)
+                    .allMatch(name -> name.matches("[0-9a-f-]{36}\\.(jpg|pdf)"));
+        }
 
         // 2. 승인 전 로그인 → 403 승인 대기
         mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)

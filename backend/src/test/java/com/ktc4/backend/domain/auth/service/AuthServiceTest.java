@@ -6,6 +6,8 @@ import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
+import com.ktc4.backend.domain.file.dto.SignupFiles;
+import com.ktc4.backend.domain.file.service.UploadFileService;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,6 +35,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -39,11 +44,15 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
+import static com.ktc4.backend.support.SignupMultipart.jpeg;
+import static com.ktc4.backend.support.SignupMultipart.pdf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -66,6 +75,13 @@ class AuthServiceTest {
     @Mock
     private StoreOwnerRepository storeOwnerRepository;
 
+    // 파일을 실제로 쓰는 것은 UploadFileServiceTest 가 본다. 여기서는 언제 부르는지만 본다
+    @Mock
+    private UploadFileService uploadFileService;
+
+    // 가입 신청에 함께 온 파일. 내용은 형식만 맞춘 가짜다
+    private static final SignupFiles FILES = new SignupFiles(jpeg("storeImage"), List.of(), pdf("bizCert"));
+
     private JwtProvider jwtProvider;
     private AuthService authService;
 
@@ -73,7 +89,7 @@ class AuthServiceTest {
     void setUp() {
         jwtProvider = new JwtProvider("test-only-jwt-secret-at-least-32-bytes-long",
                 Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC));
-        authService = new AuthService(memberRepository, storeOwnerRepository, ENCODER, jwtProvider);
+        authService = new AuthService(memberRepository, storeOwnerRepository, ENCODER, jwtProvider, uploadFileService);
     }
 
     // 점주 가입 기능이 아직 없어 관리자로 만든 뒤 역할·상태를 바꿔 쓴다.
@@ -244,7 +260,7 @@ class AuthServiceTest {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890", phone));
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890", phone), FILES);
 
         ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).saveAndFlush(saved.capture());
@@ -255,7 +271,7 @@ class AuthServiceTest {
     @ValueSource(strings = {"053-000-0000", "010-0000", "012-0000-0000", "전화없음", "010-0000-0000-0"})
     @DisplayName("휴대폰 번호 형식이 아니면 INVALID_PHONE 이고 저장하지 않는다 — 매장 전화, 자릿수 부족, 없는 앞자리")
     void rejectsInvalidPhone(String phone) {
-        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890", phone))))
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890", phone), FILES)))
                 .isEqualTo(ErrorCode.INVALID_PHONE);
         verify(memberRepository, never()).saveAndFlush(any());
     }
@@ -266,7 +282,7 @@ class AuthServiceTest {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OwnerSignupResponse response = authService.signupOwner(signup(" Owner@Example.com ", PASSWORD, "123-45-67890"));
+        OwnerSignupResponse response = authService.signupOwner(signup(" Owner@Example.com ", PASSWORD, "123-45-67890"), FILES);
 
         ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).saveAndFlush(saved.capture());
@@ -292,7 +308,7 @@ class AuthServiceTest {
             return saved;
         });
 
-        OwnerSignupResponse response = authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"));
+        OwnerSignupResponse response = authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES);
 
         assertThat(response.memberId()).isEqualTo(3L);
         assertThat(response.tokenType()).isEqualTo("Bearer");
@@ -307,7 +323,7 @@ class AuthServiceTest {
     void appliedOwnerCannotLoginUntilApproved() {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"));
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES);
         ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).saveAndFlush(saved.capture());
         givenMember(saved.getValue());
@@ -321,9 +337,54 @@ class AuthServiceTest {
     void rejectsDuplicateEmail() {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(true);
 
-        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES)))
                 .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
         verify(memberRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("가입 신청과 함께 온 파일을 저장한다 — 계정이 저장된 뒤에, 그 계정의 것으로")
+    void storesFilesAfterSavingMember() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES);
+
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        InOrder order = inOrder(memberRepository, uploadFileService);
+        order.verify(memberRepository).saveAndFlush(saved.capture());
+        order.verify(uploadFileService).storeSignupFiles(saved.getValue(), FILES);
+    }
+
+    @Test
+    @DisplayName("가입이 거절되면 파일을 저장하지 않는다 — 중복 이메일, 틀린 사업자번호, 가입이 닫힌 경우")
+    void doesNotStoreFilesWhenSignupIsRejected() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(true);
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES)))
+                .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
+
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "123-45-678"), FILES)))
+                .isEqualTo(ErrorCode.INVALID_BIZ_NO);
+
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.countByRoleAndStatus(MemberRole.OWNER, MemberStatus.PENDING))
+                .thenReturn((long) AuthService.MAX_PENDING_APPLICATIONS);
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES)))
+                .isEqualTo(ErrorCode.SIGNUP_TEMPORARILY_CLOSED);
+
+        verifyNoInteractions(uploadFileService);
+    }
+
+    @Test
+    @DisplayName("파일 저장이 실패하면 그 실패를 그대로 던진다 — 트랜잭션이 되돌아가 계정도 남지 않는다")
+    void propagatesFileStorageFailure() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        UncheckedIOException diskFailure = new UncheckedIOException(new IOException("disk full"));
+        doThrow(diskFailure).when(uploadFileService).storeSignupFiles(any(), any());
+
+        assertThat(catchThrowable(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES)))
+                .isSameAs(diskFailure);
     }
 
     @Test
@@ -334,13 +395,13 @@ class AuthServiceTest {
         when(memberRepository.countByRoleAndStatus(MemberRole.OWNER, MemberStatus.PENDING))
                 .thenReturn((long) AuthService.MAX_PENDING_APPLICATIONS - 1);
 
-        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"));
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES);
         verify(memberRepository).saveAndFlush(any());
 
         when(memberRepository.countByRoleAndStatus(MemberRole.OWNER, MemberStatus.PENDING))
                 .thenReturn((long) AuthService.MAX_PENDING_APPLICATIONS);
 
-        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES)))
                 .isEqualTo(ErrorCode.SIGNUP_TEMPORARILY_CLOSED);
         verify(memberRepository).saveAndFlush(any());   // 여전히 한 번뿐 — 두 번째는 저장하지 않았다
     }
@@ -351,7 +412,7 @@ class AuthServiceTest {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenThrow(violationOf(Member.EMAIL_UNIQUE_CONSTRAINT));
 
-        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES)))
                 .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
     }
 
@@ -362,7 +423,7 @@ class AuthServiceTest {
         DataIntegrityViolationException other = violationOf("some_other_constraint");
         when(memberRepository.saveAndFlush(any())).thenThrow(other);
 
-        assertThat(catchThrowable(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+        assertThat(catchThrowable(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"), FILES)))
                 .isSameAs(other);
     }
 
@@ -376,7 +437,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("사업자등록번호가 숫자 10자리가 아니면 INVALID_BIZ_NO")
     void rejectsInvalidBizNo() {
-        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "123-45-678"))))
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "123-45-678"), FILES)))
                 .isEqualTo(ErrorCode.INVALID_BIZ_NO);
         verifyNoInteractions(memberRepository);
     }
@@ -386,7 +447,7 @@ class AuthServiceTest {
     void rejectsPasswordOver72Bytes() {
         String koreanPassword = "가".repeat(25);   // 25자, 75바이트
 
-        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, koreanPassword, "1234567890"))))
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, koreanPassword, "1234567890"), FILES)))
                 .isEqualTo(ErrorCode.PASSWORD_TOO_LONG);
         verifyNoInteractions(memberRepository);
     }

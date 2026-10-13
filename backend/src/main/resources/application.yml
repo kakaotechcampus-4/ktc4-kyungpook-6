@@ -58,6 +58,12 @@ auth:
   # AI 서버처럼 로그인하지 않는 서버가 X-API-KEY 헤더로 보내는 키. 비워 두면 키 인증을 끈다.
   internal-api-key: ${INTERNAL_API_KEY:}
 
+upload:
+  # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 폴더는 처음 저장할 때 만든다.
+  # 배포 환경은 컨테이너를 새로 만들어도 파일이 남도록 볼륨에 둔다(docker-compose.yml 의 backend-uploads).
+  # 로컬 기본값은 실행한 자리의 uploads/ 다 — .gitignore 에 있어 커밋되지 않는다.
+  dir: ${UPLOAD_DIR:./uploads}
+
 signup:
   # 점주 가입 신청을 같은 IP 에서 되풀이하는 횟수 제한. 넘으면 429 (SignupRateLimitFilter).
   # 여러 사람이 같은 와이파이로 가입할 수 있어 넉넉히 둔다. 횟수는 서버 메모리에 있어 다시 띄우면 초기화된다.
