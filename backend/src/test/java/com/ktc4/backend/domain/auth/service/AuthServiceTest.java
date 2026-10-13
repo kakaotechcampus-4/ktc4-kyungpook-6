@@ -327,6 +327,25 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("승인 대기 신청이 상한까지 쌓이면 SIGNUP_TEMPORARILY_CLOSED 이고 저장하지 않는다 — 한 건 모자라면 받는다")
+    void closesSignupWhenTooManyPending() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(memberRepository.countByRoleAndStatus(MemberRole.OWNER, MemberStatus.PENDING))
+                .thenReturn((long) AuthService.MAX_PENDING_APPLICATIONS - 1);
+
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"));
+        verify(memberRepository).saveAndFlush(any());
+
+        when(memberRepository.countByRoleAndStatus(MemberRole.OWNER, MemberStatus.PENDING))
+                .thenReturn((long) AuthService.MAX_PENDING_APPLICATIONS);
+
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+                .isEqualTo(ErrorCode.SIGNUP_TEMPORARILY_CLOSED);
+        verify(memberRepository).saveAndFlush(any());   // 여전히 한 번뿐 — 두 번째는 저장하지 않았다
+    }
+
+    @Test
     @DisplayName("확인 뒤 동시에 같은 이메일이 저장돼 이메일 제약에 걸려도 DUPLICATE_EMAIL")
     void mapsUniqueViolationToDuplicateEmail() {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);

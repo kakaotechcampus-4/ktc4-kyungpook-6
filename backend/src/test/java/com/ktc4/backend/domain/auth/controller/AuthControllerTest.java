@@ -25,6 +25,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -33,11 +35,21 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 
+import static com.ktc4.backend.support.SignupMultipart.SIGNUP_URL;
+import static com.ktc4.backend.support.SignupMultipart.file;
+import static com.ktc4.backend.support.SignupMultipart.jpeg;
+import static com.ktc4.backend.support.SignupMultipart.jpegOfSize;
+import static com.ktc4.backend.support.SignupMultipart.pdf;
+import static com.ktc4.backend.support.SignupMultipart.png;
+import static com.ktc4.backend.support.SignupMultipart.signupRequest;
+import static com.ktc4.backend.support.SignupMultipart.webp;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -47,6 +59,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(AuthController.class)
 @Import(SecurityConfig.class)
+// 이 클래스는 가입 신청을 수십 번 부른다. 같은 IP 의 횟수 제한(기본 10분에 10번, 하루 성공 5건)에 걸리지 않게 넉넉히 푼다 —
+// 횟수 제한 자체는 SignupRateLimitFilterTest 가 맡는다.
+@TestPropertySource(properties = {
+        "signup.rate-limit.max-attempts=100000", "signup.rate-limit.max-signups-per-day=100000"})
 class AuthControllerTest {
 
     @Autowired
@@ -210,7 +226,7 @@ class AuthControllerTest {
     private ResultActions signupWithStoreInfo(String storeInfo) throws Exception {
         String body = accountPart("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", PHONE)
                 + storeInfo + "}";
-        return mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON).content(body));
+        return mockMvc.perform(signupRequest(body));
     }
 
     @Test
@@ -308,18 +324,148 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.errors[0].field").value("menus[1].name"));
     }
 
+    // ── 가입 때 함께 받는 파일 (대표 사진·메뉴 사진·사업자등록증) ─────────────────────────
+
+    private static final String VALID_SIGNUP =
+            signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동");
+
+    @Test
+    @DisplayName("대표 사진과 사업자등록증만 있어도 가입되고, 메뉴 사진은 2장까지 함께 받는다")
+    void signupAcceptsFiles() throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpeg("storeImage"), pdf("bizCert")))
+                .andExpect(status().isCreated());
+        mockMvc.perform(signupRequest(VALID_SIGNUP, png("storeImage"), pdf("bizCert"), jpeg("menuImages")))
+                .andExpect(status().isCreated());
+        mockMvc.perform(signupRequest(VALID_SIGNUP, webp("storeImage"), pdf("bizCert"),
+                        png("menuImages"), webp("menuImages")))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("필수 칸(data·storeImage·bizCert)이 빠지면 400 invalid-request 이고 가입시키지 않는다")
+    void signupRequiresParts() throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP, pdf("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpeg("storeImage")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
+        mockMvc.perform(multipart(SIGNUP_URL).file(jpeg("storeImage")).file(pdf("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
+
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("예전 방식(JSON 본문)으로 보내면 415 — 가입 신청은 multipart 로만 받는다")
+    void signupRejectsJsonBody() throws Exception {
+        mockMvc.perform(post(SIGNUP_URL).contentType(MediaType.APPLICATION_JSON).content(VALID_SIGNUP))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_MEDIA_TYPE.getType().toString()));
+
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("data 칸에 Content-Type 이 없으면 415 — JSON 으로 읽을 수 없다")
+    void signupRequiresJsonDataPart() throws Exception {
+        MockMultipartFile untyped = new MockMultipartFile("data", "", null,
+                VALID_SIGNUP.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart(SIGNUP_URL).file(untyped).file(jpeg("storeImage")).file(pdf("bizCert")))
+                .andExpect(status().isUnsupportedMediaType());
+
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("받지 않는 형식의 파일은 400 unsupported-file-type — 사진 자리에 PDF, 사업자등록증 자리에 사진, 이름만 사진인 파일")
+    void signupRejectsUnsupportedFiles() throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP, pdf("storeImage"), pdf("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_FILE_TYPE.getType().toString()));
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpeg("storeImage"), jpeg("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_FILE_TYPE.getType().toString()));
+        byte[] html = "<html><script>alert(1)</script></html>".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        mockMvc.perform(signupRequest(VALID_SIGNUP, file("storeImage", "photo.jpg", "image/jpeg", html), pdf("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_FILE_TYPE.getType().toString()));
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpeg("storeImage"), pdf("bizCert"), pdf("menuImages")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_FILE_TYPE.getType().toString()));
+
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("빈 파일은 400 empty-file, 메뉴 사진 3장은 400 too-many-files, 5MB 를 넘는 사진은 413 file-too-large")
+    void signupRejectsEmptyTooManyAndTooLarge() throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP, file("storeImage", "empty.jpg", "image/jpeg", new byte[0]),
+                        pdf("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.EMPTY_FILE.getType().toString()));
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpeg("storeImage"), pdf("bizCert"),
+                        jpeg("menuImages"), jpeg("menuImages"), jpeg("menuImages")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.TOO_MANY_FILES.getType().toString()));
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpegOfSize("storeImage", 5 * 1024 * 1024 + 1), pdf("bizCert")))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.type").value(ErrorCode.FILE_TOO_LARGE.getType().toString()))
+                .andExpect(jsonPath("$.title").value(ErrorCode.FILE_TOO_LARGE.getTitle()));
+
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("글자 정보와 파일이 둘 다 틀리면 글자 정보의 오류가 먼저 나간다 — errors 에 필드가 실린다")
+    void signupReportsDataErrorsBeforeFileErrors() throws Exception {
+        String badEmail = signupBody("not-an-email", "password1234", "1234567890", "예시분식", "홍길동");
+
+        mockMvc.perform(signupRequest(badEmail, pdf("storeImage"), jpeg("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()))
+                .andExpect(jsonPath("$.errors[0].field").value("email"));
+    }
+
+    @Test
+    @DisplayName("파일 오류 응답과 로그에 파일 이름이 남지 않는다 — 이름에 개인정보가 들어 있을 수 있다")
+    void fileNameIsNeverEchoedOrLogged() throws Exception {
+        String filename = "never-log-this-filename.jpg";
+        Logger validatorLogger = (Logger) LoggerFactory.getLogger(
+                com.ktc4.backend.domain.file.service.UploadFileValidator.class);
+        Logger handlerLogger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        validatorLogger.addAppender(logs);
+        handlerLogger.addAppender(logs);
+        String responseBody;
+        try {
+            responseBody = mockMvc.perform(signupRequest(VALID_SIGNUP,
+                            file("storeImage", filename, "image/jpeg", new byte[]{1, 2, 3}), pdf("bizCert")))
+                    .andExpect(status().isBadRequest())
+                    .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        } finally {
+            validatorLogger.detachAppender(logs);
+            handlerLogger.detachAppender(logs);
+        }
+
+        assertThat(logs.list).isNotEmpty();   // 거절 이유는 남는다
+        assertThat(logs.list).noneMatch(event -> event.getFormattedMessage().contains("never-log-this-filename"));
+        assertThat(responseBody).doesNotContain("never-log-this-filename");
+    }
+
     @Test
     @DisplayName("휴대폰 번호가 없거나 비었으면 400 이고 errors 에 필드를 알려준다")
     void rejectsMissingPhone() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
+        mockMvc.perform(signupRequest("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
                                 + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\""
                                 + STORE_INFO + "}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.length()").value(1))
                 .andExpect(jsonPath("$.errors[0].field").value("phone"));
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", " ")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", " ")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("phone"));
     }
@@ -329,8 +475,7 @@ class AuthControllerTest {
     void mapsInvalidPhone() throws Exception {
         when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
 
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
                                 "053-000-0000")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_PHONE.getType().toString()));
@@ -346,8 +491,7 @@ class AuthControllerTest {
         handlerLogger.addAppender(logs);
         String responseBody;
         try {
-            responseBody = mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                            .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+            responseBody = mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
                                     tooLong)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("phone"))
@@ -368,8 +512,7 @@ class AuthControllerTest {
                 3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
                 "issued-status-token", "Bearer", Instant.parse("2026-10-16T03:00:00Z")));
 
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "123-45-67890", "예시분식", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "123-45-67890", "예시분식", "홍길동")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.memberId").value(3))
                 .andExpect(jsonPath("$.role").value("OWNER"))
@@ -399,8 +542,7 @@ class AuthControllerTest {
         logs.start();
         handlerLogger.addAppender(logs);
         try {
-            mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                            .content(signupBody("owner@example.com", "short7!", "1234567890", "예시분식", "비공개이름")))
+            mockMvc.perform(signupRequest(signupBody("owner@example.com", "short7!", "1234567890", "예시분식", "비공개이름")))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("password"));
         } finally {
@@ -415,12 +557,10 @@ class AuthControllerTest {
     @DisplayName("전각 공백(U+3000)만 넣은 상호명·대표자 이름은 400 — 저장 뒤 빈 값이 되지 않게")
     void rejectsFullWidthSpaceOnly() throws Exception {
         // JSON 의 \u3000 이스케이프로 보낸다 — 소스에 보이지 않는 글자를 직접 쓰지 않기 위해서다.
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "\\u3000", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "\\u3000", "홍길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("storeName"));
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3000\\u3000")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3000\\u3000")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("representativeName"));
     }
@@ -444,8 +584,7 @@ class AuthControllerTest {
     })
     @DisplayName("보이지 않거나 글자·숫자가 없는 상호명은 400")
     void rejectsInvisibleOrLetterlessStoreName(String storeName) throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("storeName"));
     }
@@ -453,8 +592,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("대표자 이름에도 같은 규칙 — 한글 채움 문자만 넣으면 400")
     void rejectsInvisibleRepresentativeName() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3164\\u3164")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3164\\u3164")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("representativeName"));
     }
@@ -464,20 +602,17 @@ class AuthControllerTest {
             "예시분식 \\u2764\\uFE0F", "Cafe\\u0301 예시"})   // ❤️(부호 1개), é(부호 1개)는 통과
     @DisplayName("공백·숫자·영문·단일 이모지가 섞인 평범한 상호명은 통과한다 — 규칙이 너무 좁지 않은지")
     void acceptsOrdinaryStoreNames(String storeName) throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
                 .andExpect(status().isCreated());
     }
 
     @Test
     @DisplayName("줄바꿈 같은 제어 문자가 들어간 상호명·대표자 이름은 400")
     void rejectsControlCharacters() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시\\n분식", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시\\n분식", "홍길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("storeName"));
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍\\t길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍\\t길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("representativeName"));
     }
@@ -485,8 +620,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("상호명·대표자 이름이 비었으면 400")
     void rejectsBlankOwnerInfo() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", " ", "")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", " ", "")))
                 .andExpect(status().isBadRequest());
     }
 
@@ -495,8 +629,7 @@ class AuthControllerTest {
     void mapsDuplicateEmail() throws Exception {
         when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.DUPLICATE_EMAIL));
 
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value(ErrorCode.DUPLICATE_EMAIL.getType().toString()));
     }

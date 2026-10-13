@@ -26,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.ktc4.backend.support.SignupMultipart.signupRequest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -145,8 +146,7 @@ class OwnerSignupFlowIntegrationTest {
         long otherStoreId = saveStore("통합테스트다른가게", "2222222222", "010-0000-0001", null);
 
         // 1. 점주 가입 신청 — 사업자번호는 하이픈을 붙여 보내도 10자리로 저장된다
-        String signupBody = mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupJson("flow-owner@example.com", "010-0000-0001")))
+        String signupBody = mockMvc.perform(signupRequest(signupJson("flow-owner@example.com", "010-0000-0001")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -317,9 +317,7 @@ class OwnerSignupFlowIntegrationTest {
         // 12. 다른 사람이 가입을 신청하고 관리자가 거절한다. 같은 테스트에 두는 이유: 끝나고 회원 테이블을 비우면
         //     기동할 때 만든 관리자 계정도 지워져, 테스트 메서드를 나누면 두 번째가 관리자로 로그인하지 못한다
         long storeId = otherStoreId;
-        String rejectedSignupBody = mockMvc.perform(post("/api/auth/owners/signup")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(signupJson("flow-rejected@example.com", "010-0000-0003")))
+        String rejectedSignupBody = mockMvc.perform(signupRequest(signupJson("flow-rejected@example.com", "010-0000-0003")))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long applicantId = JSON.readTree(rejectedSignupBody).get("memberId").asLong();

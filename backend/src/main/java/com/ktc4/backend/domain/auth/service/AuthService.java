@@ -8,6 +8,8 @@ import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
+import com.ktc4.backend.domain.member.enums.MemberRole;
+import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.global.error.CustomException;
@@ -16,6 +18,7 @@ import com.ktc4.backend.global.security.IssuedToken;
 import com.ktc4.backend.global.security.JwtProvider;
 import com.ktc4.backend.global.util.BizNoNormalizer;
 import com.ktc4.backend.global.util.PhoneNormalizer;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -25,12 +28,16 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 public class AuthService {
 
     // BCrypt 는 앞 72바이트만 비교한다. 그보다 긴 비밀번호는 저장될 수 없으니 틀린 비밀번호와 같다.
     private static final int MAX_PASSWORD_BYTES = 72;
+
+    /** 검토되지 않은 가입 신청을 이만큼까지만 쌓는다. 넘으면 관리자가 처리할 때까지 새 신청을 받지 않는다. */
+    static final int MAX_PENDING_APPLICATIONS = 200;
 
     private final MemberRepository memberRepository;
     private final StoreOwnerRepository storeOwnerRepository;
@@ -94,7 +101,8 @@ public class AuthService {
      * @throws CustomException 비밀번호가 72바이트를 넘으면 {@code PASSWORD_TOO_LONG},
      *                         사업자등록번호가 10자리가 아니면 {@code INVALID_BIZ_NO},
      *                         휴대폰 번호 형식이 아니면 {@code INVALID_PHONE},
-     *                         이미 가입된 이메일이면 {@code DUPLICATE_EMAIL}
+     *                         이미 가입된 이메일이면 {@code DUPLICATE_EMAIL},
+     *                         승인 대기 신청이 너무 많이 쌓였으면 {@code SIGNUP_TEMPORARILY_CLOSED}
      */
     @Transactional
     public OwnerSignupResponse signupOwner(OwnerSignupRequest request) {
@@ -112,6 +120,15 @@ public class AuthService {
         String email = Member.normalizeEmail(request.email());
         if (memberRepository.existsByEmail(email)) {
             throw new CustomException(ErrorCode.DUPLICATE_EMAIL);
+        }
+        // 마지막 방어선 — 정상이라면 닿지 않는 숫자다. IP 별 횟수 제한은 주소를 바꿔 가며 보내는 요청을 막지 못하므로,
+        // 검토되지 않은 신청(과 그 파일)이 끝없이 쌓이기 전에 가입만 잠시 닫는다. 디스크가 차서 서버 전체가 멈추는 것보다 낫다.
+        // 세고 나서 저장하므로 동시에 들어온 요청이 몇 건 넘칠 수 있다 — 느슨한 상한이라 잠그지 않는다.
+        long pending = memberRepository.countByRoleAndStatus(MemberRole.OWNER, MemberStatus.PENDING);
+        if (pending >= MAX_PENDING_APPLICATIONS) {
+            // 가입이 모두에게 닫힌 상태다. 응답만 나가면 아무도 모르므로 관리자가 알아챌 수 있게 남긴다.
+            log.warn("가입 신청 일시 중단 - 승인 대기 {}건(상한 {}건)", pending, MAX_PENDING_APPLICATIONS);
+            throw new CustomException(ErrorCode.SIGNUP_TEMPORARILY_CLOSED);
         }
 
         Member applicant = Member.ownerApplicant(email, passwordEncoder.encode(request.password()),

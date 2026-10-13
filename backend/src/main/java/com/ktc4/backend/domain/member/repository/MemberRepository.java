@@ -37,6 +37,8 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
      */
     Page<Member> findByRoleAndStatus(MemberRole role, MemberStatus status, Pageable pageable);
 
+    long countByRoleAndStatus(MemberRole role, MemberStatus status);
+
     /**
      * 회원을 잠그고 읽는다 — 상태를 확인한 뒤 바꾸는 사이에 다른 요청이 끼어들지 못하게 한다.
      *
