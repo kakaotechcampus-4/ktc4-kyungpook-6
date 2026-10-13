@@ -14,6 +14,11 @@ const SECTIONS: { classification: TaskClassification; title: string }[] = [
   { classification: 'priority', title: '우선 확인이 필요한 가게' },
   { classification: 'additional', title: '추가 확인이 필요한 가게' },
   { classification: 'unchanged', title: '변화 근거가 없는 가게' },
+  /*
+    조사 자체가 실패한 가게. "변화 근거가 없는 가게"와 묶여 있었는데,
+    변화가 없어서 넘어가도 되는 가게와 아직 아무도 못 본 가게가 한 칸에 섞였다(PROMPT-150).
+  */
+  { classification: 'failed', title: '조사하지 못한 가게' },
 ];
 
 /** 조회 중에 섹션마다 깔아둘 카드 자리 수. */
@@ -31,8 +36,15 @@ type AnalysisResultPageProps = Omit<
  * useAnalysisResultPage로 필요한 데이터를 스스로 불러온다.
  */
 function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
-  const { finishedAtLabel, groups, isPending, isError } =
-    useAnalysisResultPage();
+  const {
+    finishedAtLabel,
+    groups,
+    isPending,
+    isError,
+    processingTaskId,
+    actionErrorMessage,
+    applyChanges,
+  } = useAnalysisResultPage();
   const storeEdit = useStoreEditModal();
 
   return (
@@ -82,6 +94,12 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
           </p>
         )}
 
+        {actionErrorMessage && (
+          <p role="alert" className="px-3.5 pt-3.5 text-sm text-[#b91c1c]">
+            {actionErrorMessage}
+          </p>
+        )}
+
         {/* Funnel Analysis Window. Figma 112:5452 */}
         <div className="flex w-full flex-col items-start gap-3 p-3.5">
           {SECTIONS.map(({ classification, title }) => {
@@ -111,8 +129,8 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                     ))
                   : tasks.map((task) => (
                       /*
-                        onPrimaryAction은 아직 연결하지 않았다.
-                        수정 반영·메세지 발송 API가 나오면 훅에 핸들러를 추가한다.
+                        "메세지 보내기"(additional)는 아직 보낼 길이 없어 연결하지 않았다 —
+                        누르면 수정안 반영으로 처리돼 엉뚱한 일이 일어나므로 priority 만 건다.
                       */
                       <AgentSurveyResultCard
                         key={task.id}
@@ -121,6 +139,14 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                         address={task.address}
                         evidences={task.evidences}
                         changes={task.changes}
+                        failureReason={task.failureReason}
+                        verifiedLabel={task.verifiedLabel}
+                        isProcessing={processingTaskId === task.taskId}
+                        onPrimaryAction={
+                          task.classification === 'priority'
+                            ? () => applyChanges(task.taskId)
+                            : undefined
+                        }
                         onEdit={() =>
                           storeEdit.open({
                             storeId: task.storeId,

@@ -20,15 +20,14 @@ export type SurveyEvidence = {
 /**
  * 수정 사항 / 추가 확인 사항 한 줄. Figma 112:5494 / 112:5493 / 112:5513
  *
- * 백엔드 Task.proposed_changes(JSON)를 그대로 받는 타입이 아니라 화면에 찍을 문자열이다.
- * proposed_changes는 { status: "SUSPENDED" } 같은 갱신값일 텐데,
- * "가게 상태: '휴업' 갱신"으로 바꾸려면 필드명·enum의 한글 라벨을 알아야 한다.
- * 그 변환은 용어집(docs/도메인_용어집.md)이 채워진 뒤 호출부에서 맡는다.
+ * 백엔드 응답(`{ field: "status", value: "CLOSED" }`)을 그대로 받는 타입이 아니라
+ * **화면에 찍을 글자**다. 코드 값 → 한글 라벨 변환은 `utils/changeLabel.ts` 가 맡고
+ * 훅(useAnalysisResultPage)이 그걸 써서 이 모양으로 넘긴다.
  */
 export type SurveyChange = {
-  /** 항목 이름. 예: "가게 상태", "자체 확인 요망" */
-  field: string;
-  /** 항목 내용. 예: "'휴업' 갱신", "010-XXXX-XXXX" */
+  /** 항목 이름. 예: "영업 상태", "가게명" */
+  label: string;
+  /** 항목 내용. 예: "폐업", "신나는 자장면" */
   description: string;
 };
 
@@ -36,7 +35,11 @@ export type SurveyChange = {
  * 백엔드 Task.classification(우선확인/추가확인/변화없음)을 소문자로 옮긴 값.
  * 실제 enum 문자열이 확정되면 API 응답을 이 값으로 매핑한다.
  */
-export type TaskClassification = 'priority' | 'additional' | 'unchanged';
+export type TaskClassification =
+  | 'priority'
+  | 'additional'
+  | 'unchanged'
+  | 'failed';
 
 /**
  * 분류별로 달라지는 값. 두 카드의 차이는 이 두 문자열뿐이라 컴포넌트를 나누지 않는다.
@@ -65,6 +68,15 @@ const VARIANT = {
     새 색이나 뱃지를 만들지 않은 건 디자인이 나왔을 때 지울 코드를 줄이려는 것이다.
   */
   unchanged: {
+    changesLabel: null,
+    primaryActionLabel: null,
+  },
+  /*
+    조사 실패. 변화가 없는 것과 **조사를 못 한 것은 다르다** — 전자는 넘어가도 되지만
+    후자는 아직 아무도 들여다보지 않은 가게다. 한 섹션에 묶으면 그 차이가 화면에서 사라진다.
+    바꿀 값이 없으니 주 버튼은 없고, 담당자가 직접 보도록 "직접 수정하기"만 남긴다.
+  */
+  failed: {
     changesLabel: null,
     primaryActionLabel: null,
   },
@@ -101,6 +113,17 @@ type AgentSurveyResultCardProps = {
   /** 조사가 제안하는 수정 사항 / 추가 확인 사항 목록. */
   changes?: SurveyChange[];
   /**
+   * 조사 실패 이유. 있으면 근거 자리에 이 문장을 대신 적는다.
+   * 근거가 비어 있는 것만으로는 "변화가 없다" 와 구분되지 않는다.
+   */
+  failureReason?: string;
+  /**
+   * 담당자가 이미 처리한 카드면 그 기록 글자(예: "확인 완료 · 정보수정 · 2026. 10. 13. 20:12").
+   * 있으면 주 버튼을 내린다 — 백엔드가 같은 카드를 두 번 처리하지 못하게 409 로 막으므로,
+   * 버튼을 남겨 두면 눌러도 오류만 난다.
+   */
+  verifiedLabel?: string;
+  /**
    * Task.classification. 두 번째 섹션 라벨과 주 버튼 라벨이 이 값으로 정해진다.
    * priority = 수정 사항 / 즉시 수정 반영하기, additional = 추가 확인 사항 / 메세지 보내기,
    * unchanged = 둘 다 없음(임시)
@@ -112,6 +135,11 @@ type AgentSurveyResultCardProps = {
   onEdit?: () => void;
   /** 조사 결과 조회 중일 때만 true. Skeleton은 이 값으로만 노출한다. */
   isLoading?: boolean;
+  /**
+   * 이 카드의 반영·확인 요청이 날아가 있는 동안 true. 버튼만 잠그고 내용은 그대로 둔다.
+   * isLoading 으로 묶으면 카드가 통째로 Skeleton 이 돼, 담당자가 방금 읽던 근거가 사라진다.
+   */
+  isProcessing?: boolean;
 } & Omit<ComponentPropsWithoutRef<'article'>, 'children'>;
 
 /**
@@ -128,10 +156,13 @@ function AgentSurveyResultCard({
   address,
   evidences = [],
   changes = [],
+  failureReason,
+  verifiedLabel,
   variant = 'priority',
   onPrimaryAction,
   onEdit,
   isLoading = false,
+  isProcessing = false,
   className,
   ...props
 }: AgentSurveyResultCardProps) {
@@ -184,8 +215,13 @@ function AgentSurveyResultCard({
 
       {/* 근거 + 수정 사항. Figma 112:5478 */}
       <div className="flex w-full flex-col items-start gap-2">
-        <p className={SECTION_LABEL}>근거</p>
+        <p className={SECTION_LABEL}>{failureReason ? '조사 결과' : '근거'}</p>
 
+        {failureReason ? (
+          <p className="font-sans text-sm font-normal leading-5 text-[#b45309]">
+            조사하지 못했습니다 — {failureReason}
+          </p>
+        ) : (
         <ul className="flex w-full flex-col gap-2">
           {isLoading
             ? SKELETON_ROWS.map((row) => (
@@ -208,6 +244,7 @@ function AgentSurveyResultCard({
                 </li>
               ))}
         </ul>
+        )}
 
         {/* 변화없음(unchanged)은 두 번째 섹션이 없다. */}
         {changesLabel ? (
@@ -222,8 +259,8 @@ function AgentSurveyResultCard({
                     </li>
                   ))
                 : changes.map((change) => (
-                    <li key={change.field} className={LIST_ITEM}>
-                      <span className="font-medium">{change.field}</span>:{' '}
+                    <li key={change.label} className={LIST_ITEM}>
+                      <span className="font-medium">{change.label}</span>:{' '}
                       {change.description}
                     </li>
                   ))}
@@ -239,11 +276,20 @@ function AgentSurveyResultCard({
         카드 높이가 내용 그대로일 때는 남는 공간이 없어 아무 영향이 없다.
       */}
       <div className="mt-auto flex w-full flex-col items-start gap-2">
-        {primaryActionLabel ? (
+        {verifiedLabel ? (
+          <p
+            role="status"
+            className="flex w-full items-center gap-1 font-sans text-sm font-semibold leading-5 text-[#15803d]"
+          >
+            <Icon icon="material-symbols:check" className="size-4 shrink-0" />
+            {verifiedLabel}
+          </p>
+        ) : null}
+        {primaryActionLabel && !verifiedLabel ? (
           <button
             type="button"
             onClick={onPrimaryAction}
-            disabled={isLoading}
+            disabled={isLoading || isProcessing}
             className={`${ACTION_BUTTON} bg-[#eab308] text-white focus-visible:outline-[#eab308] disabled:opacity-60`}
           >
             {primaryActionLabel}
@@ -257,7 +303,7 @@ function AgentSurveyResultCard({
         <button
           type="button"
           onClick={onEdit}
-          disabled={isLoading}
+          disabled={isLoading || isProcessing}
           className={`${ACTION_BUTTON} border border-solid border-[#e2e8f0] text-[#1e293b] focus-visible:outline-[#64748b] disabled:opacity-60`}
         >
           직접 수정하기
