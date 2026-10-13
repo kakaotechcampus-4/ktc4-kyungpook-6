@@ -30,19 +30,33 @@ export type OwnerSignupRequest = {
   phone: string;
 };
 
-/** 백엔드 MemberResponse. GET /api/auth/me 의 응답. */
-export type MemberResponse = {
+/** 백엔드 LinkedStoreResponse. 로그인한 점주에게 연결된 가게 한 곳. */
+export type LinkedStore = {
+  storeId: number;
+  name: string;
+};
+
+type MemberSummary = {
   memberId: number;
   email: string;
   role: "ADMIN" | "OWNER";
   status: "PENDING" | "APPROVED" | "REJECTED";
 };
 
+/** 백엔드 MemberResponse. GET /api/auth/me 의 응답. */
+export type MemberResponse = MemberSummary & {
+  /**
+   * 연결된 가게(PR #96). 처음 연결한 순서이고, 관리자와 승인 전 신청자는 빈 목록이다.
+   * 가게를 고르는 화면이 없으면 첫 번째를 쓴다.
+   */
+  stores: LinkedStore[];
+};
+
 /**
  * 백엔드 OwnerSignupResponse (PR #87). 가입 직후 status 는 항상 PENDING 이다.
  * statusToken 으로는 GET /api/auth/me 만 부를 수 있다. 승인된 뒤에는 로그인해서 접근 토큰을 받는다.
  */
-export type OwnerSignupResponse = MemberResponse & {
+export type OwnerSignupResponse = MemberSummary & {
   statusToken: string;
   tokenType: "Bearer";
   /** statusToken 만료 시각(UTC, ISO 문자열). 발급 후 7일. */
