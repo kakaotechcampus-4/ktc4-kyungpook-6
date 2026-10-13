@@ -8,6 +8,7 @@ import OwnerSignupLayout from "./pages/OwnerSignupLayout";
 import OwnerSignupAccountPage from "./pages/OwnerSignupAccountPage";
 import OwnerSignupInfoPage from "./pages/OwnerSignupInfoPage";
 import OwnerSignupCompletePage from "./pages/OwnerSignupCompletePage";
+import OwnerStorePage from "./pages/OwnerStorePage";
 
 function HomePage() {
   return (
@@ -33,6 +34,7 @@ function App() {
           <Route path="info" element={<OwnerSignupInfoPage />} />
           <Route path="complete" element={<OwnerSignupCompletePage />} />
         </Route>
+        <Route path="/owner/store" element={<OwnerStorePage />} />
       </Routes>
     </BrowserRouter>
   );
