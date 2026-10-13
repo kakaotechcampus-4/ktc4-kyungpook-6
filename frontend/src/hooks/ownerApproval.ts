@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   approveOwner,
+  getLinkedStores,
   getOwnerApplications,
   getStoreCandidates,
   rejectOwner,
+  unlinkStore,
 } from '../services/owner';
 import type { MemberStatus } from '../services/owner';
 import { messageOf } from '../utils/apiError';
@@ -30,6 +32,8 @@ export type UseOwnerApprovalPageResult = {
   errorMessage: string | undefined;
   approve: (memberId: number, storeId: number) => void;
   reject: (memberId: number) => void;
+  /** 연결 끊기. 행을 지우지 않고 끊은 사람·시각을 남기며 체크인 권한만 사라진다. */
+  detachStore: (memberId: number, storeId: number) => void;
 };
 
 function useApplications(status: MemberStatus) {
@@ -54,6 +58,19 @@ export function useStoreCandidates(memberId: number | null) {
 }
 
 /**
+ * 승인된 점주에게 지금 연결된 가게. 펼쳤을 때만 부른다 —
+ * 목록을 열자마자 신청 수만큼 조회가 나가면 느리다.
+ */
+export function useLinkedStores(memberId: number | null) {
+  return useQuery({
+    queryKey: ['linkedStores', memberId],
+    queryFn: () => getLinkedStores(memberId as number),
+    enabled: memberId !== null,
+    retry: false,
+  });
+}
+
+/**
  * 점주 가입 관리 화면의 상태를 모은다.
  *
  * 승인은 **가게를 함께 고르는 일**이라 목록 조회와 떼어 둘 수 없다. 승인하면 그 신청이
@@ -70,18 +87,32 @@ export function useOwnerApprovalPage(): UseOwnerApprovalPageResult {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['ownerApplications'] });
     queryClient.invalidateQueries({ queryKey: ['storeCandidates'] });
+    queryClient.invalidateQueries({ queryKey: ['linkedStores'] });
     /* 승인하면 그 가게에 점주가 붙으므로 가게 목록도 다시 본다. */
     queryClient.invalidateQueries({ queryKey: ['stores'] });
   };
 
   const mutation = useMutation({
-    mutationFn: (input: { memberId: number; storeId?: number }) =>
-      input.storeId === undefined
-        ? rejectOwner(input.memberId)
-        : approveOwner(input.memberId, input.storeId),
+    /* 돌려받은 신청은 쓰지 않는다 — 끝나면 목록을 다시 받아 오므로 값을 맞출 필요가 없다. */
+    mutationFn: async (input: {
+      memberId: number;
+      storeId?: number;
+      detach?: boolean;
+    }): Promise<void> => {
+      if (input.detach) {
+        await unlinkStore(input.memberId, input.storeId as number);
+        return;
+      }
+      if (input.storeId === undefined) {
+        await rejectOwner(input.memberId);
+        return;
+      }
+      await approveOwner(input.memberId, input.storeId);
+    },
     onMutate: () => setErrorMessage(undefined),
-    onSuccess: () => {
-      setOpenedMemberId(null);
+    onSuccess: (_result, input) => {
+      /* 연결을 끊은 뒤에는 펼친 채 둔다 — 남은 연결을 바로 확인해야 한다. */
+      if (!input.detach) setOpenedMemberId(null);
       invalidate();
     },
     onError: (error) => setErrorMessage(messageOf(error)),
@@ -106,5 +137,7 @@ export function useOwnerApprovalPage(): UseOwnerApprovalPageResult {
     errorMessage,
     approve: (memberId, storeId) => mutation.mutate({ memberId, storeId }),
     reject: (memberId) => mutation.mutate({ memberId }),
+    detachStore: (memberId, storeId) =>
+      mutation.mutate({ memberId, storeId, detach: true }),
   };
 }

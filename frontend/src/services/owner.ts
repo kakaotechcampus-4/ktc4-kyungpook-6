@@ -66,6 +66,23 @@ export const getOwnerApplications = async (
     limit,
   });
 
+/** 점주에게 **지금** 연결된 가게. 끊긴 연결은 담기지 않는다. */
+export type LinkedStoreResponse = {
+  storeId: number;
+  name: string;
+  addressRoad: string | null;
+  linkedAt: string | null;
+};
+
+/**
+ * 점주에게 지금 연결된 가게.
+ *
+ * 연결을 끊는 API 는 있는데 무엇이 연결돼 있는지 볼 방법이 없어, 화면에서 끊을 대상을
+ * 고를 수 없었다(PROMPT-150).
+ */
+export const getLinkedStores = async (memberId: number) =>
+  getRequest<LinkedStoreResponse[]>(`/api/admin/owners/${memberId}/stores`);
+
 /** 이 신청에 연결할 수 있는 후보 가게. 후보가 없으면 빈 배열이다. */
 export const getStoreCandidates = async (memberId: number) =>
   getRequest<StoreCandidateResponse[]>(

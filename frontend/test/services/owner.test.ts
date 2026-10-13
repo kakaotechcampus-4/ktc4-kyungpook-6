@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   approveOwner,
+  getLinkedStores,
   getOwnerApplications,
   getStoreCandidates,
   linkStore,
@@ -42,6 +43,12 @@ describe('가입 신청 조회', () => {
       page: 2,
       limit: 50,
     });
+  });
+
+  it('연결된 가게는 회원 ID 로 조회한다 — 끊을 대상을 고르는 목록이다', () => {
+    getLinkedStores(7);
+
+    expect(getRequest).toHaveBeenCalledWith('/api/admin/owners/7/stores');
   });
 
   it('후보 가게는 회원 ID 로 조회한다', () => {

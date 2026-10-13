@@ -2,6 +2,7 @@ import { Icon } from '@iconify/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
 import Skeleton from '../components/ui/Skeleton';
+import LinkedStoreList from '../components/owner/LinkedStoreList';
 import StoreCandidatePicker from '../components/owner/StoreCandidatePicker';
 import { STATUS_TABS, useOwnerApprovalPage } from '../hooks/ownerApproval';
 import type { OwnerApplicationResponse } from '../services/owner';
@@ -46,6 +47,7 @@ type AppProps = {
   onToggle: () => void;
   onApprove: (storeId: number) => void;
   onReject: () => void;
+  onDetach: (storeId: number) => void;
 };
 
 /**
@@ -62,8 +64,10 @@ function ApplicationCard({
   onToggle,
   onApprove,
   onReject,
+  onDetach,
 }: AppProps) {
   const pending = application.status === 'PENDING';
+  const approved = application.status === 'APPROVED';
 
   return (
     <article className="flex w-full flex-col gap-3 rounded-lg border border-solid border-[#e2e8f0] p-3">
@@ -131,6 +135,31 @@ function ApplicationCard({
           ) : null}
         </div>
       ) : null}
+
+      {approved ? (
+        <div className="flex w-full flex-col gap-2">
+          <button
+            type="button"
+            onClick={onToggle}
+            disabled={isProcessing}
+            className="flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-solid border-[#e2e8f0] font-sans text-sm font-semibold leading-5 text-[#1e293b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#64748b] disabled:opacity-50"
+          >
+            <Icon
+              icon={isOpen ? 'lucide:chevron-up' : 'lucide:chevron-down'}
+              className="size-4 shrink-0"
+            />
+            {isOpen ? '접기' : '연결된 가게 보기'}
+          </button>
+
+          {isOpen ? (
+            <LinkedStoreList
+              memberId={application.memberId}
+              isProcessing={isProcessing}
+              onDetach={onDetach}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -156,6 +185,7 @@ function OwnerApprovalPage({ className, ...props }: OwnerApprovalPageProps) {
     errorMessage,
     approve,
     reject,
+    detachStore,
   } = useOwnerApprovalPage();
 
   const rows = applications?.content ?? [];
@@ -232,6 +262,7 @@ function OwnerApprovalPage({ className, ...props }: OwnerApprovalPageProps) {
                 onToggle={() => toggleOpen(application.memberId)}
                 onApprove={(storeId) => approve(application.memberId, storeId)}
                 onReject={() => reject(application.memberId)}
+                onDetach={(storeId) => detachStore(application.memberId, storeId)}
               />
             ))
           )}
