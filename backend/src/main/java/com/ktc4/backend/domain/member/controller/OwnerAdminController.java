@@ -1,6 +1,6 @@
 package com.ktc4.backend.domain.member.controller;
 
-import com.ktc4.backend.domain.member.dto.LinkedStoreResponse;
+import com.ktc4.backend.domain.member.dto.LinkedStoreDetailResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApproveRequest;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
@@ -105,7 +105,7 @@ public class OwnerAdminController {
                             schema = @Schema(implementation = ApiProblemDetail.class)))
     })
     @GetMapping("/{memberId}/stores")
-    public List<LinkedStoreResponse> getLinkedStores(
+    public List<LinkedStoreDetailResponse> getLinkedStores(
             @Parameter(description = "점주 회원 ID", example = "3") @PathVariable Long memberId) {
         return ownerApprovalService.getLinkedStores(memberId);
     }

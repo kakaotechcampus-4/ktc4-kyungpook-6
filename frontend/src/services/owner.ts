@@ -66,8 +66,14 @@ export const getOwnerApplications = async (
     limit,
   });
 
-/** 점주에게 **지금** 연결된 가게. 끊긴 연결은 담기지 않는다. */
-export type LinkedStoreResponse = {
+/**
+ * 점주에게 **지금** 연결된 가게. 끊긴 연결은 담기지 않는다.
+ *
+ * 이름이 `LinkedStoreResponse` 가 아닌 이유 — 백엔드에 같은 이름의 DTO 가 둘 있었는데,
+ * 스웨거가 클래스 단순 이름으로 스키마를 지어서 한쪽이 통째로 덮였다. 생성 코드
+ * (`api/generated`)의 `LinkedStoreResponse` 는 점주 앱이 보는 두 칸짜리라 이것과 다르다.
+ */
+export type LinkedStoreDetailResponse = {
   storeId: number;
   name: string;
   addressRoad: string | null;
@@ -81,7 +87,7 @@ export type LinkedStoreResponse = {
  * 고를 수 없었다(PROMPT-150).
  */
 export const getLinkedStores = async (memberId: number) =>
-  getRequest<LinkedStoreResponse[]>(`/api/admin/owners/${memberId}/stores`);
+  getRequest<LinkedStoreDetailResponse[]>(`/api/admin/owners/${memberId}/stores`);
 
 /** 이 신청에 연결할 수 있는 후보 가게. 후보가 없으면 빈 배열이다. */
 export const getStoreCandidates = async (memberId: number) =>

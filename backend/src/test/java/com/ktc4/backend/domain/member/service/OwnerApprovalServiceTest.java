@@ -12,7 +12,7 @@ import com.ktc4.backend.domain.member.enums.NameMatch;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStoreDetail;
-import com.ktc4.backend.domain.member.dto.LinkedStoreResponse;
+import com.ktc4.backend.domain.member.dto.LinkedStoreDetailResponse;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -697,9 +697,9 @@ class OwnerApprovalServiceTest {
             when(storeOwnerRepository.findLinkedStoreDetailsByMemberId(3L))
                     .thenReturn(List.of(detail(10L, "예시분식"), detail(11L, "예시분식 2호점")));
 
-            List<LinkedStoreResponse> stores = ownerApprovalService.getLinkedStores(3L);
+            List<LinkedStoreDetailResponse> stores = ownerApprovalService.getLinkedStores(3L);
 
-            assertThat(stores).extracting(LinkedStoreResponse::storeId).containsExactly(10L, 11L);
+            assertThat(stores).extracting(LinkedStoreDetailResponse::storeId).containsExactly(10L, 11L);
             assertThat(stores.get(0).name()).isEqualTo("예시분식");
             assertThat(stores.get(0).linkedAt()).isEqualTo(LocalDateTime.of(2026, 10, 13, 9, 0));
         }

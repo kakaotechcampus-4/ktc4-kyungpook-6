@@ -1,7 +1,7 @@
 package com.ktc4.backend.domain.member.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
-import com.ktc4.backend.domain.member.dto.LinkedStoreResponse;
+import com.ktc4.backend.domain.member.dto.LinkedStoreDetailResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.entity.Member;
@@ -126,13 +126,13 @@ public class OwnerApprovalService {
      * @return 연결된 가게. 없으면 빈 목록
      * @throws CustomException 점주가 아니거나 없으면 {@code MEMBER_NOT_FOUND}
      */
-    public List<LinkedStoreResponse> getLinkedStores(Long memberId) {
+    public List<LinkedStoreDetailResponse> getLinkedStores(Long memberId) {
         memberRepository.findById(memberId)
                 .filter(found -> found.getRole() == MemberRole.OWNER)
                 .orElseThrow(() -> new CustomException(ErrorCode.MEMBER_NOT_FOUND));
 
         return storeOwnerRepository.findLinkedStoreDetailsByMemberId(memberId).stream()
-                .map(LinkedStoreResponse::from)
+                .map(LinkedStoreDetailResponse::from)
                 .toList();
     }
 
