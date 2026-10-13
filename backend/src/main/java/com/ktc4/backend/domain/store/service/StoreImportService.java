@@ -1,9 +1,14 @@
 package com.ktc4.backend.domain.store.service;
 
+import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.store.dto.NtsCheckSeed;
 import com.ktc4.backend.domain.store.dto.StoreImportItem;
 import com.ktc4.backend.domain.store.dto.StoreImportRequest;
 import com.ktc4.backend.domain.store.dto.StoreImportResponse;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.NtsLookupResult;
+import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
+import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.util.BizNoNormalizer;
@@ -13,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -37,8 +43,13 @@ public class StoreImportService {
 
     static final String REASON_NAME_NOT_COMPARABLE = "가게명을 정규화하면 남는 글자가 없습니다";
     static final String REASON_ADDRESS_NOT_COMPARABLE = "도로명 주소를 정규화하면 남는 글자가 없습니다";
+    static final String REASON_NTS_STATUS_REQUIRED = "ntsCheck.lookup 이 CONFIRMED 면 status 가 있어야 합니다";
+    static final String REASON_NTS_STATUS_NOT_ALLOWED =
+            "ntsCheck.lookup 이 CONFIRMED 가 아니면 status 를 넣을 수 없습니다";
+    static final String REASON_NTS_CLOSED_AT_NOT_ALLOWED = "ntsCheck.closedAt 은 status 가 CLOSED 일 때만 넣습니다";
 
     private final StoreRepository storeRepository;
+    private final StoreNtsCheckRepository storeNtsCheckRepository;
 
     /**
      * 가게 명단을 넣는다. 같은 요청을 두 번 보내도 가게가 두 배로 늘지 않는다.
@@ -52,6 +63,14 @@ public class StoreImportService {
      *
      * <p>정규화하면 남는 글자가 없는 이름·주소는 넣지 않는다. 빈 정규화 값은 NOT NULL 을 통과하지만,
      * 점주 후보 찾기의 {@code like '%%'} 가 모든 가게와 맞고 중복 판별도 무의미해진다.
+     *
+     * <p>{@code ntsCheck} 를 함께 보내면 국세청 확인 기록도 만든다. 그래야
+     * {@code GET /api/stores/nts-checks} 가 "아직 확인 안 됨"(UNCONFIRMED)이 아닌 값을 내려주고
+     * 조사 화면을 돌려 볼 수 있다. 기록은 엔티티의 {@code applyXxx} 를 거쳐 만든다 — 결과별로
+     * 채워야 하는 칸이 다르고, 그 규칙은 배치와 같은 곳에 한 번만 적혀 있어야 한다.
+     *
+     * <p>건너뛴 가게(이미 있는 가게)에는 {@code ntsCheck} 도 넣지 않는다. 가게를 덮어쓰지 않는 것과
+     * 같은 이유다 &mdash; 배치가 실제로 확인해 둔 기록을 명단 재주입이 되돌리면 안 된다.
      *
      * @param request 넣을 가게 목록 (최대 {@value StoreImportRequest#MAX_STORES}건)
      * @return 넣은 건수 · 건너뛴 건수 · 넣지 못한 줄과 이유
@@ -75,11 +94,17 @@ public class StoreImportService {
                 rejections.add(new StoreImportResponse.Rejection(index, item.name(), REASON_ADDRESS_NOT_COMPARABLE));
                 continue;
             }
+            String ntsProblem = validateNtsCheck(item.ntsCheck());
+            if (ntsProblem != null) {
+                rejections.add(new StoreImportResponse.Rejection(index, item.name(), ntsProblem));
+                continue;
+            }
             candidates.add(new Candidate(item, new StoreKey(nameNormalized, addressNormalized)));
         }
 
         Set<StoreKey> takenKeys = findExistingKeys(candidates);
         List<Store> newStores = new ArrayList<>();
+        List<Candidate> saved = new ArrayList<>();
         int skipped = 0;
         int bizNoNotTenDigits = 0;
 
@@ -94,15 +119,71 @@ public class StoreImportService {
                 bizNoNotTenDigits++;
             }
             newStores.add(toStore(candidate, bizNo));
+            saved.add(candidate);
         }
 
         storeRepository.saveAll(newStores);
+        int ntsChecks = saveNtsChecks(newStores, saved);
 
         // 명단에는 제3자 가게 정보가 들어 있다 — 건수만 남기고 가게 이름·번호는 로그에 남기지 않는다.
-        log.info("가게 자료 주입: 요청 {}건, 넣음 {}건, 건너뜀 {}건, 넣지 못함 {}건, 사업자번호가 10자리가 아닌 것 {}건",
-                items.size(), newStores.size(), skipped, rejections.size(), bizNoNotTenDigits);
+        log.info("가게 자료 주입: 요청 {}건, 넣음 {}건, 건너뜀 {}건, 넣지 못함 {}건, "
+                        + "국세청 기록 {}건, 사업자번호가 10자리가 아닌 것 {}건",
+                items.size(), newStores.size(), skipped, rejections.size(), ntsChecks, bizNoNotTenDigits);
 
         return StoreImportResponse.of(items.size(), newStores.size(), skipped, rejections);
+    }
+
+    /**
+     * 국세청 기록 칸이 서로 모순되지 않는지 본다. 모양이 틀린 값을 그대로 넣으면 조사 화면이
+     * 있을 수 없는 상태를 보여준다 — 그래서 저장 전에 거른다.
+     *
+     * @return 문제가 있으면 거절 사유, 없으면 {@code null}
+     */
+    private static String validateNtsCheck(NtsCheckSeed seed) {
+        if (seed == null) {
+            return null;
+        }
+        boolean confirmed = seed.lookup() == NtsLookupResult.CONFIRMED;
+        if (confirmed && seed.status() == null) {
+            return REASON_NTS_STATUS_REQUIRED;
+        }
+        // CONFIRMED 가 아닌 결과는 엔티티가 상태 칸을 건드리지 않는다. 받아 두면 조용히 버려지므로 거절한다.
+        if (!confirmed && seed.status() != null) {
+            return REASON_NTS_STATUS_NOT_ALLOWED;
+        }
+        if (seed.closedAt() != null && seed.status() != BusinessState.CLOSED) {
+            return REASON_NTS_CLOSED_AT_NOT_ALLOWED;
+        }
+        return null;
+    }
+
+    /**
+     * 새로 넣은 가게의 국세청 확인 기록을 만든다. {@code ntsCheck} 를 보내지 않은 가게는 건너뛴다.
+     *
+     * <p>{@code newStores} 와 {@code saved} 는 같은 순서의 같은 길이다 &mdash; 한쪽은 저장된
+     * 엔티티, 한쪽은 그 엔티티를 만든 요청 줄이다.
+     *
+     * @return 만든 기록 수
+     */
+    private int saveNtsChecks(List<Store> newStores, List<Candidate> saved) {
+        List<StoreNtsCheck> checks = new ArrayList<>();
+        for (int i = 0; i < newStores.size(); i++) {
+            NtsCheckSeed seed = saved.get(i).item().ntsCheck();
+            if (seed == null) {
+                continue;
+            }
+            Store store = newStores.get(i);
+            LocalDateTime checkedAt = seed.checkedAt() != null ? seed.checkedAt() : LocalDateTime.now();
+            StoreNtsCheck check = StoreNtsCheck.initial(store);
+            switch (seed.lookup()) {
+                case CONFIRMED -> check.applyConfirmed(store.getBizNo(), seed.status(), seed.closedAt(), checkedAt);
+                case UNCONFIRMED -> check.applyUnconfirmed(store.getBizNo(), checkedAt);
+                case NO_BIZ_NO -> check.applyNoBizNo(checkedAt);
+            }
+            checks.add(check);
+        }
+        storeNtsCheckRepository.saveAll(checks);
+        return checks.size();
     }
 
     /**

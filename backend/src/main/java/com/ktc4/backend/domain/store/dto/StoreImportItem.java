@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.store.dto;
 
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -59,6 +60,11 @@ public record StoreImportItem(
 
         @Schema(description = "사업자등록번호 — 하이픈이 있어도 숫자만 남겨 저장한다", example = "123-45-67890")
         @Size(max = 20, message = "사업자등록번호는 20자를 넘을 수 없습니다")
-        String bizNo
+        String bizNo,
+
+        @Schema(description = "국세청 확인 기록. 없으면 가게만 들어가고 조사 자료에서는 "
+                + "'아직 확인하지 않은 가게'(UNCONFIRMED)로 나온다")
+        @Valid
+        NtsCheckSeed ntsCheck
 ) {
 }
