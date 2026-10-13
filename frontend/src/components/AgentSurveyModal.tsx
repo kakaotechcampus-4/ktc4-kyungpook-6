@@ -28,6 +28,10 @@ type AgentSurveyModalProps = {
   estimatedMinutes: number;
   /** "조사 시작하기" 클릭. */
   onStart: () => void;
+  /** 조사 시작 요청이 날아가 있는 동안 true. 두 번 눌러 조사가 둘 생기는 걸 막는다. */
+  isStarting?: boolean;
+  /** 조사를 시작하지 못한 이유. 있으면 모달을 닫지 않고 여기에 띄운다. */
+  errorMessage?: string;
   /** "취소하기" 클릭 또는 ESC. */
   onCancel: () => void;
 } & Omit<ComponentPropsWithoutRef<'dialog'>, 'children' | 'open' | 'onCancel'>;
@@ -46,6 +50,8 @@ function AgentSurveyModal({
   estimatedMinutes,
   onStart,
   onCancel,
+  isStarting = false,
+  errorMessage,
   className,
   ...props
 }: AgentSurveyModalProps) {
@@ -142,21 +148,31 @@ function AgentSurveyModal({
 
       {/* 하단 버튼. Figma 111:3836 */}
       <div className="flex flex-col items-start gap-3">
+        {errorMessage ? (
+          <p
+            role="alert"
+            className="w-96 font-sans text-sm font-normal leading-5 text-[#b91c1c]"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
         <button
           type="button"
           onClick={onStart}
-          className={`${ACTION_BUTTON} bg-[#3b82f6] text-white focus-visible:outline-[#3b82f6]`}
+          disabled={isStarting}
+          className={`${ACTION_BUTTON} bg-[#3b82f6] text-white focus-visible:outline-[#3b82f6] disabled:opacity-60`}
         >
           <Icon
             icon="mingcute:robot-fill"
             className="size-4 shrink-0 text-white"
           />
-          조사 시작하기
+          {isStarting ? '조사를 시작하는 중…' : '조사 시작하기'}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className={`${ACTION_BUTTON} border border-solid border-[#e2e8f0] text-[#1e293b] focus-visible:outline-[#64748b]`}
+          disabled={isStarting}
+          className={`${ACTION_BUTTON} border border-solid border-[#e2e8f0] text-[#1e293b] focus-visible:outline-[#64748b] disabled:opacity-60`}
         >
           취소하기
         </button>
