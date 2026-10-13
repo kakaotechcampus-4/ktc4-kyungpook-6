@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe } from "../services/auth";
 import type { BusinessDay, BusinessHour, StoreDetailResponse } from "../services/store";
@@ -75,6 +75,10 @@ export type UseStoreManageResult = {
   menus: MenuDraft[];
   toggleMenuOnSale: (key: number) => void;
   removeMenu: (key: number) => void;
+  /** 고른 대표 사진의 미리보기 주소. 고르지 않았으면 null. */
+  photoUrl: string | null;
+  selectPhoto: (file: File) => void;
+  removePhoto: () => void;
   isSaving: boolean;
   save: () => void;
   /** 저장 결과나 입력 오류 문구. 다시 고치기 시작하면 지운다. */
@@ -121,6 +125,23 @@ export const useStoreManage = (): UseStoreManageResult => {
   const [newMenuName, setNewMenuNameState] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
 
+  /*
+    대표 사진. TODO(백엔드 대표 사진 API): 백엔드에 사진 칸·업로드 API 가 아직 없어 고른 사진은 서버로 보내지 않고
+    이 화면에서 미리보기만 한다. API 가 생기면 저장할 때 같이 보낸다.
+    미리보기 주소(blob:)는 바꾸거나 화면을 떠날 때 풀어 준다. 안 풀면 사진을 바꿀 때마다 메모리에 남는다.
+  */
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const photoUrlRef = useRef<string | null>(null);
+  const replacePhotoUrl = (next: string | null) => {
+    if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current);
+    photoUrlRef.current = next;
+    setPhotoUrl(next);
+    setNotice(null);
+  };
+  useEffect(() => () => {
+    if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current);
+  }, []);
+
   const update = (change: (prev: StoreDraft) => StoreDraft) => {
     if (!current) return;
     setNotice(null);
@@ -141,7 +162,10 @@ export const useStoreManage = (): UseStoreManageResult => {
     onSuccess: (saved) => {
       queryClient.setQueryData<StoreDetailResult>(storeQueryKey, { store: saved, isMock: false });
       setDraft(null);
-      setNotice({ tone: "success", text: "저장했어요." });
+      setNotice({
+        tone: "success",
+        text: photoUrlRef.current ? "저장했어요. 대표 사진은 아직 저장되지 않아요." : "저장했어요.",
+      });
     },
     onError: (error) => {
       setNotice({
@@ -210,6 +234,9 @@ export const useStoreManage = (): UseStoreManageResult => {
         menus: prev.menus.map((menu) => (menu.key === key ? { ...menu, onSale: !menu.onSale } : menu)),
       })),
     removeMenu: (key) => update((prev) => ({ ...prev, menus: prev.menus.filter((menu) => menu.key !== key) })),
+    photoUrl,
+    selectPhoto: (file) => replacePhotoUrl(URL.createObjectURL(file)),
+    removePhoto: () => replacePhotoUrl(null),
     isSaving: saveMutation.isPending,
     save: () => {
       if (!current || saveMutation.isPending) return;

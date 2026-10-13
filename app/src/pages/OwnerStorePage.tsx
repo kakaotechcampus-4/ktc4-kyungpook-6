@@ -1,10 +1,9 @@
-import photoRemoveIcon from "../assets/photo-remove-icon.svg";
 import plusSmallIcon from "../assets/plus-small-icon.svg";
 import OwnerTabBar from "../components/owner/OwnerTabBar";
 import BusinessHourRow from "../components/store/BusinessHourRow";
 import { MenuRegisterRow, MenuRow } from "../components/store/MenuRow";
 import { StoreInputField, StoreReadOnlyField } from "../components/store/StoreField";
-import StoreMascot from "../components/store/StoreMascot";
+import StorePhotoField from "../components/store/StorePhotoField";
 import StoreSectionHeader from "../components/store/StoreSectionHeader";
 import { useStoreManage } from "../hooks/storeManage";
 import { MAX_MENU_NAME_LENGTH, MAX_PHONE_LENGTH } from "../utils/storeManage";
@@ -74,19 +73,12 @@ function OwnerStorePage() {
                 value={store.phone}
                 onChange={(event) => store.setPhone(event.target.value)}
               />
-              <div>
-                <span className="block pb-2 text-sm leading-[normal] font-medium text-[#4b5563]">대표 사진</span>
-                {/*
-                  TODO(백엔드 대표 사진 API): StoreDetailResponse 에 사진 칸이 아직 없어 시안의 빈 자리만 그린다.
-                  사진 올리기·지우기는 API 가 생기면 붙인다. 그 전까지 X 는 누를 수 없는 그림이다.
-                */}
-                <div className="relative flex size-[120px] items-center justify-center rounded-[14px] bg-[#fbf6e6]">
-                  <StoreMascot size="large" />
-                  <span aria-hidden className="absolute top-1 right-1 flex size-7 items-center justify-center">
-                    <img src={photoRemoveIcon} alt="" width={18} height={18} />
-                  </span>
-                </div>
-              </div>
+              <StorePhotoField
+                id="store-photo"
+                photoUrl={store.photoUrl}
+                onSelect={store.selectPhoto}
+                onRemove={store.removePhoto}
+              />
             </div>
           </section>
 
