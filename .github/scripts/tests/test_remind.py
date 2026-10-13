@@ -185,3 +185,47 @@ def test_PR_이_있으면_embed_제목에_링크가_걸린다():
     p = r.to_payloads([_finding(pr=pr)])[0]
     assert p["embeds"][0]["url"] == "https://x/7"
     assert "#7" in p["embeds"][0]["description"]
+
+
+# ── 하루 한 번 리뷰 독촉 (stale_nudge_due) ─────────────────────────────────
+
+def hours(created, now):
+    return (now - created).total_seconds() / 3600
+
+
+def due(created, now):
+    return r.stale_nudge_due(created, now, hours(created, now))
+
+
+def test_2차_독촉_전에는_하루치_독촉을_보내지_않는다():
+    created = at(2026, 10, 14, 7)          # 3시간째
+    assert due(created, at(2026, 10, 14, 10)) is False
+
+
+def test_2차가_전날이면_다음_날_아침에_다시_부른다():
+    # 🐛 예전에는 24시간을 넘긴 건만 봐서, 13시에 올라온 PR 은 2차(17시) 뒤로
+    #    다음다음 날 아침까지 조용했다. 그 사이 10:00 에는 21시간째였다.
+    created = at(2026, 10, 13, 13)
+    assert due(created, at(2026, 10, 14, 10)) is True      # 21시간째
+    assert due(created, at(2026, 10, 15, 10)) is True      # 45시간째 — 매일 다시
+
+
+def test_그날_2차가_이미_울렸으면_건너뛴다():
+    # 🐛 밤에 올라온 PR 은 2차가 조용한 시간에 걸려 08:00 으로 밀린다.
+    #    막지 않으면 08:00·10:00 에 같은 PR 로 두 번 울린다.
+    created = at(2026, 10, 13, 21, 52)                     # 2차 = 01:52 → 08:00
+    assert due(created, at(2026, 10, 14, 10)) is False
+    assert due(created, at(2026, 10, 15, 10)) is True      # 다음 날부터는 보낸다
+
+
+def test_2차가_같은_날_오전이면_그날은_건너뛴다():
+    created = at(2026, 10, 14, 5, 30)                      # 2차 = 09:30
+    assert due(created, at(2026, 10, 14, 10)) is False
+
+
+def test_기한_24시간은_부를지가_아니라_말투만_가른다():
+    # 24시간 미만이어도 부른다. 24시간은 ⌛/🔔 를 가르는 선일 뿐이다.
+    created = at(2026, 10, 13, 13)
+    assert hours(created, at(2026, 10, 14, 10)) < r.STALE_REVIEW_HOURS
+    assert due(created, at(2026, 10, 14, 10)) is True
+

@@ -52,12 +52,20 @@ NO_REVIEW_SECOND_HOURS = 4   # 2차 독촉 — 작성자도 같이 부른다
 # 리뷰어가 **아무도 지정되지 않은** PR 은 아무의 일도 아닌 상태다. 리뷰가 늦는 것보다
 # 이쪽이 더 막힌 상태라, 여기서만 테크리더를 부른다.
 NO_REVIEWER_HOURS = 2
-# 코드 리뷰 가이드의 팀 규칙은 "리뷰 기한 PR 작성 후 24시간". 1·4시간 독촉을 지나고도
-# 리뷰가 없으면 그 뒤로는 아무 말이 없었다 — 실제로 24시간·19시간째 리뷰 0건인 PR 이 생겼다
-# (2026-10-07). 기한을 넘긴 PR 은 **하루 한 번 정해진 시각에** 다시 부른다.
+# 1·4시간 독촉을 지나고도 리뷰가 없으면 그 뒤로는 아무 말이 없었다 — 실제로 24시간·19시간째
+# 리뷰 0건인 PR 이 생겼다(2026-10-07). 그래서 **하루 한 번 정해진 시각에** 다시 부른다.
+#
+# 처음에는 "24시간을 넘긴 건" 만 봤는데, 그러면 2차 독촉과 이 알림 사이가 통째로 빈다.
+# 밤에 올라온 PR 은 그 구멍이 하루를 넘긴다 — 21:52 에 올라온 PR 은 2차 독촉(조용한 시간이라
+# 08:00 으로 밀림) 다음 알림이 **36시간째**(이틀 뒤 10:00)였다. 그 사이 10:00 에는 열린 지
+# 12시간이라 24시간 조건에 걸리지 않아 그날이 통째로 조용했다(2026-10-13, 스크립트를 그대로
+# 돌려 확인). 그래서 **2차 독촉을 지났는데도 리뷰가 0건이면** 매일 부른다.
 #
 # 매번 보지 않는 이유 — 하루 종일 같은 PR 로 울리면 알림이 무뎌진다. 하루 한 번이면
 # 그 PR 당 정확히 한 번이라 중복도 없다.
+#
+# STALE_REVIEW_HOURS 는 이제 "부를지 말지" 가 아니라 **말투를 가르는 선**이다
+# (넘겼으면 기한 초과, 아직이면 그냥 알림). 팀 규칙은 "리뷰 기한 PR 작성 후 24시간".
 STALE_REVIEW_HOURS = 24
 STALE_CHECK_HOUR = 10   # KST. 조용한 시간 밖이라 따로 밀 필요가 없다
 
@@ -244,6 +252,25 @@ def slot_due(now: datetime, hour: int, weekday: int | None = None) -> bool:
     return False
 
 
+def stale_nudge_due(created: datetime, now: datetime, opened_hours: float) -> bool:
+    """하루 한 번 "아직 리뷰가 없다"를 보낼 차례인가. **시각 조건만** 본다.
+
+    "리뷰 0건" 과 10:00 슬롯은 호출부가 본다. 여기서 보는 건 둘이다.
+
+    1. **2차 독촉을 지났는가.** 예전에는 24시간을 넘긴 건만 봤는데, 그러면 2차 독촉과
+       이 알림 사이가 통째로 빈다. 13:00 에 올라온 PR 은 2차(17:00) 다음 알림이
+       **다음다음 날 10:00**(45시간째)이었다 — 그 사이 10:00 에는 21시간째라 24시간 조건에
+       걸리지 않았다.
+    2. **그날 2차가 이미 울리지 않았는가.** 조용한 시간에 4시간을 넘긴 건은 08:00 으로
+       밀리는데, 막지 않으면 08:00·10:00 에 같은 PR 로 두 번 울린다. 두 알림은 서로 다른
+       실행에서 나가므로 한 실행 안에서만 보면 못 막는다. 그래서 날짜로 본다.
+    """
+    if opened_hours < NO_REVIEW_SECOND_HOURS:
+        return False
+    second_wake = wake_at(created + timedelta(hours=NO_REVIEW_SECOND_HOURS))
+    return second_wake.astimezone(KST).date() != now.astimezone(KST).date()
+
+
 def latest_review_state(reviews: list[dict]) -> str | None:
     """사람별 마지막 리뷰만 본다. COMMENTED 는 승인·변경요청을 덮지 않는다."""
     by_user: dict[str, dict] = {}
@@ -350,22 +377,27 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "mention": dm.mentions(assigned + [pr["user"]["login"]]),
                 })
 
-        # 기한(24시간)을 넘기고도 리뷰가 없는 PR. **하루 한 번**만 부른다.
+        # 리뷰가 아직 없는 PR 을 **하루 한 번** 다시 부른다.
         #
         # 리뷰어가 있든 없든 본다 — 리뷰어가 없는 채로 묵은 PR 이 더 나쁜 상태인데,
         # 그쪽은 2시간 독촉 뒤로 아무 말이 없었다.
-        # 1·4시간 독촉과 겹치지 않는다: 한 PR 이 4시간 미만이면서 24시간 초과일 수 없다.
+        #
+        # 보낼 차례인지는 stale_nudge_due 가 판정한다(그 함수 주석에 이유가 있다).
         if (not reviews and slot_due(now, STALE_CHECK_HOUR)
-                and opened_hours >= STALE_REVIEW_HOURS):
+                and stale_nudge_due(created, now, opened_hours)):
+            overdue = opened_hours >= STALE_REVIEW_HOURS
             # 일수를 머리말에 넣지 않는다. cron 이 불규칙해서 하루 독촉이 18시간 간격으로
             # 떨어지면 "2일째"가 두 번 나간다. 경과 시간은 아래 detail 에 정확히 적는다.
             pr_findings.append({
-                "color": COLOR_WARN,
-                "headline": "⌛ 리뷰 기한을 넘겼습니다",
+                "color": COLOR_WARN if overdue else COLOR_INFO,
+                "headline": ("⌛ 리뷰 기한을 넘겼습니다" if overdue
+                             else "🔔 아직 리뷰가 없습니다"),
                 "pr": pr,
-                "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건 "
-                          f"(팀 기준 리뷰 기한은 {STALE_REVIEW_HOURS}시간)",
-                "action": "오늘 보기 어려우면 다른 분께 넘기거나 PR 을 닫아 주세요",
+                "detail": (f"열린 지 {int(opened_hours)}시간 · 리뷰 0건 "
+                           + (f"(팀 기준 리뷰 기한은 {STALE_REVIEW_HOURS}시간)" if overdue
+                              else f"· 기한까지 {STALE_REVIEW_HOURS - int(opened_hours)}시간")),
+                "action": ("오늘 보기 어려우면 다른 분께 넘기거나 PR 을 닫아 주세요" if overdue
+                           else "오늘 안에 리뷰해 주세요"),
                 "mention": dm.mentions(people(pr)),
             })
 
