@@ -55,6 +55,15 @@ public class StoreImportAdminController {
                     이름·주소는 화면에 보여주는 원본을 그대로 보내면 됩니다. 비교용 정규화 값은 서버가 만듭니다.
                     사업자등록번호는 하이픈이 있어도 숫자만 남겨 저장하고, 10자리가 아니어도 받습니다 —
                     국세청 조회가 10자리만 걸러 씁니다.
+
+                    `ntsCheck` 를 함께 보내면 **국세청 확인 기록도 만듭니다.** 이 칸이 없으면 그 가게는
+                    `GET /api/stores/nts-checks` 에서 `ntsLookup=UNCONFIRMED` 로 나옵니다 —
+                    배치가 아직 확인하지 않은 가게와 같은 모양이라, 조사 화면에서 쓸 수 없습니다.
+                    서로 모순되는 조합(CONFIRMED 인데 status 없음, CONFIRMED 가 아닌데 status 있음,
+                    폐업이 아닌데 폐업일 있음)은 그 줄만 거절하고 이유를 돌려줍니다.
+
+                    ⚠️ `ntsCheck` 로 넣은 값은 **매일 새벽 3시 배치가 국세청으로 다시 확인해 덮어씁니다.**
+                    꾸며낸 사업자등록번호로 넣었다면 다음 배치에서 `NOT_REGISTERED` 로 바뀔 수 있습니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "처리 완료 — 넣은 건수와 넣지 못한 줄을 반환합니다"),
