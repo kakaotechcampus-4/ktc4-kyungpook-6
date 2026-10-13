@@ -15,6 +15,14 @@
 #
 # AUTH_ENFORCE 기본값은 켜짐(true)입니다 — Java·application.yml 기본값과 같습니다.
 services:
+  postgres:
+    ports:
+      - "0.0.0.0:${POSTGRES_PORT:?}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+
   backend:
     environment:
       AUTH_ENFORCE: ${AUTH_ENFORCE:-true}
