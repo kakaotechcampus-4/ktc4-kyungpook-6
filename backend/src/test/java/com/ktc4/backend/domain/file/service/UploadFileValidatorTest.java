@@ -36,14 +36,16 @@ class UploadFileValidatorTest {
     }
 
     @Test
-    @DisplayName("사진은 JPEG·PNG·WebP 를 받는다")
+    @DisplayName("사진은 JPEG·PNG 를 받는다 — WebP 는 받지 않는다")
     void acceptsImages() {
         assertThatCode(() -> UploadFileValidator.validate(UploadKind.STORE_IMAGE, jpeg("storeImage")))
                 .doesNotThrowAnyException();
         assertThatCode(() -> UploadFileValidator.validate(UploadKind.STORE_IMAGE, png("storeImage")))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> UploadFileValidator.validate(UploadKind.MENU_IMAGE, webp("menuImages")))
-                .doesNotThrowAnyException();
+        assertThat(errorCodeOf(() -> UploadFileValidator.validate(UploadKind.STORE_IMAGE, webp("storeImage"))))
+                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
+        assertThat(errorCodeOf(() -> UploadFileValidator.validate(UploadKind.MENU_IMAGE, webp("menuImages"))))
+                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
     }
 
     @Test

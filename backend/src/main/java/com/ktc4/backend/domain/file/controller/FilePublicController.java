@@ -79,8 +79,7 @@ public class FilePublicController {
     @SecurityRequirements
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "사진 내용",
-                    content = {@Content(mediaType = "image/jpeg"), @Content(mediaType = "image/png"),
-                            @Content(mediaType = "image/webp")}),
+                    content = {@Content(mediaType = "image/jpeg"), @Content(mediaType = "image/png")}),
             @ApiResponse(responseCode = "400", description = "fileId 가 숫자가 아닌 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),

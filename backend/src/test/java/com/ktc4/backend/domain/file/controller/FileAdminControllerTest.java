@@ -178,11 +178,11 @@ class FileAdminControllerTest {
                             "inline; filename=\"store-image-12.jpg\""))
                     .andExpect(header().string("X-Content-Type-Options", "nosniff"));
 
-            givenFile(UploadKind.MENU_IMAGE, FileType.WEBP);
+            givenFile(UploadKind.MENU_IMAGE, FileType.PNG);
             mockMvc.perform(get(FILE_URL).header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
-                    .andExpect(content().contentType("image/webp"))
+                    .andExpect(content().contentType(MediaType.IMAGE_PNG))
                     .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
-                            "inline; filename=\"menu-image-12.webp\""));
+                            "inline; filename=\"menu-image-12.png\""));
         }
 
         @Test

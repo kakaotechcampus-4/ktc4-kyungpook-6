@@ -29,17 +29,19 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import static com.ktc4.backend.support.SignupMultipart.concat;
 import static com.ktc4.backend.support.SignupMultipart.file;
 import static com.ktc4.backend.support.SignupMultipart.jpeg;
 import static com.ktc4.backend.support.SignupMultipart.pdf;
 import static com.ktc4.backend.support.SignupMultipart.png;
-import static com.ktc4.backend.support.SignupMultipart.webp;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -106,14 +108,14 @@ class UploadFileServiceTest {
         MockMultipartFile bizCert = pdf("bizCert");
 
         service.storeSignupFiles(applicant,
-                new SignupFiles(storeImage, List.of(png("menuImages"), webp("menuImages")), bizCert));
+                new SignupFiles(storeImage, List.of(png("menuImages"), jpeg("menuImages")), bizCert));
 
         List<UploadFile> records = savedRecords(4);
         assertThat(records).extracting(UploadFile::getKind, UploadFile::getFileType)
                 .containsExactly(
                         tuple(UploadKind.STORE_IMAGE, FileType.JPEG),
                         tuple(UploadKind.MENU_IMAGE, FileType.PNG),
-                        tuple(UploadKind.MENU_IMAGE, FileType.WEBP),
+                        tuple(UploadKind.MENU_IMAGE, FileType.JPEG),
                         tuple(UploadKind.BIZ_CERT, FileType.PDF));
         assertThat(records).allSatisfy(record -> assertThat(record.getMember()).isSameAs(applicant));
         assertThat(records.get(0).getSizeBytes()).isEqualTo(storeImage.getSize());
@@ -143,6 +145,52 @@ class UploadFileServiceTest {
         UploadFile record = savedRecords(2).get(0);
         assertThat(record.getFileType()).isEqualTo(FileType.PNG);
         assertThat(record.getStoredName()).endsWith(".png").doesNotContain("page").doesNotContain("html");
+    }
+
+    @Test
+    @DisplayName("사진은 위치 정보 같은 부가 정보를 지운 내용으로 저장하고, 크기도 지운 뒤의 값을 적는다")
+    void storesImagesWithoutMetadata() throws IOException {
+        byte[] clean = jpeg("storeImage").getBytes();
+        // 시작 표시(2바이트) 바로 뒤에 EXIF 조각을 끼운 사진. "좌표"는 지어낸 글자다
+        byte[] exifPayload = "Exif\0\0SECRET-GPS-00.0000,000.0000".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] withExif = concat(Arrays.copyOfRange(clean, 0, 2),
+                new byte[]{(byte) 0xFF, (byte) 0xE1, 0, (byte) (exifPayload.length + 2)}, exifPayload,
+                Arrays.copyOfRange(clean, 2, clean.length));
+        MockMultipartFile photo = file("storeImage", "IMG_0001.jpg", "image/jpeg", withExif);
+
+        service.storeSignupFiles(applicant, new SignupFiles(photo, List.of(), pdf("bizCert")));
+
+        UploadFile record = savedRecords(2).get(0);
+        byte[] stored = Files.readAllBytes(uploadDir.resolve(record.getStoredName()));
+        assertThat(stored).isEqualTo(clean);
+        assertThat(new String(stored, StandardCharsets.ISO_8859_1)).doesNotContain("SECRET");
+        assertThat(record.getSizeBytes()).isEqualTo(clean.length);
+    }
+
+    @Test
+    @DisplayName("사업자등록증(PDF)은 올라온 내용 그대로 저장한다")
+    void storesPdfAsIs() throws IOException {
+        MockMultipartFile bizCert = pdf("bizCert");
+
+        service.storeSignupFiles(applicant, new SignupFiles(jpeg("storeImage"), List.of(), bizCert));
+
+        UploadFile record = savedRecords(2).get(1);
+        assertThat(Files.readAllBytes(uploadDir.resolve(record.getStoredName()))).isEqualTo(bizCert.getBytes());
+    }
+
+    @Test
+    @DisplayName("앞부분만 사진이고 구조가 맞지 않는 파일은 거절하고 디스크에 남기지 않는다")
+    void rejectsMalformedImage() throws IOException {
+        // 시작 표시와 조각 머리말만 있고 내용이 끊긴 파일 — 앞 12바이트만 보는 형식 확인은 통과한다
+        byte[] truncated = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10, 'J', 'F', 'I', 'F', 0, 1};
+        SignupFiles files = new SignupFiles(file("storeImage", "a.jpg", "image/jpeg", truncated),
+                List.of(), pdf("bizCert"));
+
+        assertThatThrownBy(() -> service.storeSignupFiles(applicant, files))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE));
+
+        assertThat(filesOnDisk()).isZero();
     }
 
     @Test

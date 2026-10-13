@@ -96,11 +96,14 @@ public class AuthController {
                     | 칸 | 내용 | 필수 | 제한 |
                     |---|---|---|---|
                     | `data` | 위의 글자 정보 전부. JSON 이고 **칸의 Content-Type 을 `application/json` 으로** 보냅니다 | 필수 | |
-                    | `storeImage` | 가게 대표 사진 | 필수 | 1장, 5MB, JPEG·PNG·WebP |
-                    | `menuImages` | 메뉴 사진. 같은 이름으로 여러 번 싣습니다 | 선택 | 2장까지, 장당 5MB, JPEG·PNG·WebP |
+                    | `storeImage` | 가게 대표 사진 | 필수 | 1장, 5MB, JPEG·PNG |
+                    | `menuImages` | 메뉴 사진. 같은 이름으로 여러 번 싣습니다 | 선택 | 2장까지, 장당 5MB, JPEG·PNG |
                     | `bizCert` | 사업자등록증 | 필수 | 1개, 10MB, PDF |
 
                     - 파일 형식은 파일 이름이 아니라 실제 내용으로 확인합니다.
+                    - WebP·HEIC(아이폰 기본 형식)는 받지 않습니다. 앱에서 JPEG 로 바꿔 올려 주세요.
+                    - 사진은 저장할 때 **찍은 위치(GPS)·기기·시각 같은 부가 정보를 지웁니다.** 사진의 방향만 남깁니다.
+                      화질은 그대로입니다(다시 압축하지 않습니다). 구조가 깨진 사진은 `unsupported-file-type` 으로 거절합니다.
                     - `data` 칸에 Content-Type 을 붙이지 않으면 415 입니다. 브라우저에서는
                       `new Blob([JSON.stringify(data)], { type: "application/json" })` 로 싣습니다.
                     - 글자 정보의 형식 오류가 파일 오류보다 먼저 나갑니다.

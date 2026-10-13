@@ -10,6 +10,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -46,16 +47,34 @@ public class FileStorage {
      * @throws UncheckedIOException 디스크에 쓰지 못하면
      */
     public String save(MultipartFile file, FileType type) {
-        String storedName = UUID.randomUUID() + "." + type.extension();
-        try {
-            // 폴더는 처음 쓸 때 만든다. 기동할 때 만들면 파일을 쓰지 않는 테스트·환경에도 빈 폴더가 생긴다
-            Files.createDirectories(root);
-            try (InputStream in = file.getInputStream()) {
-                Files.copy(in, resolve(storedName));
-            }
+        try (InputStream in = file.getInputStream()) {
+            return save(in, type);
         } catch (IOException e) {
             throw new UncheckedIOException("파일을 저장하지 못했습니다", e);
         }
+    }
+
+    /**
+     * 내용을 저장하고 저장한 이름을 돌려준다. 올라온 파일을 그대로 두지 않고 손본 내용(부가 정보를 지운 사진)을 저장할 때 쓴다.
+     *
+     * @param content 저장할 내용
+     * @param type    서버가 가린 형식. 확장자를 이 값으로 붙인다
+     * @return 저장한 이름
+     * @throws UncheckedIOException 디스크에 쓰지 못하면
+     */
+    public String save(byte[] content, FileType type) {
+        try {
+            return save(new ByteArrayInputStream(content), type);
+        } catch (IOException e) {
+            throw new UncheckedIOException("파일을 저장하지 못했습니다", e);
+        }
+    }
+
+    private String save(InputStream in, FileType type) throws IOException {
+        String storedName = UUID.randomUUID() + "." + type.extension();
+        // 폴더는 처음 쓸 때 만든다. 기동할 때 만들면 파일을 쓰지 않는 테스트·환경에도 빈 폴더가 생긴다
+        Files.createDirectories(root);
+        Files.copy(in, resolve(storedName));
         return storedName;
     }
 

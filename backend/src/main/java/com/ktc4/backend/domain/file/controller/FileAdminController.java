@@ -72,7 +72,7 @@ public class FileAdminController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "파일 내용",
                     content = {@Content(mediaType = "image/jpeg"), @Content(mediaType = "image/png"),
-                            @Content(mediaType = "image/webp"), @Content(mediaType = "application/pdf")}),
+                            @Content(mediaType = "application/pdf")}),
             @ApiResponse(responseCode = "404", description = "해당 ID 의 파일이 없는 경우(file-not-found)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class)))

@@ -336,9 +336,22 @@ class AuthControllerTest {
                 .andExpect(status().isCreated());
         mockMvc.perform(signupRequest(VALID_SIGNUP, png("storeImage"), pdf("bizCert"), jpeg("menuImages")))
                 .andExpect(status().isCreated());
-        mockMvc.perform(signupRequest(VALID_SIGNUP, webp("storeImage"), pdf("bizCert"),
-                        png("menuImages"), webp("menuImages")))
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpeg("storeImage"), pdf("bizCert"),
+                        png("menuImages"), jpeg("menuImages")))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("WebP 사진은 받지 않는다 — 400 unsupported-file-type 이고 가입시키지 않는다")
+    void signupRejectsWebp() throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP, webp("storeImage"), pdf("bizCert")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_FILE_TYPE.getType().toString()));
+        mockMvc.perform(signupRequest(VALID_SIGNUP, jpeg("storeImage"), pdf("bizCert"), webp("menuImages")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.UNSUPPORTED_FILE_TYPE.getType().toString()));
+
+        verify(authService, never()).signupOwner(any(), any());
     }
 
     @Test

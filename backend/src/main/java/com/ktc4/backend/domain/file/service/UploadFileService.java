@@ -22,6 +22,8 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -71,9 +73,27 @@ public class UploadFileService {
         // 컨트롤러가 이미 확인했지만 형식은 여기서 다시 가린다 — 저장하는 확장자와 내려줄 Content-Type 이 이 값이라,
         // 확인을 건너뛴 채 이 메서드를 부르는 길이 생겨도 보낸 쪽이 적은 형식으로 저장되지 않는다.
         FileType type = UploadFileValidator.validate(kind, file);
-        String storedName = fileStorage.save(file, type);
+        if (!type.isImage()) {
+            String storedName = fileStorage.save(file, type);
+            written.add(storedName);
+            uploadFileRepository.save(new UploadFile(applicant, kind, type, storedName, file.getSize()));
+            return;
+        }
+        // 사진은 올라온 그대로 저장하지 않는다. 위치 정보 같은 부가 정보를 지운 내용을 저장한다 —
+        // 디스크에 한 번도 닿지 않게 하려고 저장한 뒤 고치지 않고 저장하기 전에 지운다. 크기도 지운 뒤의 값을 적는다.
+        byte[] cleaned = ImageMetadataStripper.strip(type, readAll(file));
+        String storedName = fileStorage.save(cleaned, type);
         written.add(storedName);
-        uploadFileRepository.save(new UploadFile(applicant, kind, type, storedName, file.getSize()));
+        uploadFileRepository.save(new UploadFile(applicant, kind, type, storedName, cleaned.length));
+    }
+
+    // 사진은 종류별 상한(5MB)을 넘지 않는 것을 확인한 뒤라 메모리에 올려도 된다
+    private static byte[] readAll(MultipartFile file) {
+        try {
+            return file.getBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException("올라온 파일을 읽지 못했습니다", e);
+        }
     }
 
     private void deleteIfRolledBack(List<String> written) {
