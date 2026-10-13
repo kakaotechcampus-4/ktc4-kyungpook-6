@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -75,6 +76,38 @@ public interface StoreOwnerRepository extends JpaRepository<StoreOwner, Long> {
             order by so.storeOwnerId asc
             """)
     List<LinkedStore> findLinkedStoresByMemberId(@Param("memberId") Long memberId);
+
+    /**
+     * 회원에게 연결된 가게를 관리자 화면에 보여줄 만큼 읽는다. 끊긴 연결은 뺀다.
+     *
+     * <p>{@link #findLinkedStoresByMemberId}(점주 앱용)와 따로 두는 이유는 두 가지다. 관리자는 지점을
+     * 구분해야 해서 주소와 언제 연결했는지가 필요하고, 점주 앱 쪽 질의의 칸을 늘리면 앱이 쓰지도 않는 값을
+     * 매번 읽게 된다. 정렬 기준(연결 행 ID)은 같게 둔다 — 두 화면이 다른 순서를 보이면 이야기가 어긋난다.
+     *
+     * @param memberId 회원 ID
+     * @return 연결된 가게. 없으면 빈 목록
+     */
+    @Query("""
+            select s.storeId as storeId, s.name as name, s.addressRoad as addressRoad,
+                   so.linkedAt as linkedAt
+            from StoreOwner so
+            join so.store s
+            where so.member.memberId = :memberId
+              and so.unlinkedAt is null
+            order by so.storeOwnerId asc
+            """)
+    List<LinkedStoreDetail> findLinkedStoreDetailsByMemberId(@Param("memberId") Long memberId);
+
+    /** 관리자 화면이 보는 연결된 가게 한 곳. */
+    interface LinkedStoreDetail {
+        Long getStoreId();
+
+        String getName();
+
+        String getAddressRoad();
+
+        LocalDateTime getLinkedAt();
+    }
 
     /** 가게 한 곳에 연결된 점주 수. */
     interface OwnerCount {

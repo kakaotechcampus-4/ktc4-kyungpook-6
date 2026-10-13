@@ -11,6 +11,8 @@ import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.enums.NameMatch;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStoreDetail;
+import com.ktc4.backend.domain.member.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -20,6 +22,7 @@ import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -653,5 +656,71 @@ class OwnerApprovalServiceTest {
 
         assertThatThrownBy(() -> StoreOwner.link(store(STORE_ID, "예시분식", null), admin, admin, LocalDateTime.now()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * 연결을 끊는 API 는 있는데 무엇이 연결돼 있는지 볼 방법이 없어, 화면에서 끊을 대상을 고를 수 없었다(PROMPT-150).
+     */
+    @Nested
+    @DisplayName("연결된 가게 조회")
+    class GetLinkedStores {
+
+        private LinkedStoreDetail detail(long storeId, String name) {
+            return new LinkedStoreDetail() {
+                @Override
+                public Long getStoreId() {
+                    return storeId;
+                }
+
+                @Override
+                public String getName() {
+                    return name;
+                }
+
+                @Override
+                public String getAddressRoad() {
+                    return "가상특별시 예시구 샘플로 123";
+                }
+
+                @Override
+                public LocalDateTime getLinkedAt() {
+                    return LocalDateTime.of(2026, 10, 13, 9, 0);
+                }
+            };
+        }
+
+        @Test
+        @DisplayName("연결된 가게를 그대로 옮겨 준다")
+        void returnsLinkedStores() {
+            Member owner = pendingOwner(3L);
+            when(memberRepository.findById(3L)).thenReturn(Optional.of(owner));
+            when(storeOwnerRepository.findLinkedStoreDetailsByMemberId(3L))
+                    .thenReturn(List.of(detail(10L, "예시분식"), detail(11L, "예시분식 2호점")));
+
+            List<LinkedStoreResponse> stores = ownerApprovalService.getLinkedStores(3L);
+
+            assertThat(stores).extracting(LinkedStoreResponse::storeId).containsExactly(10L, 11L);
+            assertThat(stores.get(0).name()).isEqualTo("예시분식");
+            assertThat(stores.get(0).linkedAt()).isEqualTo(LocalDateTime.of(2026, 10, 13, 9, 0));
+        }
+
+        @Test
+        @DisplayName("연결이 없으면 빈 목록이다 — 승인 전 점주도 여기로 온다")
+        void returnsEmptyWhenNoLink() {
+            when(memberRepository.findById(3L)).thenReturn(Optional.of(pendingOwner(3L)));
+            when(storeOwnerRepository.findLinkedStoreDetailsByMemberId(3L)).thenReturn(List.of());
+
+            assertThat(ownerApprovalService.getLinkedStores(3L)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("점주가 아니면 없는 것으로 본다 — 관리자 계정의 존재를 알아낼 수 없게")
+        void hidesNonOwner() {
+            when(memberRepository.findById(ADMIN_ID)).thenReturn(Optional.of(admin()));
+
+            assertThatThrownBy(() -> ownerApprovalService.getLinkedStores(ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
+            verify(storeOwnerRepository, never()).findLinkedStoreDetailsByMemberId(any());
+        }
     }
 }

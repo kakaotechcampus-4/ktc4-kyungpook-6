@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.member.controller;
 
+import com.ktc4.backend.domain.member.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApproveRequest;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
@@ -87,6 +88,26 @@ public class OwnerAdminController {
     public List<StoreCandidateResponse> getStoreCandidates(
             @Parameter(description = "가입 신청한 회원 ID", example = "3") @PathVariable Long memberId) {
         return ownerApprovalService.getStoreCandidates(memberId);
+    }
+
+    @Operation(summary = "연결된 가게 조회",
+            description = """
+                    이 점주에게 **지금 연결된** 가게를 봅니다. 끊긴 연결은 담지 않습니다 —
+                    연결을 끊을 대상을 고르는 데 쓰는 목록이라, 지금 체크인할 수 있는 가게만 보여야 합니다.
+
+                    승인 전(PENDING)이면 연결이 없어 빈 배열입니다. 연결할 수 있는 **후보**는
+                    `GET /api/admin/owners/{memberId}/store-candidates` 입니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "조회 성공 (연결이 없으면 빈 배열)"),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없는 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @GetMapping("/{memberId}/stores")
+    public List<LinkedStoreResponse> getLinkedStores(
+            @Parameter(description = "점주 회원 ID", example = "3") @PathVariable Long memberId) {
+        return ownerApprovalService.getLinkedStores(memberId);
     }
 
     @Operation(summary = "점주 가입 승인",

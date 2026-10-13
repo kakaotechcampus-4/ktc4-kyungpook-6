@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.member.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.member.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.entity.Member;
@@ -115,6 +116,26 @@ public class OwnerApprovalService {
      *                         이미 승인·거절됐으면 {@code OWNER_ALREADY_REVIEWED},
      *                         가게가 없으면 {@code STORE_NOT_FOUND}
      */
+    /**
+     * 점주에게 지금 연결된 가게. 관리자가 끊을 대상을 고르는 데 쓴다.
+     *
+     * <p>연결을 끊는 API({@link #unlinkStore})는 있는데 <b>무엇이 연결돼 있는지 볼 방법이 없어</b> 화면에서
+     * 끊을 대상을 고를 수 없었다(PROMPT-150). 끊긴 연결은 담지 않는다.
+     *
+     * @param memberId 점주 회원 ID
+     * @return 연결된 가게. 없으면 빈 목록
+     * @throws CustomException 점주가 아니거나 없으면 {@code MEMBER_NOT_FOUND}
+     */
+    public List<LinkedStoreResponse> getLinkedStores(Long memberId) {
+        memberRepository.findById(memberId)
+                .filter(found -> found.getRole() == MemberRole.OWNER)
+                .orElseThrow(() -> new CustomException(ErrorCode.MEMBER_NOT_FOUND));
+
+        return storeOwnerRepository.findLinkedStoreDetailsByMemberId(memberId).stream()
+                .map(LinkedStoreResponse::from)
+                .toList();
+    }
+
     @Transactional
     public OwnerApplicationResponse approve(Long memberId, Long storeId, Long adminId) {
         // 잠그고 읽는다 — 같은 신청을 동시에 두 번 승인해 연결이 두 건 생기지 않게.
