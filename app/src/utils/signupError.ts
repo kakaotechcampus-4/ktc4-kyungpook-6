@@ -8,7 +8,7 @@ import { isAxiosError } from "axios";
 export type SignupError =
   /** 409 — 이미 가입된 이메일. 1단계 아이디 칸에 보여 준다. */
   | { kind: "duplicate-email" }
-  /** 그 밖의 실패. 기본 정보 화면 버튼 위에 보여 준다. */
+  /** 그 밖의 실패. 마지막 단계(메뉴) 화면 버튼 위에 보여 준다. */
   | { kind: "message"; message: string };
 
 const MESSAGES: Record<string, string> = {
