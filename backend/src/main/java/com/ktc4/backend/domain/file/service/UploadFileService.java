@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.file.service;
 
 import com.ktc4.backend.domain.file.dto.AttachmentResponse;
 import com.ktc4.backend.domain.file.dto.SignupFiles;
+import com.ktc4.backend.domain.file.dto.StoreImageResponse;
 import com.ktc4.backend.domain.file.dto.StoredFile;
 import com.ktc4.backend.domain.file.entity.UploadFile;
 import com.ktc4.backend.domain.file.enums.FileType;
@@ -10,6 +11,7 @@ import com.ktc4.backend.domain.file.repository.UploadFileRepository;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
+import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ public class UploadFileService {
 
     private final UploadFileRepository uploadFileRepository;
     private final MemberRepository memberRepository;
+    private final StoreRepository storeRepository;
     private final FileStorage fileStorage;
 
     /**
@@ -114,6 +117,43 @@ public class UploadFileService {
     public StoredFile load(Long fileId) {
         UploadFile file = uploadFileRepository.findById(fileId)
                 .orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
+        return toStoredFile(file);
+    }
+
+    /**
+     * 가게의 공개 사진 목록. 가게에 지금 연결된 점주가 가입할 때 올린 대표 사진·메뉴 사진이다.
+     *
+     * @param storeId 가게 ID
+     * @return 공개 사진. 연결된 점주가 없거나 사진을 올린 적이 없으면 빈 목록
+     * @throws CustomException 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    public List<StoreImageResponse> getStoreImages(Long storeId) {
+        if (!storeRepository.existsById(storeId)) {
+            throw new CustomException(ErrorCode.STORE_NOT_FOUND);
+        }
+        return uploadFileRepository.findOfStore(storeId, UploadKind.PUBLIC_KINDS).stream()
+                .map(StoreImageResponse::from)
+                .toList();
+    }
+
+    /**
+     * 공개된 사진 한 장을 꺼낸다. 로그인하지 않은 사람도 부르는 길이다.
+     *
+     * <p>꺼낼 수 있는 것은 가게에 연결된(= 승인된) 점주가 올린 대표 사진·메뉴 사진뿐이다. 사업자등록증,
+     * 승인 전·거절된 신청의 사진, 연결이 끊긴 점주의 사진은 "없는 파일"과 똑같이 답한다 —
+     * 다르게 답하면 번호를 하나씩 넣어 보며 어떤 파일이 있는지 알아낼 수 있다.
+     *
+     * @param fileId 파일 ID
+     * @return 기록과 내용
+     * @throws CustomException 공개된 사진이 아니면 {@code FILE_NOT_FOUND}
+     */
+    public StoredFile loadPublic(Long fileId) {
+        UploadFile file = uploadFileRepository.findLinkedById(fileId, UploadKind.PUBLIC_KINDS)
+                .orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
+        return toStoredFile(file);
+    }
+
+    private StoredFile toStoredFile(UploadFile file) {
         return new StoredFile(file.getUploadFileId(), file.getKind(), file.getFileType(), file.getSizeBytes(),
                 fileStorage.load(file.getStoredName()));
     }

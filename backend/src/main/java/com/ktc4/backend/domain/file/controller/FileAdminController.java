@@ -1,8 +1,6 @@
 package com.ktc4.backend.domain.file.controller;
 
 import com.ktc4.backend.domain.file.dto.AttachmentResponse;
-import com.ktc4.backend.domain.file.dto.StoredFile;
-import com.ktc4.backend.domain.file.enums.UploadKind;
 import com.ktc4.backend.domain.file.service.UploadFileService;
 import com.ktc4.backend.global.error.ApiProblemDetail;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,9 +13,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
-import org.springframework.http.ContentDisposition;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,7 +20,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Locale;
 
 /**
  * 관리자가 가입 신청에 첨부된 파일을 보는 진입점.
@@ -38,8 +32,6 @@ import java.util.Locale;
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 public class FileAdminController {
-
-    private static final String NO_SNIFF_HEADER = "X-Content-Type-Options";
 
     private final UploadFileService uploadFileService;
 
@@ -88,28 +80,7 @@ public class FileAdminController {
     @GetMapping("/files/{fileId}")
     public ResponseEntity<Resource> getFile(
             @Parameter(description = "파일 ID", example = "12") @PathVariable Long fileId) {
-        StoredFile file = uploadFileService.load(fileId);
-        return ResponseEntity.ok()
-                // 형식은 저장할 때 서버가 가린 값으로 고정한다. 브라우저가 내용을 보고 다른 형식으로 해석하지도 못하게 한다 —
-                // 앞부분만 사진이고 뒤에 스크립트가 붙은 파일이 HTML 로 열리는 것을 막는다.
-                .contentType(MediaType.parseMediaType(file.fileType().mediaType()))
-                .header(NO_SNIFF_HEADER, "nosniff")
-                // 사업자등록증이 브라우저나 중간 서버에 남지 않게 한다. 보안 필터가 기본으로 붙이는 값이지만
-                // 그 설정이 바뀌어도 빠지지 않도록 여기서 직접 붙인다.
-                .cacheControl(CacheControl.noStore())
-                .contentLength(file.sizeBytes())
-                .header(HttpHeaders.CONTENT_DISPOSITION, disposition(file).toString())
-                .body(file.content());
-    }
-
-    // 사업자등록증은 내려받게 한다. PDF 는 안에 스크립트를 담을 수 있어, 우리 주소에서 브라우저가 바로 열게 두지 않는다.
-    // 파일 이름은 서버가 짓는다 — 보낸 쪽이 붙인 이름은 저장하지도 않았다.
-    private static ContentDisposition disposition(StoredFile file) {
-        String filename = file.kind().name().toLowerCase(Locale.ROOT).replace('_', '-') + "-" + file.fileId()
-                + "." + file.fileType().extension();
-        ContentDisposition.Builder builder = file.kind() == UploadKind.BIZ_CERT
-                ? ContentDisposition.attachment()
-                : ContentDisposition.inline();
-        return builder.filename(filename).build();
+        // 사업자등록증이 브라우저나 중간 서버에 남지 않게 한다
+        return FileResponses.of(uploadFileService.load(fileId), CacheControl.noStore());
     }
 }

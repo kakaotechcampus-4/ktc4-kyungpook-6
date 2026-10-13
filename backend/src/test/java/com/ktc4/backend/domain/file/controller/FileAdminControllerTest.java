@@ -162,6 +162,7 @@ class FileAdminControllerTest {
                     .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
                             "attachment; filename=\"biz-cert-12.pdf\""))
                     .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                    .andExpect(header().string("Content-Security-Policy", "default-src 'none'; sandbox"))
                     .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, CONTENT.length))
                     .andExpect(content().bytes(CONTENT));
         }

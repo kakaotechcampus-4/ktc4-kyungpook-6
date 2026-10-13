@@ -107,6 +107,11 @@ public class SecurityConfig {
                             .requestMatchers(HttpMethod.GET, "/ping").permitAll()
                             .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                             .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
+                            // 가게 사진은 누구나 본다. 무엇이 공개 사진인지는 조회 쿼리가 정한다(FilePublicController 주석) —
+                            // 사업자등록증은 이 경로로 나가지 않고 /api/admin/files/** 로만 나간다.
+                            // 번호를 숫자로 좁히는 이유는 아래 /api/stores/{storeId} 규칙과 같다.
+                            .requestMatchers(HttpMethod.GET, "/api/files/{fileId:\\d+}",
+                                    "/api/stores/{storeId:\\d+}/images").permitAll()
                             // 토큰 주인을 알려주는 API 라 토큰 없이는 의미가 없다 — 스위치와 무관하게 막는다.
                             // 가입 상태 확인용 토큰이 부를 수 있는 API 는 이것 하나다. 승인 전 신청자가 자기 상태를 읽는다.
                             .requestMatchers(HttpMethod.GET, "/api/auth/me")

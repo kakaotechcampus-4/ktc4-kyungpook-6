@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.file.service;
 
 import com.ktc4.backend.domain.file.dto.AttachmentResponse;
 import com.ktc4.backend.domain.file.dto.SignupFiles;
+import com.ktc4.backend.domain.file.dto.StoreImageResponse;
 import com.ktc4.backend.domain.file.dto.StoredFile;
 import com.ktc4.backend.domain.file.entity.UploadFile;
 import com.ktc4.backend.domain.file.enums.FileType;
@@ -10,6 +11,7 @@ import com.ktc4.backend.domain.file.repository.UploadFileRepository;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
+import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.AfterEach;
@@ -63,12 +65,16 @@ class UploadFileServiceTest {
     @Mock
     private MemberRepository memberRepository;
 
+    @Mock
+    private StoreRepository storeRepository;
+
     private UploadFileService service;
     private Member applicant;
 
     @BeforeEach
     void setUp() {
-        service = new UploadFileService(uploadFileRepository, memberRepository, new FileStorage(uploadDir.toString()));
+        service = new UploadFileService(uploadFileRepository, memberRepository, storeRepository,
+                new FileStorage(uploadDir.toString()));
         applicant = Member.ownerApplicant("owner@example.com", "hash",
                 new OwnerInfo("1234567890", "예시분식", "홍길동", "01000000000"));
         ReflectionTestUtils.setField(applicant, "memberId", MEMBER_ID);
@@ -237,6 +243,51 @@ class UploadFileServiceTest {
         assertThat(loaded.fileType()).isEqualTo(FileType.PDF);
         assertThat(loaded.sizeBytes()).isEqualTo(bizCert.getSize());
         assertThat(loaded.content().getContentAsByteArray()).isEqualTo(bizCert.getBytes());
+    }
+
+    @Test
+    @DisplayName("가게 사진 목록은 공개하는 종류만 묻고, 파일 ID 와 종류만 준다")
+    void listsStoreImages() {
+        UploadFile storeImage = new UploadFile(applicant, UploadKind.STORE_IMAGE, FileType.JPEG, "a.jpg", 100L);
+        ReflectionTestUtils.setField(storeImage, "uploadFileId", 11L);
+        when(storeRepository.existsById(7L)).thenReturn(true);
+        when(uploadFileRepository.findOfStore(7L, UploadKind.PUBLIC_KINDS)).thenReturn(List.of(storeImage));
+
+        assertThat(service.getStoreImages(7L))
+                .containsExactly(new StoreImageResponse(11L, UploadKind.STORE_IMAGE));
+        // 공개하는 종류에 사업자등록증은 없다
+        assertThat(UploadKind.PUBLIC_KINDS)
+                .containsExactlyInAnyOrder(UploadKind.STORE_IMAGE, UploadKind.MENU_IMAGE);
+    }
+
+    @Test
+    @DisplayName("없는 가게의 사진을 물으면 STORE_NOT_FOUND")
+    void storeImagesOfMissingStore() {
+        when(storeRepository.existsById(7L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getStoreImages(7L))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORE_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("공개 조회는 공개 조건에 맞는 파일만 꺼낸다 — 맞지 않으면 없는 파일과 똑같이 FILE_NOT_FOUND")
+    void loadsPublicOnlyWhenLinked() throws IOException {
+        MockMultipartFile storeImage = jpeg("storeImage");
+        service.storeSignupFiles(applicant, new SignupFiles(storeImage, List.of(), pdf("bizCert")));
+        UploadFile record = savedRecords(2).get(0);
+        ReflectionTestUtils.setField(record, "uploadFileId", 11L);
+        when(uploadFileRepository.findLinkedById(11L, UploadKind.PUBLIC_KINDS)).thenReturn(Optional.of(record));
+        // 사업자등록증·승인 전 신청의 사진은 쿼리가 돌려주지 않는다
+        when(uploadFileRepository.findLinkedById(12L, UploadKind.PUBLIC_KINDS)).thenReturn(Optional.empty());
+
+        StoredFile loaded = service.loadPublic(11L);
+
+        assertThat(loaded.kind()).isEqualTo(UploadKind.STORE_IMAGE);
+        assertThat(loaded.content().getContentAsByteArray()).isEqualTo(storeImage.getBytes());
+        assertThatThrownBy(() -> service.loadPublic(12L))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.FILE_NOT_FOUND));
     }
 
     @Test

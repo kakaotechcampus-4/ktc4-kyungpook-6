@@ -204,7 +204,13 @@ class OwnerSignupFlowIntegrationTest {
                 .andExpect(jsonPath("$[1].kind").value("BIZ_CERT"))
                 .andExpect(jsonPath("$[1].fileType").value("PDF"))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        long storeImageId = JSON.readTree(filesBody).get(0).get("fileId").asLong();
         long bizCertId = JSON.readTree(filesBody).get(1).get("fileId").asLong();
+        // 승인 전에는 대표 사진도 공개되지 않는다 — 토큰 없이 열면 없는 파일이고, 가게의 사진 목록도 비어 있다
+        mockMvc.perform(get("/api/files/" + storeImageId)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/stores/" + myStoreId + "/images"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
         mockMvc.perform(get("/api/admin/files/" + bizCertId).header(HttpHeaders.AUTHORIZATION, filesAdmin))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_PDF))
@@ -282,6 +288,20 @@ class OwnerSignupFlowIntegrationTest {
         mockMvc.perform(get(candidates).header(HttpHeaders.AUTHORIZATION, admin))
                 .andExpect(jsonPath("$[0].linkedOwnerCount").value(1));
 
+        // 6-0. 승인되면 대표 사진이 그 가게의 사진으로 공개된다 — 토큰 없이 열린다. 사업자등록증은 승인 뒤에도 열리지 않는다
+        mockMvc.perform(get("/api/stores/" + myStoreId + "/images"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].fileId").value(storeImageId))
+                .andExpect(jsonPath("$[0].kind").value("STORE_IMAGE"));
+        mockMvc.perform(get("/api/stores/" + otherStoreId + "/images"))
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get("/api/files/" + storeImageId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_JPEG))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+        mockMvc.perform(get("/api/files/" + bizCertId)).andExpect(status().isNotFound());
+
         // 6-1. 가입 때 받은 토큰으로 다시 조회하면 승인된 것이 보인다. 그래도 이 토큰은 접근 토큰이 되지 않는다 —
         //      가게가 연결된 뒤에도 내 가게에 체크인할 수 없고, 로그인해야 한다
         mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, statusToken))
@@ -354,6 +374,11 @@ class OwnerSignupFlowIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/store-link-not-found")));
 
+        // 10-1. 연결이 끊긴 동안에는 사진도 내려간다
+        mockMvc.perform(get("/api/files/" + storeImageId)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/stores/" + myStoreId + "/images"))
+                .andExpect(jsonPath("$.length()").value(0));
+
         // 11. 다시 연결하면 체크인이 QR 검사까지 간다. 같은 가게에 또 연결하면 409 이고 행은 하나 그대로다
         mockMvc.perform(post(link).header(HttpHeaders.AUTHORIZATION, admin))
                 .andExpect(status().isNoContent());
@@ -367,6 +392,9 @@ class OwnerSignupFlowIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/store-already-linked")));
         org.assertj.core.api.Assertions.assertThat(storeOwnerRepository.count()).isEqualTo(1);
+
+        // 11-1. 다시 연결했으니 사진도 다시 보인다
+        mockMvc.perform(get("/api/files/" + storeImageId)).andExpect(status().isOk());
 
         // 12. 다른 사람이 가입을 신청하고 관리자가 거절한다. 같은 테스트에 두는 이유: 끝나고 회원 테이블을 비우면
         //     기동할 때 만든 관리자 계정도 지워져, 테스트 메서드를 나누면 두 번째가 관리자로 로그인하지 못한다
