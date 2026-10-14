@@ -70,6 +70,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return switch (status.value()) {
             case 404 -> ErrorCode.NOT_FOUND;
             case 405 -> ErrorCode.METHOD_NOT_ALLOWED;
+            // 올린 파일이나 요청 전체가 spring.servlet.multipart 상한을 넘으면 프레임워크가 413 으로 거절한다
+            case 413 -> ErrorCode.FILE_TOO_LARGE;
             case 415 -> ErrorCode.UNSUPPORTED_MEDIA_TYPE;
             default -> status.is5xxServerError() ? ErrorCode.INTERNAL_ERROR : ErrorCode.INVALID_REQUEST;
         };
