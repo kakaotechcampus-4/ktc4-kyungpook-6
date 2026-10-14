@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 
@@ -196,6 +197,34 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
             assertThat(menusOf(store)).extracting(StoreMenu::getName).containsExactly("김치찌개");
             assertThat(phoneOf(store)).isEqualTo(APPLIED_STORE_PHONE);
             assertThat(hoursOf(store)).hasSize(3);
+        }
+
+        @Test
+        @DisplayName("지우지 않은 메뉴가 하나라도 있으면 메뉴는 그대로 둔다 — 지운 메뉴가 섞여 있어도")
+        void liveMenuAmongDeletedKeepsMenus() {
+            Store store = persistStore(null);
+            entityManager.persistAndFlush(StoreMenu.onSale(store, "김치찌개"));
+            StoreMenu deleted = StoreMenu.onSale(store, "옛 메뉴");
+            deleted.markDeleted(LocalDateTime.of(2026, 1, 1, 9, 0));
+            entityManager.persistAndFlush(deleted);
+
+            approve(persistApplicant(), store);
+
+            assertThat(menusOf(store)).extracting(StoreMenu::getName).containsExactly("김치찌개", "옛 메뉴");
+        }
+
+        @Test
+        @DisplayName("지운 메뉴만 있는 가게는 메뉴가 없는 가게로 보고 옮겨 적는다")
+        void deletedOnlyMenusCountAsEmpty() {
+            Store store = persistStore(null);
+            StoreMenu deleted = StoreMenu.onSale(store, "옛 메뉴");
+            deleted.markDeleted(LocalDateTime.of(2026, 1, 1, 9, 0));
+            entityManager.persistAndFlush(deleted);
+
+            approve(persistApplicant(), store);
+
+            assertThat(menusOf(store)).filteredOn(menu -> menu.getDeletedAt() == null)
+                    .extracting(StoreMenu::getName).containsExactly("나물비빔밥", "가락국수", "다슬기국");
         }
 
         @ParameterizedTest(name = "가게 전화 \"{0}\"")

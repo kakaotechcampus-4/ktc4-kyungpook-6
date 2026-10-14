@@ -45,6 +45,20 @@ public final class BusinessTimes {
     }
 
     /**
+     * 자정부터 지난 분을 {@code "HH:mm"} 으로 바꾼다. 1440 은 그날 끝 자정 {@code "24:00"} 이다.
+     *
+     * @param minuteOfDay 0 ~ 1440
+     * @return {@code "00:00"} ~ {@code "24:00"}
+     * @throws IllegalArgumentException 범위 밖이면 — DB 검사 조건이 막는 값이라 생기면 버그다
+     */
+    public static String toTime(int minuteOfDay) {
+        if (minuteOfDay < 0 || minuteOfDay > END_OF_DAY) {
+            throw new IllegalArgumentException("영업시간 분 값이 범위를 벗어났습니다 - " + minuteOfDay);
+        }
+        return String.format("%02d:%02d", minuteOfDay / 60, minuteOfDay % 60);
+    }
+
+    /**
      * 여는 시간을 분으로 바꾼다. 여는 시간은 {@code "00:00"} ~ {@code "23:59"} 다 — {@code "24:00"} 에 열 수는 없다.
      *
      * @param open 여는 시간

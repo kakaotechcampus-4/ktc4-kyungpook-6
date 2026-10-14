@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.ktc4.backend.domain.store.controller.StoreController;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private StoreManagementService storeManagementService;
 
     private ListAppender<ILoggingEvent> logAppender;
     private Logger handlerLogger;

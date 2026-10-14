@@ -7,6 +7,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -17,6 +18,10 @@ import java.util.Objects;
  * <p>{@code name} / {@code addressRoad} 는 화면에 그대로 보여주는 원본이고,
  * {@code nameNormalized} / {@code addressNormalized} 는 중복 판별·외부 데이터 매칭·검색에 쓰는
  * 정규화된 값이다. 두 값을 분리해 두어야 표기가 달라도 같은 가게로 인식할 수 있다.
+ *
+ * <p>{@code @DynamicUpdate} — 바뀐 칸만 다시 쓴다. 가게는 관리자 수정·수정안 반영·점주 승인·가게 관리 저장이
+ * 저마다 다른 칸을 고치는데, 행 전체를 다시 쓰면 먼저 읽어 둔 낡은 값이 그 사이 다른 쪽이 고친 칸을 덮는다
+ * (예: 관리자가 이름을 고치는 동안 승인이 채운 가게 전화가 지워짐). 같은 칸을 동시에 고치면 나중 것이 이긴다.
  */
 @Entity
 @Table(
@@ -27,6 +32,7 @@ import java.util.Objects;
                 @Index(name = "idx_store_last_checked_at", columnList = "last_checked_at")
         }
 )
+@DynamicUpdate
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Store extends BaseTimeEntity {
@@ -126,6 +132,15 @@ public class Store extends BaseTimeEntity {
         if (this.ownerPhone == null || this.ownerPhone.isBlank()) {
             this.ownerPhone = ownerPhone;
         }
+    }
+
+    /**
+     * 점주가 가게 관리에서 가게 전화번호를 바꾼다. 비울 수는 없다 — 요청 검증이 막는다.
+     *
+     * @param phone 앞뒤 공백을 지운 가게 전화번호
+     */
+    public void changePhone(String phone) {
+        this.phone = phone;
     }
 
     /**

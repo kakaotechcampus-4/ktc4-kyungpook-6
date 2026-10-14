@@ -17,6 +17,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -121,6 +122,18 @@ class StoreOperatingInfoTablesTest extends PostgresContainerTest {
     }
 
     @Test
+    @DisplayName("메뉴의 지운 시각이 그대로 왕복하고, 지운 메뉴는 '메뉴가 있나' 에서 세지 않는다")
+    void roundTripsDeletedAt() {
+        StoreMenu menu = StoreMenu.onSale(store, "옛 메뉴");
+        menu.markDeleted(LocalDateTime.of(2026, 1, 1, 9, 0, 1));
+        Long id = entityManager.persistAndFlush(menu).getMenuId();
+        entityManager.clear();
+
+        assertThat(menuRepository.findById(id).orElseThrow().getDeletedAt()).isEqualTo(LocalDateTime.of(2026, 1, 1, 9, 0, 1));
+        assertThat(menuRepository.existsByStoreStoreIdAndDeletedAtIsNull(store.getStoreId())).isFalse();
+    }
+
+    @Test
     @DisplayName("가게에 영업시간·메뉴가 있는지는 그 가게 것만 센다")
     void existsCountsOnlyThatStore() {
         Store other = entityManager.persistAndFlush(Store.builder()
@@ -132,9 +145,9 @@ class StoreOperatingInfoTablesTest extends PostgresContainerTest {
         entityManager.clear();
 
         assertThat(businessHourRepository.existsByStoreStoreId(store.getStoreId())).isFalse();
-        assertThat(menuRepository.existsByStoreStoreId(store.getStoreId())).isFalse();
+        assertThat(menuRepository.existsByStoreStoreIdAndDeletedAtIsNull(store.getStoreId())).isFalse();
         assertThat(businessHourRepository.existsByStoreStoreId(other.getStoreId())).isTrue();
-        assertThat(menuRepository.existsByStoreStoreId(other.getStoreId())).isTrue();
+        assertThat(menuRepository.existsByStoreStoreIdAndDeletedAtIsNull(other.getStoreId())).isTrue();
     }
 
     private static String sqlStateOf(Throwable thrown) {

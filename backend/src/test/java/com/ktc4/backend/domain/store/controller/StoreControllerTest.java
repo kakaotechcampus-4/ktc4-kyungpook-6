@@ -1,27 +1,36 @@
 package com.ktc4.backend.domain.store.controller;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
+import com.ktc4.backend.domain.store.dto.MenuRequest;
+import com.ktc4.backend.domain.store.dto.MenuResponse;
+import com.ktc4.backend.domain.store.dto.OperatingInfoRequest;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
+import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
+import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import com.ktc4.backend.global.security.SecurityConfig;
+import com.ktc4.backend.support.BusinessHourFixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import com.ktc4.backend.global.security.SecurityConfig;
-import com.ktc4.backend.support.BusinessHourFixtures;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -32,11 +41,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
+import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -65,6 +78,9 @@ class StoreControllerTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private StoreManagementService storeManagementService;
 
     /**
      * 서비스가 반환했다고 가정하는 표본 응답. 이 계층은 서비스를 Mock 으로 대체하므로,
@@ -399,7 +415,7 @@ class StoreControllerTest {
      * 오류가 어느 칸인지 응답에 실리는지, 개수 경계가 맞는지 본다.
      */
     @Nested
-    @DisplayName("가게 상세 조회·운영 정보 저장 (스텁)")
+    @DisplayName("가게 상세 조회·운영 정보 저장")
     class OperatingInfo {
 
         private static final String OPERATING_INFO_PATH = "/api/stores/1/operating-info";
@@ -408,6 +424,22 @@ class StoreControllerTest {
 
         private static String repeat(String item, int count) {
             return "[" + String.join(",", Collections.nCopies(count, item)) + "]";
+        }
+
+        // 메뉴 ID 가 서로 다른 메뉴 count 개 — 같은 ID 를 되풀이하면 중복 규칙에 걸린다
+        private static String distinctMenus(int count) {
+            List<String> menus = new ArrayList<>();
+            for (int i = 1; i <= count; i++) {
+                menus.add("{\"menuId\":" + i + ",\"name\":\"메뉴" + i + "\",\"onSale\":true}");
+            }
+            return "[" + String.join(",", menus) + "]";
+        }
+
+        private static StoreDetailResponse sampleDetail() {
+            return new StoreDetailResponse(1L, "예시분식", "가상특별시 예시구 샘플로 123", "053-123-4567",
+                    List.of(new BusinessHourResponse(BusinessDay.MON, "11:00", "24:00"),
+                            new BusinessHourResponse(BusinessDay.FRI, "21:00", "02:00")),
+                    List.of(new MenuResponse(3L, "김치찌개", true), new MenuResponse(7L, "라면", false)));
         }
 
         // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다
@@ -434,23 +466,58 @@ class StoreControllerTest {
         }
 
         @Test
-        @DisplayName("가게 상세 조회는 아직 구현 전이라 본문 없이 501 이다")
-        void getStoreIsNotImplementedYet() throws Exception {
+        @DisplayName("가게 상세는 #96 에서 약속한 칸 이름 그대로 나간다")
+        void getStoreKeepsContract() throws Exception {
+            when(storeManagementService.getDetail(eq(1L), any())).thenReturn(sampleDetail());
+
             mockMvc.perform(get(STORE_PATH))
-                    .andExpect(status().isNotImplemented())
-                    .andExpect(content().string(""));
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.storeId").value(1))
+                    .andExpect(jsonPath("$.name").value("예시분식"))
+                    .andExpect(jsonPath("$.addressRoad").value("가상특별시 예시구 샘플로 123"))
+                    .andExpect(jsonPath("$.phone").value("053-123-4567"))
+                    .andExpect(jsonPath("$.businessHours[0].day").value("MON"))
+                    .andExpect(jsonPath("$.businessHours[0].open").value("11:00"))
+                    .andExpect(jsonPath("$.businessHours[0].close").value("24:00"))
+                    .andExpect(jsonPath("$.menus[1].menuId").value(7))
+                    .andExpect(jsonPath("$.menus[1].name").value("라면"))
+                    .andExpect(jsonPath("$.menus[1].onSale").value(false));
         }
 
         @Test
-        @DisplayName("올바른 저장 요청은 검증을 통과해 501 까지 간다 — 새 메뉴는 menuId 없이, 24시간·자정 넘김 시간 포함")
-        void validSaveReachesStub() throws Exception {
+        @DisplayName("올바른 저장 요청은 읽은 그대로 서비스에 넘어가고, 저장된 상세를 돌려준다 — 새 메뉴는 menuId 없이")
+        void validSaveReachesService() throws Exception {
             String hours = "[{\"day\":\"MON\",\"open\":\"00:00\",\"close\":\"24:00\"},"
                     + "{\"day\":\"FRI\",\"open\":\"21:00\",\"close\":\"02:00\"}]";
-            String menus = "[" + MENU + ",{\"name\":\"새 메뉴\",\"onSale\":false}]";
+            String menus = "[" + MENU + ",{\"name\":\"새 메뉴\",\"onSale\":false},{\"name\":\"새 메뉴2\",\"onSale\":true}]";
+            when(storeManagementService.save(eq(1L), any(), any())).thenReturn(sampleDetail());
 
             save(body("053-123-4567", hours, menus))
-                    .andExpect(status().isNotImplemented())
-                    .andExpect(content().string(""));
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.menus[0].menuId").value(3));
+
+            ArgumentCaptor<OperatingInfoRequest> request = ArgumentCaptor.forClass(OperatingInfoRequest.class);
+            verify(storeManagementService).save(eq(1L), request.capture(), any());
+            assertThat(request.getValue().phone()).isEqualTo("053-123-4567");
+            assertThat(request.getValue().businessHours())
+                    .extracting(BusinessHourRequest::day, BusinessHourRequest::open, BusinessHourRequest::close)
+                    .containsExactly(tuple(BusinessDay.MON, "00:00", "24:00"), tuple(BusinessDay.FRI, "21:00", "02:00"));
+            assertThat(request.getValue().menus())
+                    .extracting(MenuRequest::menuId, MenuRequest::name, MenuRequest::onSale)
+                    .containsExactly(tuple(3L, "김치찌개", true), tuple(null, "새 메뉴", false), tuple(null, "새 메뉴2", true));
+        }
+
+        @Test
+        @DisplayName("같은 menuId 를 두 번 보내면 400 이고 errors 에 menus 칸이 실린다 — 서비스까지 가지 않는다")
+        void rejectsDuplicateMenuIds() throws Exception {
+            String menus = "[" + MENU + ",{\"name\":\"새 메뉴\",\"onSale\":true}," + MENU + "]";
+
+            save(body("053-123-4567", repeat(HOUR, 1), menus))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[*].field", hasItem("menus")))
+                    .andExpect(jsonPath("$.errors[*].message",
+                            hasItem("같은 메뉴가 두 번 들어 있습니다 — 메뉴 ID 가 겹치지 않게 보내 주세요")));
+            verify(storeManagementService, never()).save(any(), any(), any());
         }
 
         @Test
@@ -473,7 +540,7 @@ class StoreControllerTest {
             save(body("", repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isBadRequest());
             save(body("   ", repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isBadRequest());
             save(body("0".repeat(21), repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isBadRequest());
-            save(body("0".repeat(20), repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isNotImplemented());
+            save(body("0".repeat(20), repeat(HOUR, 1), repeat(MENU, 1))).andExpect(status().isOk());
             save(body("053\\n123", repeat(HOUR, 1), repeat(MENU, 1)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("phone"));
@@ -487,7 +554,7 @@ class StoreControllerTest {
                     .andExpect(jsonPath("$.errors[0].field").value("businessHours"));
             // 겹치지 않는 줄로 센다 — 같은 줄을 반복하면 개수가 아니라 겹침 때문에 거절된다
             save(body("053-123-4567", BusinessHourFixtures.nonOverlappingJson(21), repeat(MENU, 1)))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk());
             save(body("053-123-4567", BusinessHourFixtures.nonOverlappingJson(22), repeat(MENU, 1)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].message").value("영업시간은 1 ~ 21줄이어야 합니다"));
@@ -507,8 +574,10 @@ class StoreControllerTest {
             save(body("053-123-4567", repeat(HOUR, 1), "[]"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("menus"));
-            save(body("053-123-4567", repeat(HOUR, 1), repeat(MENU, 50))).andExpect(status().isNotImplemented());
-            save(body("053-123-4567", repeat(HOUR, 1), repeat(MENU, 51))).andExpect(status().isBadRequest());
+            save(body("053-123-4567", repeat(HOUR, 1), distinctMenus(50))).andExpect(status().isOk());
+            save(body("053-123-4567", repeat(HOUR, 1), distinctMenus(51)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].message").value("메뉴는 1 ~ 50개여야 합니다"));
         }
 
         @Test

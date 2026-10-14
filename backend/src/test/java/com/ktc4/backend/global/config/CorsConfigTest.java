@@ -1,6 +1,7 @@
 package com.ktc4.backend.global.config;
 
 import com.ktc4.backend.domain.store.controller.StoreController;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.security.SecurityConfig;
 import org.junit.jupiter.api.DisplayName;
@@ -35,6 +36,9 @@ class CorsConfigTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private StoreManagementService storeManagementService;
 
     @Test
     @DisplayName("허용한 출처의 사전 요청은 토큰 없이도 통과하고 허용 헤더가 붙는다")
