@@ -12,6 +12,7 @@ import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.error.GlobalExceptionHandler;
 import com.ktc4.backend.global.security.JwtProvider;
 import com.ktc4.backend.global.security.SecurityConfig;
+import com.ktc4.backend.support.BusinessHourFixtures;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -34,7 +35,10 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -183,6 +187,8 @@ class AuthControllerTest {
 
     private static final String HOUR = "{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}";
     private static final String MENU = "{\"name\":\"김치찌개\"}";
+    private static final String OVERLAP_MESSAGE =
+            "영업시간이 겹치는 줄이 있습니다 — 같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간이 겹치지 않게 적어 주세요";
     private static final String STORE_INFO = storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), list(MENU, 1));
 
     private static String list(String item, int count) {
@@ -261,8 +267,13 @@ class AuthControllerTest {
     void storeInfoCounts() throws Exception {
         String address = "대구광역시 북구 대학로 80";
         signupWithStoreInfo(storeInfo(address, "053-123-4567", "[]", list(MENU, 1))).andExpect(status().isBadRequest());
-        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 21), list(MENU, 1))).andExpect(status().isCreated());
-        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 22), list(MENU, 1))).andExpect(status().isBadRequest());
+        // 겹치지 않는 줄로 센다 — 같은 줄을 반복하면 개수가 아니라 겹침 때문에 거절돼 개수 제한을 확인하지 못한다
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", BusinessHourFixtures.nonOverlappingJson(21), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", BusinessHourFixtures.nonOverlappingJson(22), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours"))
+                .andExpect(jsonPath("$.errors[0].message").value("영업시간은 1 ~ 21줄이어야 합니다"));
         signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), "[]")).andExpect(status().isBadRequest());
         signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), list(MENU, 50))).andExpect(status().isCreated());
         signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), list(MENU, 51))).andExpect(status().isBadRequest());
@@ -282,6 +293,35 @@ class AuthControllerTest {
                 "[{\"day\":\"MON\",\"open\":\"12:00\",\"close\":\"12:00\"}]", list(MENU, 1)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("businessHours[0].openDifferentFromClose"));
+    }
+
+    @Test
+    @DisplayName("영업시간이 겹치면 400 invalid-request 이고, errors 에 businessHours 칸과 겹침 문구가 실린다")
+    void signupRejectsOverlappingHours() throws Exception {
+        String overlapping = "[{\"day\":\"SUN\",\"open\":\"22:00\",\"close\":\"03:00\"},"
+                + "{\"day\":\"MON\",\"open\":\"02:00\",\"close\":\"10:00\"}]";
+
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", overlapping, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours"))
+                .andExpect(jsonPath("$.errors[0].message").value(OVERLAP_MESSAGE));
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("빈 줄·형식이 틀린 줄이 겹치는 줄과 섞여도 500 이 아니라 400 — 칸별 오류와 겹침 오류가 함께 실린다")
+    void signupWithMalformedAndOverlappingHoursIsBadRequest() throws Exception {
+        String hours = "[null,{\"day\":\"TUE\",\"open\":\"25:00\",\"close\":\"21:00\"},"
+                + "{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"14:00\"},"
+                + "{\"day\":\"MON\",\"open\":\"13:00\",\"close\":\"21:00\"}]";
+
+        // 오류 순서는 검증기가 정하지 않으므로 "포함"으로 본다
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", hours, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", hasItems("businessHours[0]", "businessHours[1].open", "businessHours")))
+                .andExpect(jsonPath("$.errors[*].message", hasItem(OVERLAP_MESSAGE)));
     }
 
     @Test
