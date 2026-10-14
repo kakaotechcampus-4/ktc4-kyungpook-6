@@ -85,7 +85,6 @@ class InvestigationAiHttpIntegrationTest {
     static void pointAiToStub(DynamicPropertyRegistry registry) {
         registry.add("ai.base-url", () -> "http://localhost:" + AI_STUB.getAddress().getPort());
         registry.add("ai.retry-backoff-ms", () -> "0");
-        registry.add("auth.enforce", () -> "true");
         // 이 테스트만의 컨텍스트라 DB 연결 풀을 작게 잡는다 — 캐시된 컨텍스트마다 풀을 따로 잡아 Postgres 연결 한도를 넘지 않게
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "3");
     }

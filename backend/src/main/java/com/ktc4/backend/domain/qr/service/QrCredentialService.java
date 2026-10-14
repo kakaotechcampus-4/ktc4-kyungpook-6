@@ -24,8 +24,8 @@ public class QrCredentialService {
      *
      * <p>토큰 원문은 반환값으로만 나가고 DB 에는 해시만 남는다.
      *
-     * <p>아동 인증(카드 등록)이 아직 없어서 지금은 관리자만 부를 수 있다({@code SecurityConfig}, 권한 검사
-     * 스위치와 무관). 아동 인증이 생기면 그 아동 본인만 부르도록 바꾼다.
+     * <p>아동 인증(카드 등록)이 아직 없어서 지금은 관리자만 부를 수 있다({@code SecurityConfig}).
+     * 아동 인증이 생기면 그 아동 본인만 부르도록 바꾼다.
      *
      * @param childId 아동 번호
      * @return QR 에 담을 문자열({@code v1.<토큰>})
