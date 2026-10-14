@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(StoreController.class)
 @Import({SecurityConfig.class, CorsConfig.class})
-@TestPropertySource(properties = {"auth.enforce=true", "cors.allowed-origins=" + CorsConfigTest.ALLOWED_ORIGIN})
+@TestPropertySource(properties = {"cors.allowed-origins=" + CorsConfigTest.ALLOWED_ORIGIN})
 @DisplayName("CORS 허용 출처")
 class CorsConfigTest {
 

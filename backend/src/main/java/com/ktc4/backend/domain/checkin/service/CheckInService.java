@@ -42,9 +42,10 @@ public class CheckInService {
      *
      * @param storeId    체크인할 가게 ID
      * @param qrPayload  점주 앱이 스캔한 QR 문자열
-     * @param authMember 로그인한 사용자. 권한 검사 스위치가 꺼져 토큰 없이 들어온 요청이면 {@code null}
+     * @param authMember 로그인한 사용자
      * @return 체크인 기록 ID 와 시각. 아동 정보는 담지 않는다
-     * @throws CustomException 점주가 연결되지 않은 가게면(없는 가게 포함) {@code FORBIDDEN},
+     * @throws CustomException 로그인 정보가 없으면 {@code UNAUTHORIZED},
+     *                         점주가 연결되지 않은 가게면(없는 가게 포함) {@code FORBIDDEN},
      *                         가게가 없으면 {@code STORE_NOT_FOUND}, QR 이 맞지 않으면 {@code INVALID_QR_TOKEN}
      */
     @Transactional
@@ -67,10 +68,10 @@ public class CheckInService {
     // 통과시킬 대상을 하나씩 적는다 — 관리자, 그리고 이 가게에 연결된 점주. 그 밖은 모두 거절한다.
     // "점주가 아니면 통과"로 쓰면, 나중에 역할이 늘 때 새 역할이 검사 없이 모든 가게에 기록할 수 있게 된다.
     private void requireAccessTo(Long storeId, AuthMember authMember) {
-        // ⚠️ null 은 권한 검사 스위치(auth.enforce)가 꺼져 있을 때만 생긴다. 스위치를 지우면
-        // (SecurityConfig 주석의 기한 참고) 이 API 는 항상 로그인한 사용자만 닿으므로 이 분기도 함께 지운다.
+        // 보안 필터가 점주·관리자만 들여보내므로 null 은 오지 않는다. 그래도 규칙이 잘못 열렸을 때 통과시키거나
+        // 500 으로 터지지 않고 막히게 한다 — 기록을 남기는 API 라 "누가"를 모르면 받지 않는다.
         if (authMember == null) {
-            return;
+            throw new CustomException(ErrorCode.UNAUTHORIZED);
         }
         if (authMember.role() == MemberRole.ADMIN) {
             return;

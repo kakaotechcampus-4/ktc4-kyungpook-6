@@ -88,7 +88,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 // 이 테스트만의 컨텍스트라 DB 연결 풀을 작게 잡는다 — 캐시된 컨텍스트마다 풀을 따로 잡아 Postgres 연결 한도를 넘지 않게
-@TestPropertySource(properties = {"auth.enforce=true", "ai.retry-backoff-ms=0", "spring.datasource.hikari.maximum-pool-size=3"})
+@TestPropertySource(properties = {"ai.retry-backoff-ms=0", "spring.datasource.hikari.maximum-pool-size=3"})
 @DisplayName("관리자 조사 흐름 통합")
 class InvestigationFlowIntegrationTest {
 

@@ -43,8 +43,7 @@ public class CheckInController {
                       QR 이 맞는지를 보기 전에 `forbidden` 이 옵니다(없는 가게 번호여도 `forbidden` 입니다).
                       관리자는 모든 가게에 기록할 수 있습니다.
 
-                    ⚠️ 권한 검사 스위치(`AUTH_ENFORCE`, 기본은 켜짐 — 개발 서버는 임시로 꺼 둠)가 켜져 있으면 점주·관리자 토큰이 필요합니다.
-                    스위치가 꺼져 있어도 점주 토큰을 붙여 부르면 가게 연결을 확인합니다.
+                    점주·관리자 토큰이 필요합니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "체크인 기록 성공"),
@@ -53,11 +52,11 @@ public class CheckInController {
                             + "storeId 가 숫자가 아닌 경우(invalid-request)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "401", description = "권한 검사가 켜졌을 때, 토큰이 없거나 유효하지 않은 경우",
+            @ApiResponse(responseCode = "401", description = "토큰이 없거나 유효하지 않은 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "403",
-                    description = "점주가 자기에게 연결되지 않은 가게로 부른 경우. 권한 검사가 켜졌을 때는 점주·관리자가 아닌 경우도 포함",
+                    description = "점주·관리자가 아니거나, 점주가 자기에게 연결되지 않은 가게로 부른 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우(0·음수 포함)",

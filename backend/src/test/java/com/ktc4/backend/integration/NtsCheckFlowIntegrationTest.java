@@ -88,7 +88,6 @@ class NtsCheckFlowIntegrationTest {
                 () -> "http://localhost:" + NTS_STUB.getAddress().getPort() + "/status");
         registry.add("external.nts.service-key", () -> SERVICE_KEY);
         registry.add("auth.internal-api-key", () -> INTERNAL_API_KEY);
-        registry.add("auth.enforce", () -> "true");
     }
 
     @AfterAll
