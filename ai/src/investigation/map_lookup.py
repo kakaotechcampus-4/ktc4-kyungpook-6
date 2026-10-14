@@ -10,10 +10,11 @@
 두 글자 이하 상호는 정확히 같아야 하고, 시·도와 구·군이 DB 와 같아야 한다. 주소만 같은 후보는 고르지 않는다 —
 같은 건물의 다른 업체(어린이집·교회·경비실)를 잡았다.
 
-**약관** — 카카오 값은 저장할 수 없다(실시간 비교 후 폐기, 장소 링크만 저장 허용). 그래서 카카오 관측은
-`storable=False` 로 내보내 판정에만 쓰고, 수정안에는 값 대신 "지도 등록 정보와 다름 + 링크"만 남는다
-(`classify.py`). 카카오 값은 LLM 에도 넘기지 않는다. 네이버 검색 API 약관(목적 제한·저장 금지, 기사 기준)은
-원문 확인 전이라 스위치로 끄고 켠다.
+**약관** — 두 지도 모두 값을 저장할 수 없다. 카카오는 실시간 비교 후 폐기·장소 링크 저장만 허용하고, 네이버
+검색 API(API HUB 약관 2026-09-20)는 저장·캐싱·AI 입력과 "지역정보를 별도 데이터베이스로 관리"하는 것을 금지한다.
+그래서 지도 관측은 `storable=False` 로 내보내 판정에만 쓰고, 수정안에는 값 대신 "지도 등록 정보와 다름 + 링크"만
+남는다(`classify.py`). 값은 LLM 에도 넘기지 않는다(`agent.py`). 네이버 목적 제한(검색결과 제공 목적으로만)은 남아
+스위치로 끄고 켠다(`docs/2차_조사.md`).
 """
 
 from __future__ import annotations
@@ -85,11 +86,12 @@ class NaverLocalLookup:
             road = item.get("roadAddress", "")
             if not same_store(target, title, road):
                 continue
-            # 네이버 검색 API 는 장소 링크를 주지 않는다 — 담당자가 누를 지도 검색 링크를 만든다.
-            url = "https://map.naver.com/p/search/" + quote(f"{title} {road}")
-            out = [_observe(ChangeField.NAME, title, "map.naver.com", url, storable=True, label="네이버 지도")]
+            # 네이버 검색 API 는 장소 링크를 주지 않는다 — 담당자가 누를 지도 검색 링크를 만든다. 링크에도 네이버 값을
+            # 담지 않는다(저장 금지) — 우리 DB 의 상호·주소로 검색한다.
+            url = "https://map.naver.com/p/search/" + quote(f"{name} {target.address or ''}".strip())
+            out = [_observe(ChangeField.NAME, title, "map.naver.com", url, storable=False, label="네이버 지도")]
             if road:
-                out.append(_observe(ChangeField.ADDRESS, road, "map.naver.com", url, storable=True, label="네이버 지도"))
+                out.append(_observe(ChangeField.ADDRESS, road, "map.naver.com", url, storable=False, label="네이버 지도"))
             return out
         return []
 
