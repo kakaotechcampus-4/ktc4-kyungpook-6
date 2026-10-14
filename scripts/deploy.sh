@@ -12,7 +12,11 @@
 #
 # `up` 일 때는 frontend 를 빌드하기 전에 백엔드 Swagger 로 API 코드를 만듭니다(Orval).
 #   생성 결과(frontend/src/api/generated)는 커밋하지 않으므로 이 단계 없이는 frontend 빌드가 깨집니다.
-#   Swagger 주소는 BACKEND_SWAGGER_URL — 셸 환경변수 → 루트 .env → http://localhost:${BACKEND_PORT:-8080}/v3/api-docs 순으로 찾습니다.
+#   Swagger 주소는 BACKEND_SWAGGER_URL — 셸 환경변수 → 루트 .env(.env.development) → http://localhost:${BACKEND_PORT:-8080}/v3/api-docs 순으로 찾습니다.
+#
+# dev 는 루트 .env 위에 .env.development 를 얹어 읽습니다(같은 키는 .env.development 가 이깁니다).
+#   dev 에서만 쓰는 값(외부에 여는 포트 등)을 따로 둡니다 — 예시는 .env.development.example.
+#   파일이 없으면 지금처럼 .env 만 읽습니다.
 
 set -euo pipefail
 
@@ -35,15 +39,36 @@ fi
 BASE_FILE="$ROOT_DIR/docker-compose.yml"
 ENV_FILE="$ROOT_DIR/docker-compose.${ENVIRONMENT}.yml"
 
+# 치환에 쓸 env 파일. 뒤에 오는 파일이 같은 키를 덮는다.
+DOTENV_FILES=()
+[[ -f "$ROOT_DIR/.env" ]] && DOTENV_FILES+=("$ROOT_DIR/.env")
+if [[ "$ENVIRONMENT" == "dev" && -f "$ROOT_DIR/.env.development" ]]; then
+  DOTENV_FILES+=("$ROOT_DIR/.env.development")
+fi
+
+# --env-file 을 하나라도 주면 compose 는 기본 .env 를 읽지 않는다 — 그래서 .env.development 가 있을 때는
+# .env 까지 둘 다 직접 넘기고, 없을 때는 아무것도 넘기지 않아 기본 동작(.env)을 그대로 쓴다.
+COMPOSE_ARGS=(-f "$BASE_FILE" -f "$ENV_FILE")
+if [[ "$ENVIRONMENT" == "dev" && -f "$ROOT_DIR/.env.development" ]]; then
+  for file in "${DOTENV_FILES[@]}"; do
+    COMPOSE_ARGS+=(--env-file "$file")
+  done
+fi
+
 compose() {
-  docker compose -f "$BASE_FILE" -f "$ENV_FILE" "$@"
+  docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 
-# 루트 .env 에서 값 하나만 읽는다. compose 는 .env 를 ${...} 치환에만 쓰고 이 셸에는 넣어 주지 않는다.
+# env 파일에서 값 하나만 읽는다(뒤 파일 우선). compose 는 이 파일들을 ${...} 치환에만 쓰고 이 셸에는 넣어 주지 않는다.
 read_dotenv() {
-  local key="$1"
-  [[ -f "$ROOT_DIR/.env" ]] || return 0
-  { grep -E "^${key}=" "$ROOT_DIR/.env" || true; } | tail -n 1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'
+  local key="$1" file value=""
+  # bash 3.2(macOS)에서 set -u 이면 빈 배열 펼치기가 실패한다 — 그래서 +"..." 꼴로 펼친다.
+  for file in ${DOTENV_FILES[@]+"${DOTENV_FILES[@]}"}; do
+    local found
+    found=$({ grep -E "^${key}=" "$file" || true; } | tail -n 1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
+    [[ -n "$found" ]] && value="$found"
+  done
+  printf '%s' "$value"
 }
 
 generate_frontend_api() {
@@ -94,4 +119,4 @@ if [[ "$1" == "up" ]]; then
   generate_frontend_api
 fi
 
-exec docker compose -f "$BASE_FILE" -f "$ENV_FILE" "$@"
+exec docker compose "${COMPOSE_ARGS[@]}" "$@"

@@ -8,6 +8,7 @@ import com.ktc4.backend.domain.investigation.dto.InvestigationTarget;
 import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.signal.enums.SignalType;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
+import com.ktc4.backend.global.security.ApiKeyAuthenticationFilter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -40,6 +41,11 @@ import java.util.Map;
  *
  * <p>HTTP 결과를 {@link AiException} 하위 타입으로 번역하는 곳이 여기 하나다. 재시도는 하지 않는다 —
  * 클라이언트가 재시도를 숨기면 호출하는 쪽이 몇 번 시도했는지 모른다(멘토 Q4).
+ *
+ * <p><b>{@code X-API-KEY} 를 싣는다.</b> AI 는 자기 {@code INTERNAL_API_KEY} 가 비어 있지 않으면 키 없는 요청을
+ * 401 로 거절한다(조사는 Vertex·카카오 쿼터를 쓰는 호출이라 아무나 부르면 안 된다). 백엔드가 AI 에게 받는 키와
+ * 보내는 키는 같은 값이다 — 둘 다 {@code INTERNAL_API_KEY} 하나를 본다. 값이 비어 있으면 헤더를 붙이지 않고,
+ * 그때는 AI 쪽 검사도 꺼져 있어 로컬에서 그대로 돈다.
  */
 @Component
 public class AiApiClient implements AiClient {
@@ -56,11 +62,19 @@ public class AiApiClient implements AiClient {
             RestClient.Builder restClientBuilder,
             @Value("${ai.base-url}") String baseUrl,
             @Value("${ai.connect-timeout-ms}") long connectTimeoutMs,
-            @Value("${ai.read-timeout-ms}") long readTimeoutMs) {
-        this(restClientBuilder
+            @Value("${ai.read-timeout-ms}") long readTimeoutMs,
+            @Value("${ai.api-key:}") String apiKey) {
+        this(withApiKey(restClientBuilder, apiKey)
                 .baseUrl(baseUrl)
                 .requestFactory(createRequestFactory(connectTimeoutMs, readTimeoutMs))
                 .build());
+    }
+
+    private static RestClient.Builder withApiKey(RestClient.Builder builder, String apiKey) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return builder;
+        }
+        return builder.defaultHeader(ApiKeyAuthenticationFilter.HEADER, apiKey);
     }
 
     AiApiClient(RestClient restClient) {

@@ -57,7 +57,9 @@ _FIELD_LABELS = {
     ChangeField.STATUS: "영업 상태",
     ChangeField.PHONE: "전화번호",
     ChangeField.ADDRESS: "주소",
-    ChangeField.NAME: "상호명",
+    # 화면 라벨은 용어집을 따른다 — `Store.name` 은 "가게명"이다("상호명"은 점주가 가입할 때 적은 이름).
+    # 같은 카드의 수정 사항 칸(프론트 `utils/changeLabel.ts`)과 근거 칸(이 문구)이 같은 말을 쓰게 한다.
+    ChangeField.NAME: "가게명",
 }
 
 # 도로명 + 건물번호. "동성로 12", "대종로480번길 15" — 시·구 표기(대구/대구광역시)가 달라도

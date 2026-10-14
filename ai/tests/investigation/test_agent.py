@@ -183,3 +183,46 @@ class TestContinueFrom:
         found = agent.continue_from(TARGET, [], place=place)
 
         assert found.map_check == place
+
+    def test_지도에만_다른_값이면_웹으로_확인하라고_안내한다(self):
+        decider = ScriptedDecider()
+        maps = [Observation(field=ChangeField.ADDRESS, value="대구광역시 서구 국채보상로67길 40", evidence="네이버 지도에 등록된 값",
+                            sources=(Source("map.naver.com", "https://map.naver.com/p/search/x"),), storable=False)]
+        AgentInvestigator(Research(ResearchResult()), decider=decider, client=object()).continue_from(TARGET, maps)
+
+        assert "67길 40" not in decider.seen[0] and "웹에서 같은 값을 찾아야 수정안에 오른다" in decider.seen[0]
+
+
+class TestTimeBudget:
+    """남은 시간이 모자라면 새 도구를 시작하지 않는다 — 백엔드 타임아웃을 넘으면 찾은 것까지 다 잃는다."""
+
+    @staticmethod
+    def _clock(*ticks):
+        it = iter(ticks)
+        last = [0.0]
+
+        def clock():
+            last[0] = next(it, last[0])
+            return last[0]
+        return clock
+
+    def test_웹검색은_남은_시간이_모자라면_건너뛰고_모은_것으로_판정한다(self):
+        decider = ScriptedDecider([call("web_search", field="phone", goal="확인")],
+                                  [call("web_search", field="name", goal="확인")], [call("finish", reason="끝")])
+        research = Research(ResearchResult([web(ChangeField.PHONE, "053-567-3080")]))
+        # 첫 검색은 시작(0초), 두 번째는 50초 뒤라 75초 예산에 40초가 안 남는다.
+        agent = AgentInvestigator(research, decider=decider, client=object(),
+                                  clock=self._clock(0.0, 0.0, 50.0), time_budget=75.0)
+
+        found = agent.continue_from(TARGET, [])
+
+        assert len(research.prompts) == 1 and found.proposed_changes == {"phone": "053-567-3080"}
+        assert any("시간 예산 부족" in s for s in agent.last_trace.steps)
+
+    def test_예산은_환경변수로_바꾼다(self, monkeypatch):
+        from src.investigation.agent import DEFAULT_TIME_BUDGET_SECONDS, time_budget_from_env
+
+        monkeypatch.setenv("INVESTIGATION_TIME_BUDGET_SECONDS", "150")
+        assert time_budget_from_env() == 150.0
+        monkeypatch.setenv("INVESTIGATION_TIME_BUDGET_SECONDS", "abc")
+        assert time_budget_from_env() == DEFAULT_TIME_BUDGET_SECONDS

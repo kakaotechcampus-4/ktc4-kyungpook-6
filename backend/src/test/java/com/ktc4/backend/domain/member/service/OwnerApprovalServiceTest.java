@@ -13,6 +13,8 @@ import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.enums.NameMatch;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStoreDetail;
+import com.ktc4.backend.domain.member.dto.LinkedStoreDetailResponse;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStore;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
@@ -26,6 +28,7 @@ import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -674,6 +677,140 @@ class OwnerApprovalServiceTest {
 
         assertThatThrownBy(() -> StoreOwner.link(store(STORE_ID, "예시분식", null), admin, admin, LocalDateTime.now()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * 연결을 끊는 API 는 있는데 무엇이 연결돼 있는지 볼 방법이 없어, 화면에서 끊을 대상을 고를 수 없었다(PROMPT-150).
+     */
+    @Nested
+    @DisplayName("연결된 가게 조회")
+    class GetLinkedStores {
+
+        private LinkedStoreDetail detail(long storeId, String name) {
+            return new LinkedStoreDetail() {
+                @Override
+                public Long getStoreId() {
+                    return storeId;
+                }
+
+                @Override
+                public String getName() {
+                    return name;
+                }
+
+                @Override
+                public String getAddressRoad() {
+                    return "가상특별시 예시구 샘플로 123";
+                }
+
+                @Override
+                public LocalDateTime getLinkedAt() {
+                    return LocalDateTime.of(2026, 10, 13, 9, 0);
+                }
+            };
+        }
+
+        @Test
+        @DisplayName("연결된 가게를 그대로 옮겨 준다")
+        void returnsLinkedStores() {
+            Member owner = pendingOwner(3L);
+            when(memberRepository.findById(3L)).thenReturn(Optional.of(owner));
+            when(storeOwnerRepository.findLinkedStoreDetailsByMemberId(3L))
+                    .thenReturn(List.of(detail(10L, "예시분식"), detail(11L, "예시분식 2호점")));
+
+            List<LinkedStoreDetailResponse> stores = ownerApprovalService.getLinkedStores(3L);
+
+            assertThat(stores).extracting(LinkedStoreDetailResponse::storeId).containsExactly(10L, 11L);
+            assertThat(stores.get(0).name()).isEqualTo("예시분식");
+            assertThat(stores.get(0).linkedAt()).isEqualTo(LocalDateTime.of(2026, 10, 13, 9, 0));
+        }
+
+        @Test
+        @DisplayName("연결이 없으면 빈 목록이다 — 승인 전 점주도 여기로 온다")
+        void returnsEmptyWhenNoLink() {
+            when(memberRepository.findById(3L)).thenReturn(Optional.of(pendingOwner(3L)));
+            when(storeOwnerRepository.findLinkedStoreDetailsByMemberId(3L)).thenReturn(List.of());
+
+            assertThat(ownerApprovalService.getLinkedStores(3L)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("점주가 아니면 없는 것으로 본다 — 관리자 계정의 존재를 알아낼 수 없게")
+        void hidesNonOwner() {
+            when(memberRepository.findById(ADMIN_ID)).thenReturn(Optional.of(admin()));
+
+            assertThatThrownBy(() -> ownerApprovalService.getLinkedStores(ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
+            verify(storeOwnerRepository, never()).findLinkedStoreDetailsByMemberId(any());
+        }
+    }
+
+    /**
+     * 잘못 거절하면 그 계정은 굳는다 — 로그인도 못 하고 같은 이메일로 재가입도 안 된다(PROMPT-150).
+     */
+    @Nested
+    @DisplayName("가입 거절 되돌리기")
+    class Reopen {
+
+        private Member rejectedOwner(long id) {
+            Member owner = pendingOwner(id);
+            owner.reject(LocalDateTime.of(2026, 10, 13, 9, 0), ADMIN_ID);
+            return owner;
+        }
+
+        @Test
+        @DisplayName("거절된 신청을 다시 승인 대기로 되돌린다")
+        void reopensRejected() {
+            Member owner = rejectedOwner(3L);
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
+
+            OwnerApplicationResponse response = ownerApprovalService.reopen(3L, ADMIN_ID);
+
+            assertThat(response.status()).isEqualTo(MemberStatus.PENDING);
+            assertThat(owner.getStatus()).isEqualTo(MemberStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("되돌리면 처리 기록을 지운다 — 남겨 두면 화면이 처리된 건으로 읽는다")
+        void clearsReviewRecord() {
+            Member owner = rejectedOwner(3L);
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
+
+            OwnerApplicationResponse response = ownerApprovalService.reopen(3L, ADMIN_ID);
+
+            assertThat(response.reviewedAt()).isNull();
+            assertThat(owner.getOwnerInfo().getRejectedBy()).isNull();
+        }
+
+        @Test
+        @DisplayName("승인된 점주는 되돌릴 수 없다 — 연결된 가게와 체크인 권한이 어떤 상태인지 말할 수 없어진다")
+        void rejectsApproved() {
+            Member owner = pendingOwner(3L);
+            owner.approve(LocalDateTime.of(2026, 10, 13, 9, 0));
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
+
+            assertThatThrownBy(() -> ownerApprovalService.reopen(3L, ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.OWNER_NOT_REJECTED);
+            assertThat(owner.getStatus()).isEqualTo(MemberStatus.APPROVED);
+        }
+
+        @Test
+        @DisplayName("이미 대기 중인 신청도 되돌릴 것이 없다")
+        void rejectsPending() {
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(pendingOwner(3L)));
+
+            assertThatThrownBy(() -> ownerApprovalService.reopen(3L, ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.OWNER_NOT_REJECTED);
+        }
+
+        @Test
+        @DisplayName("점주가 아니면 없는 것으로 본다")
+        void hidesNonOwner() {
+            when(memberRepository.findByIdForUpdate(ADMIN_ID)).thenReturn(Optional.of(admin()));
+
+            assertThatThrownBy(() -> ownerApprovalService.reopen(ADMIN_ID, ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
+        }
     }
 
     // ── 신청서의 가게 정보를 가게로 넘기기 (실제로 채우는 동작은 OwnerApprovalStoreFillTest 가 DB 로 본다) ──────────

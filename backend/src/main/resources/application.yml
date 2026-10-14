@@ -92,7 +92,12 @@ external:
 
 ai:
   # AI 조사 서버(FastAPI). 로컬은 uvicorn 기본 포트, 배포는 환경변수로 덮어쓴다.
+  # docker compose 로 띄우면 컨테이너 안의 localhost 는 백엔드 자기 자신이라 AI 에 닿지 않는다.
+  # 그래서 docker-compose.yml 이 backend 에 AI_BASE_URL=http://ai:8000 을 넣어 준다.
   base-url: ${AI_BASE_URL:http://localhost:8000}
+  # AI 를 부를 때 X-API-KEY 로 싣는 키. AI 가 들어오는 요청을 검사할 때 쓰는 값과 같다
+  # (auth.internal-api-key 와 한 환경변수를 본다). 비우면 헤더를 붙이지 않는다.
+  api-key: ${INTERNAL_API_KEY:}
   connect-timeout-ms: 3000
   # AI 는 가게 한 곳에 최대 60초를 쓰고, 그 안에 못 끝내면 200 + failure 로 답한다(멘토 Q4).
   # 그보다 넉넉히 기다려 "AI 가 아예 답하지 않음"(AiReadTimeout)만 여기에 걸리게 한다.

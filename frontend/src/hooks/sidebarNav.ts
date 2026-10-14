@@ -10,6 +10,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 const NAV_ROUTE = {
   stores: '/',
   analysis: '/analysis',
+  owners: '/owners',
 } as const;
 
 export type SidebarNavKey = keyof typeof NAV_ROUTE;
@@ -19,7 +20,9 @@ export type SidebarNavKey = keyof typeof NAV_ROUTE;
  * /analysis/:jobId 같은 하위 경로도 같은 항목으로 본다.
  */
 function toNavKey(pathname: string): SidebarNavKey {
-  return pathname.startsWith(NAV_ROUTE.analysis) ? 'analysis' : 'stores';
+  if (pathname.startsWith(NAV_ROUTE.owners)) return 'owners';
+  if (pathname.startsWith(NAV_ROUTE.analysis)) return 'analysis';
+  return 'stores';
 }
 
 export type UseSidebarNavResult = {

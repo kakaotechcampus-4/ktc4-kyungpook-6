@@ -123,6 +123,25 @@ public class Member extends BaseTimeEntity {
     }
 
     /**
+     * 거절한 가입 신청을 다시 승인 대기로 되돌린다.
+     *
+     * <p><b>잘못 거절하면 그 계정은 굳어 버린다.</b> 거절된 계정은 로그인할 수 없고, 같은 이메일로 다시
+     * 가입할 수도 없어 되돌릴 방법이 없었다. 손이 미끄러진 한 번이 그 점주의 가입을 영영 막는다.
+     *
+     * <p>되돌릴 수 있는 건 <b>거절된 신청뿐</b>이다. 승인된 점주를 대기로 되돌리면 이미 연결된 가게와
+     * 체크인 권한이 어떤 상태인지 말할 수 없어진다 — 그건 연결 끊기({@code StoreOwner})로 다룰 일이다.
+     *
+     * @throws IllegalStateException 거절된 점주가 아니면
+     */
+    public void reopen() {
+        if (role != MemberRole.OWNER || status != MemberStatus.REJECTED) {
+            throw new IllegalStateException("거절된 점주만 되돌릴 수 있습니다 - memberId=" + memberId);
+        }
+        this.status = MemberStatus.PENDING;
+        this.ownerInfo.clearReview();
+    }
+
+    /**
      * 저장·조회에 쓰는 이메일 표기로 맞춘다. 앞뒤 공백을 지우고 소문자로 바꾼다.
      *
      * @param email 입력받은 이메일
