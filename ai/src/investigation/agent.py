@@ -53,6 +53,21 @@ from src.investigation.web_research import (
 MODEL = "gemini-2.5-flash"
 MAX_STEPS = 4
 MAX_WEB_SEARCHES = 2
+#: 가게 하나에 쓸 시간(초). 백엔드가 AI 응답을 기다리는 시간(`ai.read-timeout-ms`, 지금 75초)을 넘으면 백엔드는
+#: `AiReadTimeout` 으로 그 가게를 버린다 — AI 가 찾은 것까지 다 잃는다. 그래서 남은 시간이 모자라면 새 도구를 시작하지
+#: 않고, 그때까지 모은 관측으로 판정한다. 혼합 방식 실측(l1): 중앙 36초, 상위 10% 107초, 60곳 중 14곳이 75초 초과.
+TIME_BUDGET_ENV = "INVESTIGATION_TIME_BUDGET_SECONDS"
+DEFAULT_TIME_BUDGET_SECONDS = 75.0
+#: 웹검색을 새로 시작하려면 남아 있어야 하는 시간. 한 번에 보통 10~20초, 429 대기(5·15초)가 붙으면 40초 가까이 걸린다(실측).
+WEB_SEARCH_RESERVE_SECONDS = 40.0
+
+
+def time_budget_from_env() -> float:
+    """`INVESTIGATION_TIME_BUDGET_SECONDS` — 백엔드 타임아웃을 바꾸면 같이 바꾼다. 잘못된 값이면 기본값."""
+    try:
+        return float(os.environ.get(TIME_BUDGET_ENV) or DEFAULT_TIME_BUDGET_SECONDS)
+    except ValueError:
+        return DEFAULT_TIME_BUDGET_SECONDS
 
 _FIELD_NAMES = {"name": ChangeField.NAME, "address": ChangeField.ADDRESS, "phone": ChangeField.PHONE,
                 "status": ChangeField.STATUS}
@@ -197,6 +212,8 @@ class AgentInvestigator:
         client: object | None = None,
         decider: OpenAIDecider | None = None,
         sleep=time.sleep,
+        clock=time.monotonic,
+        time_budget: float | None = None,
     ) -> None:
         self._decider = decider
         self._research = research
@@ -206,6 +223,8 @@ class AgentInvestigator:
         # Gemini 판단(decider 없음)일 때만 Vertex 클라이언트가 필요하다.
         self._client = client if client is not None or decider is not None else research.client
         self._sleep = sleep
+        self._clock = clock
+        self._time_budget = time_budget if time_budget is not None else time_budget_from_env()
         self.last_trace = Trace()
         self.last_observations: list[Observation] = []
 
@@ -271,6 +290,10 @@ class AgentInvestigator:
         self, target: InvestigationTarget, start: list[Observation], *, maps_done: bool, place: PlaceCheck | None = None
     ) -> StoreFinding:
         trace = self.last_trace = Trace()
+        started = self._clock()
+
+        def remaining() -> float:
+            return self._time_budget - (self._clock() - started)
         search_errors: list[Exception] = []
         observations: list[Observation] = start
         self.last_observations = observations
@@ -298,6 +321,9 @@ class AgentInvestigator:
                 return "field 는 name·address·phone·status·all 중 하나다"
             if trace.web_searches >= MAX_WEB_SEARCHES:
                 return "웹검색 한도를 다 썼다. finish 로 끝내라"
+            if remaining() < WEB_SEARCH_RESERVE_SECONDS:
+                trace.steps.append(f"web_search({field}, {goal!r}) → 시간 예산 부족으로 건너뜀")
+                return "시간이 부족해 더 검색할 수 없다. finish 로 끝내라"
             trace.web_searches += 1
             trace.llm_calls += 1
             prompt = build_research_prompt(target) if change_field is None else build_focused_prompt(target, change_field, goal)
