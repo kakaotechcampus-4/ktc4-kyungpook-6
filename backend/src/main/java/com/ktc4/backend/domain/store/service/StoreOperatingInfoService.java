@@ -17,7 +17,9 @@ import java.util.List;
 /**
  * 가게의 운영 정보(가게 전화·영업시간·메뉴)를 다룬다.
  *
- * <p>지금은 점주 가입 신청에 적힌 값을 가게에 옮겨 적는 일만 한다. 점주가 가게 관리에서 고치는 저장은 다음 단계다.
+ * <p>점주 가입 신청에 적힌 값을 가게의 빈 칸에 옮겨 적는다. 점주가 가게 관리에서 고치는 저장은
+ * {@link StoreManagementService} 가 맡는다 — 이 서비스는 회원 쪽 승인({@code OwnerApprovalService})이 부르므로
+ * 회원 쪽 서비스에 의존하지 않게 따로 둔다.
  */
 @Slf4j
 @Service
@@ -85,14 +87,16 @@ public class StoreOperatingInfoService {
         if (menuNames.isEmpty()) {
             return NOTHING_TO_FILL;
         }
-        if (menuRepository.existsByStoreStoreId(store.getStoreId())) {
+        // 지운 메뉴는 세지 않는다 — 지운 메뉴만 남은 가게는 메뉴가 없는 가게다
+        if (menuRepository.existsByStoreStoreIdAndDeletedAtIsNull(store.getStoreId())) {
             return KEPT_EXISTING;
         }
         menuRepository.saveAll(menuNames.stream().map(name -> StoreMenu.onSale(store, name)).toList());
         return FILLED + "(" + menuNames.size() + "개)";
     }
 
-    private static List<StoreBusinessHour> toBusinessHours(Store store, List<BusinessHourRequest> hours) {
+    // 요청 검증을 통과한 영업시간을 분 단위 엔티티로 바꾼다. 가게 관리 저장(StoreManagementService)도 같이 쓴다.
+    static List<StoreBusinessHour> toBusinessHours(Store store, List<BusinessHourRequest> hours) {
         return hours.stream()
                 .map(hour -> StoreBusinessHour.of(store, hour.day(),
                         BusinessTimes.toOpenMinute(hour.open()).orElseThrow(() -> invalidTime(store, hour)),

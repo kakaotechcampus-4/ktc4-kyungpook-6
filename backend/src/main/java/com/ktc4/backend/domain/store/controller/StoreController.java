@@ -6,9 +6,11 @@ import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.ApiProblemDetail;
+import com.ktc4.backend.global.security.AuthMember;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -20,8 +22,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,6 +42,7 @@ public class StoreController {
     private static final int MAX_LIMIT = 100;
 
     private final StoreService storeService;
+    private final StoreManagementService storeManagementService;
 
     @Operation(summary = "가게 목록 조회", description = "가게 목록을 storeId 오름차순으로 페이지 단위 조회합니다.")
     @ApiResponses(value = {
@@ -153,29 +155,28 @@ public class StoreController {
 
                     - 관리자와 **그 가게에 연결된 점주**만 부를 수 있습니다. 다른 가게면 `forbidden` 입니다.
                     - 상호명·주소는 점주가 바꿀 수 없는 값입니다(가게 관리 화면에서 잠금).
-
-                    ⚠️ **아직 구현 전이라 본문 없이 501 을 돌려줍니다.** 응답 모양(200)은 확정이라, 이 모양으로 화면을 먼저 만들어 주세요.
+                    - 영업시간은 요일 순(월 → 일), 같은 요일은 여는 시간 순입니다. 메뉴는 지운 것을 빼고 등록한 순서입니다.
+                    - 가게 사진은 담지 않습니다. `GET /api/stores/{storeId}/images` 로 받으세요.
                     """)
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "조회 성공 (구현 후)"),
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "401", description = "토큰이 없거나 유효하지 않은 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "403", description = "관리자도 아니고 이 가게에 연결된 점주도 아닌 경우 (구현 후)",
+            @ApiResponse(responseCode = "403", description = "관리자도 아니고 이 가게에 연결된 점주도 아닌 경우. "
+                    + "점주에게는 없는 가게 번호여도 403 입니다(가게가 있는지 알려 주지 않음, 체크인과 같음)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우 (관리자, 구현 후)",
+            @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우 (관리자만)",
                     content = @Content(mediaType = "application/problem+json",
-                            schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "501", description = "아직 구현 전 — 본문 없음")
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
     })
     @GetMapping("/{storeId}")
-    public ResponseEntity<StoreDetailResponse> getStore(
+    public StoreDetailResponse getStore(
             @Parameter(description = "가게 ID", example = "12")
-            @PathVariable Long storeId) {
-
-        // 인터페이스만 먼저 공개한다. 가짜 본문을 주면 저장된 값처럼 보여 실패가 가려지므로 본문을 비운다.
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+            @PathVariable Long storeId,
+            @AuthenticationPrincipal AuthMember authMember) {
+        return storeManagementService.getDetail(storeId, authMember);
     }
 
     @Operation(
@@ -187,6 +188,7 @@ public class StoreController {
                       (가입 때 필수였던 값을 저장으로 지울 수 없게).
                     - 메뉴: `menuId` 가 있으면 그 메뉴를 고치고, 없으면 새로 만들고, 목록에서 빠진 메뉴는 삭제됩니다.
                       화면에서 메뉴를 등록·삭제하거나 판매 토글을 바꿔도 "저장"을 눌러야 반영됩니다.
+                      삭제한 메뉴는 되살릴 수 없습니다 — 같은 이름으로 새로 만드세요.
                     - 시간은 `HH:mm` 입니다. 자정에 닫으면 `24:00`, 여는 시간보다 이르면 다음 날 닫는다는 뜻(예: 21:00~02:00),
                       24시간 영업은 `00:00`~`24:00` 입니다.
                     - 상호명·주소는 이 API 로 바꿀 수 없습니다.
@@ -194,36 +196,40 @@ public class StoreController {
 
                     형식 오류는 `errors` 에 몇 번째 줄의 어느 칸인지(예: `businessHours[1].open`, `menus[0].onSale`) 담깁니다.
                     영업시간끼리 겹치면(같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간) `errors` 에 `businessHours` 칸으로 담깁니다.
+                    같은 `menuId` 를 두 번 보내면 `errors` 에 `menus` 칸으로 담깁니다.
                     요일 값만은 읽는 단계에서 걸려 `errors` 없이 `invalid-request` 입니다(MON~SUN).
 
-                    ⚠️ **아직 구현 전이라, 검증을 통과하면 저장하지 않고 본문 없이 501 을 돌려줍니다.**
-                    요청 검증(400)과 응답 모양(200)은 확정입니다.
+                    본문 형식은 권한보다 먼저 검사합니다 — 형식이 틀린 본문은 연결되지 않은 가게여도 403 이 아니라 400 입니다.
+
+                    **`errors` 없는 `invalid-request` 는 화면이 오래됐다는 뜻입니다 — 다시 불러온 뒤 저장하세요.**
+                    보낸 `menuId` 가 이 가게의 메뉴가 아니거나 이미 삭제된 경우입니다(대개 다른 점주가 먼저 저장한 경우).
                     """)
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "저장 성공 — 저장된 가게 상세를 돌려줍니다 (구현 후)"),
+            @ApiResponse(responseCode = "200", description = "저장 성공 — 저장된 가게 상세를 돌려줍니다"),
             @ApiResponse(responseCode = "400",
                     description = "형식·개수가 틀리거나 영업시간이 겹치는 경우(errors 배열, 겹침은 businessHours 칸) — "
                             + "같은 요일 시간대끼리, 또는 자정을 넘긴 시간과 다음 날 시간이 겹치는 경우. "
-                            + "구현 후에는 다른 가게의 menuId·같은 menuId 를 두 번 보낸 경우도 포함",
+                            + "같은 menuId 를 두 번 보낸 경우(errors 의 menus 칸). "
+                            + "보낸 menuId 가 이 가게의 메뉴가 아니거나 이미 삭제된 경우(errors 없음 — 다시 불러오기)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "401", description = "토큰이 없거나 유효하지 않은 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "403", description = "관리자도 아니고 이 가게에 연결된 점주도 아닌 경우 (구현 후)",
+            @ApiResponse(responseCode = "403", description = "관리자도 아니고 이 가게에 연결된 점주도 아닌 경우. "
+                    + "점주에게는 없는 가게 번호여도 403 입니다(가게가 있는지 알려 주지 않음, 체크인과 같음)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우 (관리자, 구현 후)",
+            @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우 (관리자만)",
                     content = @Content(mediaType = "application/problem+json",
-                            schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "501", description = "아직 구현 전 — 저장하지 않음, 본문 없음")
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
     })
     @PutMapping("/{storeId}/operating-info")
-    public ResponseEntity<StoreDetailResponse> saveOperatingInfo(
+    public StoreDetailResponse saveOperatingInfo(
             @Parameter(description = "가게 ID", example = "12")
             @PathVariable Long storeId,
-            @Valid @RequestBody OperatingInfoRequest request) {
-
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+            @Valid @RequestBody OperatingInfoRequest request,
+            @AuthenticationPrincipal AuthMember authMember) {
+        return storeManagementService.save(storeId, request, authMember);
     }
 }

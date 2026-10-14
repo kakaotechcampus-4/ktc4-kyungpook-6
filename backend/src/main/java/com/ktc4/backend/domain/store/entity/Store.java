@@ -135,6 +135,15 @@ public class Store extends BaseTimeEntity {
     }
 
     /**
+     * 점주가 가게 관리에서 가게 전화번호를 바꾼다. 비울 수는 없다 — 요청 검증이 막는다.
+     *
+     * @param phone 앞뒤 공백을 지운 가게 전화번호
+     */
+    public void changePhone(String phone) {
+        this.phone = phone;
+    }
+
+    /**
      * 가게 전화번호가 비어 있을 때만 채운다. 점주 가입을 승인할 때 신청서의 가게 전화로 부른다.
      *
      * <p>이미 값이 있으면 바꾸지 않는다 — 먼저 연결된 점주나 관리자가 정한 번호를 승인이 덮어쓰지 않게 하기 위해서다.

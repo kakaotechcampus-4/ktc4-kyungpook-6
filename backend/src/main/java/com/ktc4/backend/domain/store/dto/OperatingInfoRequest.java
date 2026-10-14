@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.dto;
 
 import com.ktc4.backend.domain.store.validation.NonOverlappingBusinessHours;
+import com.ktc4.backend.domain.store.validation.UniqueMenuIds;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -42,6 +43,7 @@ public record OperatingInfoRequest(
                 minItems = 1, maxItems = MenuRequest.MAX_COUNT)
         @NotNull(message = "메뉴를 보내 주세요")
         @Size(min = 1, max = MenuRequest.MAX_COUNT, message = "메뉴는 {min} ~ {max}개여야 합니다")
+        @UniqueMenuIds
         List<@Valid @NotNull(message = "빈 메뉴가 있습니다") MenuRequest> menus
 ) {
 }
