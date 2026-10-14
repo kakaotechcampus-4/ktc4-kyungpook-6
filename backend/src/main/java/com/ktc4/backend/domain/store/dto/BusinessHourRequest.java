@@ -15,7 +15,8 @@ import jakarta.validation.constraints.Pattern;
  * <p>시간을 {@code LocalTime} 이 아니라 {@code "HH:mm"} 문자열로 받는 이유: 자정에 닫는 가게를 {@code "24:00"} 으로
  * 적어야 하는데 {@code LocalTime} 은 그 값을 읽지 못한다(그날 끝 자정을 {@code 24:00} 으로 쓰는 방식은
  * Google Business Profile API 의 영업시간 표기와 같다). 문자열이면 형식 오류도 칸별 {@code errors} 로 응답에 실린다.
- * 여러 줄끼리 겹치는지는 줄 하나로는 알 수 없어 서비스가 확인한다.
+ * 여러 줄끼리 겹치는지는 줄 하나로는 알 수 없어 목록 칸에 붙은
+ * {@link com.ktc4.backend.domain.store.validation.NonOverlappingBusinessHours} 가 확인한다.
  */
 public record BusinessHourRequest(
         @Schema(description = "요일 (MON ~ SUN)", example = "MON")

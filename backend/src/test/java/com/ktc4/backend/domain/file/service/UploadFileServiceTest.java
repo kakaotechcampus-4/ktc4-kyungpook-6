@@ -78,7 +78,9 @@ class UploadFileServiceTest {
         service = new UploadFileService(uploadFileRepository, memberRepository, storeRepository,
                 new FileStorage(uploadDir.toString()));
         applicant = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("1234567890", "예시분식", "홍길동", "01000000000"));
+                OwnerInfo.builder()
+                        .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                        .build());
         ReflectionTestUtils.setField(applicant, "memberId", MEMBER_ID);
     }
 

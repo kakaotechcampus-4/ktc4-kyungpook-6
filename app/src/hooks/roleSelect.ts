@@ -6,11 +6,12 @@ export type AppUserRole = "OWNER" | "CHILD";
 
 /*
   역할을 고른 뒤 넘어갈 화면.
-  점주 로그인·아동 인증 화면이 아직 없어서 둘 다 홈으로 둔다. 화면이 생기면 여기만 바꾼다.
+  아동 인증 화면은 아직 없어서 임시 화면(/home)으로 둔다. 화면이 생기면 여기만 바꾼다.
+  "/" 는 스플래시라 여기로 보내면 역할 선택으로 되돌아온다.
 */
 const NEXT_PATH: Record<AppUserRole, string> = {
-  OWNER: "/",
-  CHILD: "/",
+  OWNER: "/owner/login",
+  CHILD: "/home",
 };
 
 export type UseRoleSelectResult = {

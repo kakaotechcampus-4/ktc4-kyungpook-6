@@ -129,6 +129,24 @@ public class Store extends BaseTimeEntity {
     }
 
     /**
+     * 가게 전화번호가 비어 있을 때만 채운다. 점주 가입을 승인할 때 신청서의 가게 전화로 부른다.
+     *
+     * <p>이미 값이 있으면 바꾸지 않는다 — 먼저 연결된 점주나 관리자가 정한 번호를 승인이 덮어쓰지 않게 하기 위해서다.
+     * 빈 문자열도 "비어 있음"으로 본다({@link #recordOwnerPhoneIfAbsent} 와 같은 기준). 관리자 수정에서 빈 문자열은
+     * "지움"이지만, 지운 이유는 대개 명단의 번호가 틀려서이고 채우는 값은 점주가 직접 적은 가게 번호다.
+     *
+     * @param phone 가게 전화번호. 비어 있으면 아무 일도 하지 않는다
+     */
+    public void recordPhoneIfAbsent(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return;
+        }
+        if (this.phone == null || this.phone.isBlank()) {
+            this.phone = phone;
+        }
+    }
+
+    /**
      * 점주 개인 휴대폰 번호가 넘겨받은 번호와 같으면 지운다. 그 점주와의 연결을 끊을 때 부른다.
      *
      * <p>잘못 승인해서 채워진 번호가 남아 있으면, 그 번호로 가입한 사람이 계속 이 가게의 후보로 올라온다.

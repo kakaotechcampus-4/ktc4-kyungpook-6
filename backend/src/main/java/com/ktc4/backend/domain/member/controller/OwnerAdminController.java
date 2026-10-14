@@ -96,6 +96,7 @@ public class OwnerAdminController {
 
                     - `storeId` 는 필수입니다. 가게 없이는 승인할 수 없습니다.
                     - 승인과 가게 연결은 함께 처리됩니다. 가게가 없으면 신청은 승인 대기 그대로 남습니다.
+                    - 신청서의 가게 전화·영업시간·메뉴를 가게의 **빈 항목에만** 옮겨 적습니다. 이미 값이 있는 항목은 바꾸지 않습니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "승인 성공"),
@@ -147,6 +148,9 @@ public class OwnerAdminController {
 
                     - 승인 대기 중인 점주는 이 API 가 아니라 승인 API 로 연결합니다.
                     - 끊긴 적이 있는 가게면 그 연결을 되살립니다.
+                    - 이 점주에게 연결된 다른 가게가 없을 때만, 신청서의 가게 전화·영업시간·메뉴를 가게의 빈 항목에 옮겨 적습니다.
+                      잘못 고른 가게를 바로잡을 때는 **잘못된 가게를 먼저 끊고** 연결해야 맞는 가게에 옮겨 적힙니다.
+                      잘못된 가게에 이미 옮겨 적힌 값은 연결을 끊어도 남습니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "연결 성공"),
