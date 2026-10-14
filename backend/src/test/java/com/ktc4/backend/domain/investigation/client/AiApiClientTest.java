@@ -7,6 +7,7 @@ import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.signal.enums.SignalType;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
+import com.ktc4.backend.global.security.ApiKeyAuthenticationFilter;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,9 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -446,7 +450,7 @@ class AiApiClientTest {
             });
             slowServer.start();
             AiApiClient realClient = new AiApiClient(RestClient.builder(),
-                    "http://localhost:" + slowServer.getAddress().getPort(), 1_000, 200);
+                    "http://localhost:" + slowServer.getAddress().getPort(), 1_000, 200, "");
 
             assertThatThrownBy(() -> realClient.investigate(TARGET)).isInstanceOf(AiReadTimeout.class);
         }
@@ -459,9 +463,63 @@ class AiApiClientTest {
                 closedPort = socket.getLocalPort();
             }
             AiApiClient realClient = new AiApiClient(RestClient.builder(),
-                    "http://localhost:" + closedPort, 1_000, 1_000);
+                    "http://localhost:" + closedPort, 1_000, 1_000, "");
 
             assertThatThrownBy(() -> realClient.investigate(TARGET)).isInstanceOf(AiTransientError.class);
+        }
+    }
+
+    /**
+     * AI 는 자기 {@code INTERNAL_API_KEY} 가 비어 있지 않으면 키 없는 요청을 401 로 거절한다.
+     * 이걸 빠뜨려서 배포 환경에서 조사가 한 건도 못 돌았다(PROMPT-150).
+     *
+     * <p>실제 소켓으로 본다 — {@code MockRestServiceServer} 는 요청 팩토리를 가로채는데,
+     * 공개 생성자가 그 뒤에 자기 팩토리를 끼워 넣어서 가짜 서버가 요청을 못 받는다.
+     */
+    @Nested
+    @DisplayName("AI 인증 키")
+    class ApiKey {
+
+        private HttpServer server;
+        private final List<String> received = new ArrayList<>();
+
+        @AfterEach
+        void stopServer() {
+            if (server != null) {
+                server.stop(0);
+            }
+        }
+
+        private AiApiClient clientWithKey(String apiKey) throws IOException {
+            server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+            server.createContext("/investigations", exchange -> {
+                received.add(exchange.getRequestHeaders().getFirst(ApiKeyAuthenticationFilter.HEADER));
+                byte[] body = result("{\"storeId\": 44, \"classification\": \"NO_CHANGE\"}")
+                        .getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            });
+            server.start();
+            return new AiApiClient(RestClient.builder(),
+                    "http://localhost:" + server.getAddress().getPort(), 1_000, 5_000, apiKey);
+        }
+
+        @Test
+        @DisplayName("키가 있으면 X-API-KEY 로 싣는다")
+        void sendsApiKey() throws IOException {
+            clientWithKey("ai-key-test-1234").investigate(TARGET);
+
+            assertThat(received).containsExactly("ai-key-test-1234");
+        }
+
+        @Test
+        @DisplayName("키가 비어 있으면 헤더를 붙이지 않는다 — AI 쪽 검사도 꺼져 있어 로컬에서 그대로 돈다")
+        void omitsHeaderWhenBlank() throws IOException {
+            clientWithKey("  ").investigate(TARGET);
+
+            assertThat(received).containsOnlyNulls();
         }
     }
 }

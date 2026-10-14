@@ -13,6 +13,7 @@ const NAV_ITEMS: {
 }[] = [
   { key: 'stores', icon: 'mingcute:list-check-fill', label: '가게 목록' },
   { key: 'analysis', icon: 'mingcute:robot-fill', label: '분석 결과' },
+  { key: 'owners', icon: 'mingcute:user-add-fill', label: '점주 가입' },
 ];
 
 type SidebarProps = Omit<ComponentPropsWithoutRef<'aside'>, 'children'>;

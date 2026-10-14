@@ -119,4 +119,13 @@ public class OwnerInfo {
         this.reviewedAt = rejectedAt;
         this.rejectedBy = rejectedBy;
     }
+
+    /**
+     * 처리 기록을 지운다. 거절을 되돌려 다시 승인 대기로 둘 때 쓴다 —
+     * 대기 중인 신청에 "언제 누가 거절했다" 는 기록이 남아 있으면 화면이 처리된 건으로 읽는다.
+     */
+    void clearReview() {
+        this.reviewedAt = null;
+        this.rejectedBy = null;
+    }
 }

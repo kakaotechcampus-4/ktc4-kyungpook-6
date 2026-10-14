@@ -28,6 +28,10 @@ services:
       DB_USERNAME: ${DB_USERNAME:-ktc4}
       DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      AI_BASE_URL: http://ai:8000
+      # AI 가 X-API-KEY 로 확인하는 키. 백엔드도 AI 를 부를 때 같은 키를 싣는다.
+      # 비우면 AI 쪽 검사가 꺼지므로 로컬에서는 없어도 돈다.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
       # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
       UPLOAD_DIR: /app/uploads
     volumes:
@@ -50,8 +54,7 @@ services:
       dockerfile: Dockerfile
     container_name: ktc4-ai
     environment:
-      # 컨테이너 안에서 백엔드는 localhost 가 아니라 서비스명이다.
-      BACKEND_BASE_URL: ${AI_BACKEND_BASE_URL:-http://backend:8080}
+      BACKEND_BASE_URL: http://backend:8080
       # 조사 구현 선택: web / mock / off. 비우면 GOOGLE_CLOUD_PROJECT 유무로 정해진다.
       INVESTIGATOR: ${INVESTIGATOR:-}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
@@ -69,7 +72,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_PORT:-8080}}
+        VITE_BACKEND_URL: ${BACKEND_BASE_URL:-http://localhost:${BACKEND_PORT:-8080}}
     container_name: ktc4-frontend
     ports:
       - "0.0.0.0:${FRONTEND_PORT:-3000}:80"

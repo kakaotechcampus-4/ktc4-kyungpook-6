@@ -12,6 +12,7 @@ import StoreEditModal from "../components/store/StoreEditModal";
 import TableRow from "../components/TableRow";
 import AgentSurveyTrigger from "../components/AgentSurveyTrigger";
 import AgentSurveyModal from "../components/AgentSurveyModal";
+import { formatDateTime } from "../utils/date";
 import type { BusinessStatus } from "../components/TableRow";
 
 /** 가게 목록의 한 건. 필드는 TableRow가 받는 props 기준. */
@@ -47,7 +48,8 @@ function toStore(store: StoreResponse): Store {
     phone: store.phone ?? "-",
     status: TO_BUSINESS_STATUS[store.status],
     address: store.addressRoad ?? "-",
-    lastChecked: store.lastCheckedAt?.replace("T", " ") ?? "-",
+    /* 서버는 "2026-10-13T20:12:45.589672" 처럼 마이크로초까지 준다. 화면 표기는 utils/date 로 통일한다. */
+    lastChecked: formatDateTime(store.lastCheckedAt) ?? "-",
     editTarget: {
       storeId: store.storeId,
       name: store.name,
@@ -105,6 +107,8 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     openSurveyModal,
     closeSurveyModal,
     startSurvey,
+    isStartingSurvey,
+    surveyErrorMessage,
   } = useStoreListPage();
   const storeEdit = useStoreEditModal();
   const { data, isPending, isError } = useQuery({
@@ -326,6 +330,8 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
         estimatedMinutes={estimatedMinutes}
         onStart={startSurvey}
         onCancel={closeSurveyModal}
+        isStarting={isStartingSurvey}
+        errorMessage={surveyErrorMessage}
       />
 
       {/* 가게 정보 수정 모달. Figma Modal(102:4996) */}
