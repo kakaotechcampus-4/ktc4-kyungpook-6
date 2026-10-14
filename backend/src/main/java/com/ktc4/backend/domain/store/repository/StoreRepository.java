@@ -16,6 +16,8 @@ import java.util.Optional;
 
 public interface StoreRepository extends JpaRepository<Store, Long> {
 
+    List<Store> findByNameNormalizedIn(Collection<String> nameNormalized);
+
     /**
      * 가게와 국세청 확인 기록을 함께 읽는다.
      *
