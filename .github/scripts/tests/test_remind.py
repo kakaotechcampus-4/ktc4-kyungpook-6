@@ -244,3 +244,19 @@ def test_독촉_슬롯은_깨어_있는_시간에_4시간_간격이다():
 def test_슬롯_간격보다_최소_간격이_좁다():
     # 최소 간격이 슬롯 간격보다 넓으면 2차 뒤 슬롯이 연쇄로 죽는다.
     assert r.STALE_MIN_GAP_HOURS < 4
+
+
+# ── 리뷰어 없음 판정 (needs_reviewer) ──────────────────────────────────────
+
+def test_리뷰어도_리뷰도_없으면_리뷰어를_정해_달라고_부른다():
+    assert r.needs_reviewer([], []) is True
+
+
+def test_리뷰어가_지정돼_있으면_부르지_않는다():
+    assert r.needs_reviewer(["hellowo1"], []) is False
+
+
+def test_리뷰가_달린_뒤에는_리뷰어가_없다고_부르지_않는다():
+    # 🐛 GitHub 은 리뷰를 제출하면 그 사람을 요청 목록에서 뺀다. 리뷰어가 한 명인 PR 은
+    #    리뷰가 끝나는 순간 요청 목록이 비어, 예전 조건이면 작성자에게 "리뷰어를 지정하라"가 갔다.
+    assert r.needs_reviewer([], [{"state": "APPROVED", "user": {"login": "softkleenex"}}]) is False

@@ -281,6 +281,19 @@ def stale_nudge_due(created: datetime, now: datetime, opened_hours: float) -> bo
     return now - second_wake >= timedelta(hours=STALE_MIN_GAP_HOURS)
 
 
+def needs_reviewer(assigned: list, reviews: list) -> bool:
+    """"리뷰어를 정해 달라"고 부를 차례인가.
+
+    🚨 **리뷰가 하나라도 있으면 부르지 않는다.** GitHub 은 리뷰를 제출하면 그 사람을
+    **요청 목록(requested_reviewers)에서 뺀다.** 그래서 리뷰어가 한 명뿐인 PR 은 그 사람이
+    리뷰를 올리는 순간 요청 목록이 비고, 예전 조건(`not assigned`)으로는 "리뷰어가 아직
+    없습니다" 가 작성자에게 날아갔다 — 리뷰가 끝난 PR 인데도(2026-10-14, #108).
+
+    리뷰가 늦어지는 것과 아무도 안 보는 것은 다른 상태다. 여기는 뒤쪽만 본다.
+    """
+    return not assigned and not reviews
+
+
 def latest_review_state(reviews: list[dict]) -> str | None:
     """사람별 마지막 리뷰만 본다. COMMENTED 는 승인·변경요청을 덮지 않는다."""
     by_user: dict[str, dict] = {}
@@ -347,8 +360,8 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         created = parse_ts(pr["created_at"])
         assigned = reviewers(pr)
 
-        if not assigned:
-            # 리뷰어가 없으면 아무도 안 본다. 리뷰 독촉 대신 "정해 달라"고 한다.
+        if needs_reviewer(assigned, reviews):
+            # 아무도 안 보고 있다. 리뷰 독촉 대신 "정해 달라"고 한다.
             if due_now(created, NO_REVIEWER_HOURS, now):
                 pr_findings.append({
                     "color": COLOR_DEADLINE,
@@ -553,11 +566,23 @@ def readiness_report(repo: str, token: str, now: datetime,
 
         unreviewed = [pr for pr, rv in dev if not rv]
         if dev:
+            # PR 번호만 늘어놓으면 받는 사람이 무엇을 해야 할지 모른다(2026-10-14 피드백).
+            # **지금 머지해야 이번 주 PR 에 들어간다**는 것과, PR 별로 머지를 막고 있는 게
+            # 무엇인지(리뷰·승인)를 같이 적는다.
             lines.append(f"{'⚠️' if unreviewed else '✅'} 열린 develop PR {len(dev)}건"
-                         + (f" · 그중 리뷰 0건이 {len(unreviewed)}건" if unreviewed else ""))
-            for pr, _ in dev[:5]:
-                lines.append(f"      #{pr['number']} {pr['title'][:40]}")
-            lines.append("      → 이번 주 PR 에 포함할지 먼저 정하세요")
+                         " — 지금 머지해야 이번 주 멘토 PR 에 들어갑니다")
+            for pr, rv in dev[:5]:
+                states = [r.get("state") for r in rv]
+                if "APPROVED" in states:
+                    mark = "승인 — 머지만 하면 됨"
+                elif "CHANGES_REQUESTED" in states:
+                    mark = "변경 요청 — 반영 필요"
+                elif rv:
+                    mark = f"리뷰 {len(rv)}건 · 승인 아직"
+                else:
+                    mark = "리뷰 0건 — 리뷰부터"
+                lines.append(f"      #{pr['number']} {pr['title'][:34]}  ({mark})")
+            lines.append("      → 넣을 것은 머지하고, 다음 주로 미룰 것은 그대로 두세요")
             ok = False
         else:
             lines.append("✅ 열린 develop PR 없음")
