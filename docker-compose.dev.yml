@@ -2,7 +2,9 @@
 # docker-compose.yml(base) 위에 병합해서 사용합니다 — 직접 쓰지 말고 scripts/deploy.sh 를 사용하세요.
 #   예) scripts/deploy.sh dev up -d --build
 #
-# 값은 **각 서버의 .env** 로 관리합니다. compose 는 그 파일을 ${...} 치환에만 쓰고,
+# 값은 **각 서버의 .env** 로 관리합니다. dev 에서만 쓰는 값(POSTGRES_PORT·AI_PORT·AI_BASE_URL)은 .env.development 에
+# 둡니다 — scripts/deploy.sh dev 가 .env 위에 얹어 읽습니다(.env.development.example 참고).
+# compose 는 그 파일들을 ${...} 치환에만 쓰고,
 # 여기 environment: 에 적은 것만 컨테이너에 들어갑니다 — 적지 않으면 .env 에 있어도 안 들어갑니다.
 # 배포(.github/workflows/deploy-dev.yml)는 checkout 의 clean: false 에 기대어 서버 .env 를 지우지
 # 않습니다. 그 옵션을 true 로 바꾸면 gitignore 대상인 .env 가 지워지니 바꾸지 마세요.
@@ -25,6 +27,8 @@ services:
 
   backend:
     environment:
+      # 백엔드가 부를 AI 주소. base 는 http://ai:8000 으로 고정이고, dev 에서만 .env.development 로 바꿀 수 있다.
+      AI_BASE_URL: ${AI_BASE_URL:-http://ai:8000}
       AUTH_ENFORCE: ${AUTH_ENFORCE:-true}
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
@@ -32,3 +36,13 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       BIZNO_API_KEY: ${BIZNO_API_KEY}
       NTS_SERVICE_KEY: ${NTS_SERVICE_KEY}
+
+  # dev 에서만 AI 서버를 바깥에 연다(조사 동작을 직접 확인하려고). prod 는 base 대로 닫아 둔다.
+  # 열면 공개 주소에서 누구나 POST /investigations 를 부를 수 있다 — Vertex·국세청 쿼터가 걸린 호출이다.
+  # AI 는 INTERNAL_API_KEY 가 있을 때만 X-API-KEY 를 검사하므로(비면 검사 안 함), 여기서는 :? 로 필수로 둔다.
+  ai:
+    ports:
+      - "0.0.0.0:${AI_PORT:-8000}:8000"
+    environment:
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:8080}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?}
