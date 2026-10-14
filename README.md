@@ -57,7 +57,7 @@ compose 파일이 셋입니다. **base 위에 환경별 오버라이드를 얹�
 
 ```
 docker-compose.yml        base       — 모든 환경 공통
-docker-compose.dev.yml    dev 전용   — 인증·외부 API 환경변수
+docker-compose.dev.yml    dev 전용   — 인증·외부 API 환경변수, DB·AI 포트 공개
 docker-compose.prod.yml   prod 전용
 ```
 
@@ -67,6 +67,20 @@ scripts/deploy.sh dev up -d --build
 
 `.env` 는 **각 서버에 둡니다**(git 에 올리지 않습니다). compose 는 그 파일을 `${...}` 치환에만
 쓰고, 오버라이드의 `environment:` 에 적은 것만 컨테이너에 들어갑니다.
+
+dev 서버에서만 쓰는 값은 `.env.development` 에 따로 둡니다(`.env.development.example` 참고).
+`scripts/deploy.sh dev` 가 `.env` 위에 얹어 읽고, 같은 키는 `.env.development` 가 이깁니다.
+파일이 없으면 `.env` 만 읽습니다.
+
+| 값 | 설명 |
+|---|---|
+| `POSTGRES_PORT` | DB 를 바깥에 여는 포트. 비어 있으면 dev 배포가 멈춥니다 |
+| `AI_PORT` | AI 서버를 바깥에 여는 포트(기본 8000). AI 포트를 열기 때문에 dev 는 `.env` 의 `INTERNAL_API_KEY` 가 비어 있으면 배포가 멈춥니다 |
+| `AI_BASE_URL` | 백엔드가 부를 AI 주소(기본 `http://ai:8000`). base·prod 는 이 주소로 고정이라 dev 에서만 바꿀 수 있습니다 |
+
+백엔드 주소 `BACKEND_BASE_URL` 은 `.env` 에 둡니다. frontend 빌드(브라우저가 부를 주소)에 쓰이고,
+dev 에서는 AI 컨테이너도 같은 값을 씁니다. 그래서 서버에서는 **브라우저와 AI 컨테이너 둘 다 닿는 공개 주소**를
+넣어야 합니다 — `http://localhost:8080` 은 AI 컨테이너 안에서 자기 자신을 가리킵니다.
 
 배포는 `main`·`develop` 푸시에 `.github/workflows/deploy-main.yml`·`deploy-dev.yml` 이 돕니다.
 
