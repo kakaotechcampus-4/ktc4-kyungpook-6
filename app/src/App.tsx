@@ -9,6 +9,8 @@ import OwnerSignupAccountPage from "./pages/OwnerSignupAccountPage";
 import OwnerSignupInfoPage from "./pages/OwnerSignupInfoPage";
 import OwnerSignupCompletePage from "./pages/OwnerSignupCompletePage";
 import OwnerStorePage from "./pages/OwnerStorePage";
+import OwnerQrScanPage from "./pages/OwnerQrScanPage";
+import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
 
 function HomePage() {
   return (
@@ -35,6 +37,8 @@ function App() {
           <Route path="complete" element={<OwnerSignupCompletePage />} />
         </Route>
         <Route path="/owner/store" element={<OwnerStorePage />} />
+        <Route path="/owner/qr" element={<OwnerQrScanPage />} />
+        <Route path="/owner/qr/result" element={<OwnerCheckInResultPage />} />
       </Routes>
     </BrowserRouter>
   );

@@ -46,6 +46,17 @@ public enum ErrorCode {
     STORE_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결된 가게입니다"),
     STORE_LINK_NOT_FOUND(HttpStatus.NOT_FOUND, "가게 연결을 찾을 수 없습니다"),
 
+    // 파일 업로드. FILE_TOO_LARGE 는 요청 전체가 상한을 넘어 프레임워크가 거절한 경우(413)에도 쓴다
+    EMPTY_FILE(HttpStatus.BAD_REQUEST, "빈 파일은 올릴 수 없습니다"),
+    UNSUPPORTED_FILE_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 파일 형식입니다"),
+    TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "파일 개수가 너무 많습니다"),
+    FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "파일이 너무 큽니다"),
+    FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다"),
+
+    // 가입 신청 남용 방어. TOO_MANY_REQUESTS 는 컨트롤러에 닿기 전 필터가 직접 응답한다.
+    TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요"),
+    SIGNUP_TEMPORARILY_CLOSED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 가입 신청을 받을 수 없습니다"),
+
     // 관리자 조사(Job)
     NO_INVESTIGATION_TARGET(HttpStatus.BAD_REQUEST, "조사할 가게가 없습니다"),
     JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "조사를 찾을 수 없습니다"),
