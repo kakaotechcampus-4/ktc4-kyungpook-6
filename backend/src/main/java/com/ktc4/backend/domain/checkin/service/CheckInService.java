@@ -3,8 +3,7 @@ package com.ktc4.backend.domain.checkin.service;
 import com.ktc4.backend.domain.checkin.dto.CheckInResponse;
 import com.ktc4.backend.domain.checkin.entity.CheckIn;
 import com.ktc4.backend.domain.checkin.repository.CheckInRepository;
-import com.ktc4.backend.domain.member.enums.MemberRole;
-import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
+import com.ktc4.backend.domain.member.service.StoreAccessService;
 import com.ktc4.backend.domain.qr.dto.QrResolution;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.entity.Store;
@@ -26,7 +25,7 @@ public class CheckInService {
     private final CheckInRepository checkInRepository;
     private final StoreService storeService;
     private final QrCredentialService qrCredentialService;
-    private final StoreOwnerRepository storeOwnerRepository;
+    private final StoreAccessService storeAccessService;
 
     /**
      * 점주가 스캔한 아동 QR 로 체크인을 기록한다.
@@ -50,7 +49,7 @@ public class CheckInService {
      */
     @Transactional
     public CheckInResponse checkIn(Long storeId, String qrPayload, AuthMember authMember) {
-        requireAccessTo(storeId, authMember);
+        storeAccessService.requireAccessTo(storeId, authMember);
         Store store = storeService.findStore(storeId);
         Long childId = switch (qrCredentialService.resolveChildId(qrPayload)) {
             case QrResolution.Resolved resolved -> resolved.childId();
@@ -63,23 +62,5 @@ public class CheckInService {
 
         CheckIn checkIn = checkInRepository.save(CheckIn.of(childId, store));
         return CheckInResponse.from(checkIn);
-    }
-
-    // 통과시킬 대상을 하나씩 적는다 — 관리자, 그리고 이 가게에 연결된 점주. 그 밖은 모두 거절한다.
-    // "점주가 아니면 통과"로 쓰면, 나중에 역할이 늘 때 새 역할이 검사 없이 모든 가게에 기록할 수 있게 된다.
-    private void requireAccessTo(Long storeId, AuthMember authMember) {
-        // 보안 필터가 점주·관리자만 들여보내므로 null 은 오지 않는다. 그래도 규칙이 잘못 열렸을 때 통과시키거나
-        // 500 으로 터지지 않고 막히게 한다 — 기록을 남기는 API 라 "누가"를 모르면 받지 않는다.
-        if (authMember == null) {
-            throw new CustomException(ErrorCode.UNAUTHORIZED);
-        }
-        if (authMember.role() == MemberRole.ADMIN) {
-            return;
-        }
-        if (authMember.role() != MemberRole.OWNER
-                || !storeOwnerRepository.existsByStoreIdAndMemberId(storeId, authMember.memberId())) {
-            log.info("체크인 거절 - 연결되지 않은 가게, storeId={}, memberId={}", storeId, authMember.memberId());
-            throw new CustomException(ErrorCode.FORBIDDEN);
-        }
     }
 }
