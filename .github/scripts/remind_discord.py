@@ -102,7 +102,9 @@ DEADLINES = [
 # 찍어 준다. 수요일은 1차 PR 을 쓰기 직전, 일요일 아침은 머지까지 남은 것을 본다.
 # (요일, 시각): (제목, 마감 설명)
 READINESS = {
-    (2, 17): ("1차 PR 마감 1시간 전", "오늘 18:00 까지 develop → main PR"),
+    # 수요일 17:00 은 "마감 알림"이 아니라 **PM 이 1차 PR 을 올리겠다는 예고**다.
+    # 받는 사람이 할 일이 "더 넣을 게 있으면 지금 말하기" 하나로 떨어지게 적는다.
+    (2, 17): ("1시간 뒤 1차 PR 을 올립니다", "오늘 18:00 · develop → main"),
     (6, 9): ("main 머지 준비 점검", "오늘 23:59 까지 main 머지"),
 }
 # 멘토 쪽은 시각으로 보지 않는다. 리뷰가 언제 올지 정해져 있지 않고, 재촉할 일도 아니다.
@@ -550,17 +552,19 @@ def readiness_report(repo: str, token: str, now: datetime,
     if not slot:
         return []
     title, deadline = slot
-    lines = [f"마감: {deadline}", ""]
+    lines = [deadline, ""]
     ok = True
 
     if (k.weekday(), k.hour) == (2, 17):
-        lines.append(f"{'✅' if main_pr else '❌'} 멘토 PR: "
-                     + (f"#{main_pr['number']} 올라와 있음" if main_pr else "아직 없음"))
+        if main_pr:
+            lines.append(f"✅ 멘토 PR 은 이미 올라가 있습니다 — #{main_pr['number']}")
+        else:
+            lines.append("지금 develop 에 있는 것으로 올립니다.")
         ok = ok and bool(main_pr)
 
         try:
             cmp_ = gh(f"/repos/{repo}/compare/main...develop", token)
-            lines.append(f"ℹ️ develop 이 main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있음")
+            lines.append(f"    (main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있습니다)")
         except urllib.error.HTTPError:
             pass
 
@@ -569,8 +573,8 @@ def readiness_report(repo: str, token: str, now: datetime,
             # PR 번호만 늘어놓으면 받는 사람이 무엇을 해야 할지 모른다(2026-10-14 피드백).
             # **지금 머지해야 이번 주 PR 에 들어간다**는 것과, PR 별로 머지를 막고 있는 게
             # 무엇인지(리뷰·승인)를 같이 적는다.
-            lines.append(f"{'⚠️' if unreviewed else '✅'} 열린 develop PR {len(dev)}건"
-                         " — 지금 머지해야 이번 주 멘토 PR 에 들어갑니다")
+            lines.append("")
+            lines.append(f"아직 develop 에 안 들어간 PR {len(dev)}건입니다 — 지금 머지하면 같이 올라갑니다")
             for pr, rv in dev[:5]:
                 states = [r.get("state") for r in rv]
                 if "APPROVED" in states:
@@ -582,7 +586,8 @@ def readiness_report(repo: str, token: str, now: datetime,
                 else:
                     mark = "리뷰 0건 — 리뷰부터"
                 lines.append(f"      #{pr['number']} {pr['title'][:34]}  ({mark})")
-            lines.append("      → 넣을 것은 머지하고, 다음 주로 미룰 것은 그대로 두세요")
+            lines.append("")
+            lines.append("**더 넣을 게 있으면 지금 말해 주세요.** 18:00 이후 머지분은 다음 주로 갑니다.")
             ok = False
         else:
             lines.append("✅ 열린 develop PR 없음")
