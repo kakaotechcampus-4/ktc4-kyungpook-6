@@ -13,6 +13,14 @@
 # 현재는 dev 에서만 쓰므로 여기 둡니다. prod 에도 필요해지면 두 환경에 같은 줄을 반복하지 않도록
 # base(docker-compose.yml)로 옮깁니다.
 services:
+  postgres:
+    ports:
+      - "0.0.0.0:${POSTGRES_PORT:?}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+
   backend:
     environment:
       JWT_SECRET: ${JWT_SECRET}
@@ -21,3 +29,6 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       BIZNO_API_KEY: ${BIZNO_API_KEY}
       NTS_SERVICE_KEY: ${NTS_SERVICE_KEY}
+      # 개발 서버는 nginx 프록시 한 대 뒤에 있다. 가입 신청 횟수 제한이 보낸 쪽 IP 를 X-Forwarded-For 에서 읽는다
+      # (backend application.yml 의 signup.rate-limit.trusted-proxies 참고). 프록시가 없는 서버에는 넣지 않는다.
+      SIGNUP_TRUSTED_PROXIES: ${SIGNUP_TRUSTED_PROXIES:-1}

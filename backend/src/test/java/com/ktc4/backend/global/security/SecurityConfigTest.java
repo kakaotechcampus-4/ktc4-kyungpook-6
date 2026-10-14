@@ -30,6 +30,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 
+import static com.ktc4.backend.support.SignupMultipart.signupRequest;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -125,8 +126,7 @@ class SecurityConfigTest {
         @Test
         @DisplayName("점주 가입 신청은 부를 수 있다")
         void allowsOwnerSignup() throws Exception {
-            mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
+            mockMvc.perform(signupRequest("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
                                     + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\","
                                     + "\"phone\":\"010-0000-0000\",\"storeAddress\":\"대구광역시 북구 대학로 80\","
                                     + "\"storePhone\":\"053-123-4567\","

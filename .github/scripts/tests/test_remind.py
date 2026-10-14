@@ -185,3 +185,62 @@ def test_PR_이_있으면_embed_제목에_링크가_걸린다():
     p = r.to_payloads([_finding(pr=pr)])[0]
     assert p["embeds"][0]["url"] == "https://x/7"
     assert "#7" in p["embeds"][0]["description"]
+
+
+# ── 리뷰 독촉 되풀이 (stale_nudge_due) ────────────────────────────────────
+
+def hours(created, now):
+    return (now - created).total_seconds() / 3600
+
+
+def due(created, now):
+    return r.stale_nudge_due(created, now, hours(created, now))
+
+
+def test_2차_독촉_전에는_되풀이_독촉을_보내지_않는다():
+    created = at(2026, 10, 14, 7)          # 3시간째
+    assert due(created, at(2026, 10, 14, 10)) is False
+
+
+def test_2차를_지나면_그_뒤로_계속_부른다():
+    # 🐛 예전에는 24시간을 넘긴 건만 봐서, 13시에 올라온 PR 은 2차(17시) 뒤로
+    #    다음다음 날 아침까지 조용했다. 그 사이 10:00 에는 21시간째였다.
+    created = at(2026, 10, 13, 13)
+    assert due(created, at(2026, 10, 14, 10)) is True      # 21시간째
+    assert due(created, at(2026, 10, 15, 10)) is True      # 45시간째 — 계속
+
+
+def test_2차_직후_슬롯은_건너뛰고_그_다음_슬롯부터_부른다():
+    # 🐛 밤에 올라온 PR 은 2차가 조용한 시간에 걸려 08:00 으로 밀린다.
+    #    막지 않으면 08:00·10:00 에 같은 PR 로 두 번 울린다.
+    created = at(2026, 10, 13, 21, 52)                     # 2차 = 01:52 → 08:00
+    assert due(created, at(2026, 10, 14, 10)) is False     # 2시간 차 — 너무 붙는다
+    assert due(created, at(2026, 10, 14, 14)) is True      # 🐛 날짜로 끊던 때는 여기가 죽었다
+
+
+def test_2차가_같은_날_오전이어도_오후_슬롯은_살아_있다():
+    created = at(2026, 10, 14, 5, 30)                      # 2차 = 09:30
+    assert due(created, at(2026, 10, 14, 10)) is False     # 30분 차
+    assert due(created, at(2026, 10, 14, 14)) is True      # 4시간 반 차
+
+
+def test_기한_24시간은_부를지가_아니라_말투만_가른다():
+    # 24시간 미만이어도 부른다. 24시간은 ⌛/🔔 를 가르는 선일 뿐이다.
+    created = at(2026, 10, 13, 13)
+    assert hours(created, at(2026, 10, 14, 10)) < r.STALE_REVIEW_HOURS
+    assert due(created, at(2026, 10, 14, 10)) is True
+
+
+def test_독촉_슬롯은_깨어_있는_시간에_4시간_간격이다():
+    # PR 사이클이 3일이고 PR 이 마감 몇 시간 전에 올라온다. 하루 한 번으로는
+    # 리뷰어가 한 번 놓치면 반나절이 그냥 지나간다.
+    slots = r.STALE_CHECK_HOURS
+    assert slots == (10, 14, 18, 22)
+    assert all(b - a == 4 for a, b in zip(slots, slots[1:]))
+    # 조용한 시간(00~08)에 걸리는 슬롯은 없다 — 밀 필요가 없어야 한다
+    assert all(not (r.QUIET_START_HOUR <= h < r.QUIET_END_HOUR) for h in slots)
+
+
+def test_슬롯_간격보다_최소_간격이_좁다():
+    # 최소 간격이 슬롯 간격보다 넓으면 2차 뒤 슬롯이 연쇄로 죽는다.
+    assert r.STALE_MIN_GAP_HOURS < 4

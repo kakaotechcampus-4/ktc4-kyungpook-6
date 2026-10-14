@@ -30,12 +30,23 @@ export type OwnerSignupRequest = {
   phone: string;
 };
 
+/** 백엔드 LinkedStoreResponse. 점주에게 연결된 가게 한 곳. 이 storeId 로 체크인 API 를 부른다. */
+export type LinkedStore = {
+  storeId: number;
+  name: string;
+};
+
 /** 백엔드 MemberResponse. GET /api/auth/me 의 응답. */
 export type MemberResponse = {
   memberId: number;
   email: string;
   role: "ADMIN" | "OWNER";
   status: "PENDING" | "APPROVED" | "REJECTED";
+  /**
+   * 연결된 가게(PR #96). 처음 연결한 순서대로다. 관리자와 승인 전 신청자는 빈 목록이다.
+   * 가게를 고르는 화면이 없으면 첫 번째를 쓴다.
+   */
+  stores: LinkedStore[];
 };
 
 /**

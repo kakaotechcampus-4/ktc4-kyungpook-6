@@ -55,6 +55,21 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    // 가입 신청 횟수 제한의 설정값. 필터는 빈으로 만들지 않고 보안 필터 체인에만 끼운다(JwtAuthenticationFilter 와 같은 이유).
+    @Value("${signup.rate-limit.max-attempts:10}")
+    private int signupMaxAttempts;
+
+    @Value("${signup.rate-limit.window-minutes:10}")
+    private long signupWindowMinutes;
+
+    @Value("${signup.rate-limit.max-signups-per-day:5}")
+    private int signupMaxPerDay;
+
+    // 설정이 빠지면 프록시가 없다고 본다(X-Forwarded-For 를 믿지 않는다). 프록시가 없는데 있다고 보면 보내는 쪽이 적은
+    // 값을 믿어 제한이 조용히 뚫리고, 있는데 없다고 보면 모두가 한 주소로 묶여 바로 눈에 띈다 — 틀려도 드러나는 쪽을 고른다.
+    @Value("${signup.rate-limit.trusted-proxies:0}")
+    private int signupTrustedProxies;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtProvider jwtProvider,
@@ -79,6 +94,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/ping").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
+                        // 가게 사진은 누구나 본다. 무엇이 공개 사진인지는 조회 쿼리가 정한다(FilePublicController 주석) —
+                        // 사업자등록증은 이 경로로 나가지 않고 /api/admin/files/** 로만 나간다.
+                        // 번호를 숫자로 좁히는 이유는 아래 /api/stores/{storeId} 규칙과 같다.
+                        .requestMatchers(HttpMethod.GET, "/api/files/{fileId:\\d+}",
+                                "/api/stores/{storeId:\\d+}/images").permitAll()
                         // 토큰 주인을 알려주는 API 다. 가입 상태 확인용 토큰이 부를 수 있는 API 는 이것 하나다 —
                         // 승인 전 신청자가 자기 상태를 읽는다.
                         .requestMatchers(HttpMethod.GET, "/api/auth/me")
@@ -111,6 +131,14 @@ public class SecurityConfig {
                                 problemWriter.write(response, ErrorCode.UNAUTHORIZED))
                         .accessDeniedHandler((request, response, e) ->
                                 problemWriter.write(response, ErrorCode.FORBIDDEN)))
+                // 가입 신청은 로그인 없이 큰 파일을 받는다 — 같은 IP 에서 되풀이하면 본문을 읽기 전에 거절한다.
+                // 이 필터 앞에서 본문을 읽는 필터가 없어야 한다 — CSRF 필터는 토큰을 찾으려고 본문을 읽는데, 위에서 꺼 두었다.
+                .addFilterBefore(new SignupRateLimitFilter(
+                                new SignupRateLimiter(signupMaxAttempts, Duration.ofMinutes(signupWindowMinutes),
+                                        Clock.systemUTC()),
+                                new SignupRateLimiter(signupMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
+                                signupTrustedProxies, problemWriter),
+                        UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new ApiKeyAuthenticationFilter(internalApiKey),
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new JwtAuthenticationFilter(jwtProvider),
