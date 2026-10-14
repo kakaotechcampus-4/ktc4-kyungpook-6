@@ -3,7 +3,7 @@
 # 쓰는 법과 배경은 docs/배포환경에서_작업하는_방법.md 에 있습니다.
 #
 # 사용법:
-#   TOKEN=<관리자 토큰> scripts/배포-한바퀴.sh [주입할 JSON 파일]
+#   TOKEN=<관리자 토큰> scripts/integration-test.sh [주입할 JSON 파일]
 #
 #   API 주소는 API 환경변수로 바꿉니다(기본값은 dev).
 #   JSON 을 주지 않으면 주입 단계를 건너뛰고 이미 들어 있는 자료로 조사만 돌립니다.
