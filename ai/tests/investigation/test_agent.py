@@ -183,3 +183,11 @@ class TestContinueFrom:
         found = agent.continue_from(TARGET, [], place=place)
 
         assert found.map_check == place
+
+    def test_지도에만_다른_값이면_웹으로_확인하라고_안내한다(self):
+        decider = ScriptedDecider()
+        maps = [Observation(field=ChangeField.ADDRESS, value="대구광역시 서구 국채보상로67길 40", evidence="네이버 지도에 등록된 값",
+                            sources=(Source("map.naver.com", "https://map.naver.com/p/search/x"),), storable=False)]
+        AgentInvestigator(Research(ResearchResult()), decider=decider, client=object()).continue_from(TARGET, maps)
+
+        assert "67길 40" not in decider.seen[0] and "웹에서 같은 값을 찾아야 수정안에 오른다" in decider.seen[0]

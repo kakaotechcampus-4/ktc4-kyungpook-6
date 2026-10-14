@@ -4,9 +4,9 @@
 
     도구
       check_maps()             지도 대조(네이버 지역 검색·카카오). LLM 에는 항목별 "일치·다름·못 찾음" 만 알린다
-                               — 카카오 값은 외부 LLM 에 넘길 수 없다(약관). 값과 링크는 코드에만 남는다
+                               — 지도 값은 외부 LLM 에 넘길 수 없다(약관). 값과 링크는 코드에만 남는다
       web_search(field, goal)  항목·목적을 좁힌 웹검색(그라운딩 호출을 따로 한다 — Gemini 는 그라운딩과
-                               함수 도구를 한 요청에 같이 쓸 수 없다)
+                               함수 도구를 한 요청에 같이 쓸 수 없다). 수정안에 담을 수 있는 값은 여기서만 나온다
       finish(reason)           조사를 끝낸다
     상한: 도구 호출 MAX_STEPS 번, 그중 웹검색 MAX_WEB_SEARCHES 번
 
@@ -103,7 +103,8 @@ def build_continue_prompt(target: InvestigationTarget, maps_summary: str) -> str
 - finish(reason): 조사를 끝낸다
 
 방법:
-- 카카오맵에서만 "다름" 인 항목은 그 항목을 웹에서 찾아 실제 값을 확인해라(카카오 값은 수정안에 쓸 수 없다)
+- 지도에서 "다름" 인 항목은 그 항목을 웹에서 찾아 실제 값을 확인해라(지도 값은 약관상 수정안에 쓸 수 없다 —
+  웹에서 같은 값을 찾아야 수정안에 오른다)
 - 지도에서 **아무 항목도 못 찾았으면** web_search("all") 한 번으로 전부 찾아라
 - "못 찾음"·"판단 보류" 인 항목만 찾아라. 이미 일치한 항목은 다시 찾지 마라
 - 웹검색은 많아야 {MAX_WEB_SEARCHES}번이다. 더 찾을 것이 없으면 끝내라
@@ -220,7 +221,7 @@ class AgentInvestigator:
             parts = []
             for o in found:
                 relation = _RELATION_LABELS[relation_to_db(target, change_field, o.value)]
-                # 저장할 수 없는 값(카카오)은 LLM 에 넘기지 않는다 — 관계와 출처만 알린다.
+                # 저장할 수 없는 값(지도)은 LLM 에 넘기지 않는다 — 관계와 출처만 알린다.
                 shown = f" {o.value}" if o.storable else ""
                 parts.append(f"{relation}({sorted(o.domains)[0]}{shown})")
             lines.append(f"{_FIELD_LABELS[change_field]}: " + ", ".join(parts))
