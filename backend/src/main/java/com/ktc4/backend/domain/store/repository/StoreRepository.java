@@ -2,14 +2,17 @@ package com.ktc4.backend.domain.store.repository;
 
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface StoreRepository extends JpaRepository<Store, Long> {
 
@@ -144,4 +147,18 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
                                     @Param("phone") String phone,
                                     @Param("nameNormalized") String nameNormalized,
                                     @Param("limit") int limit);
+
+    /**
+     * 가게를 잠그고 읽는다 — 가게를 보고 판단한 뒤 바꾸는 사이에 다른 요청이 끼어들지 못하게 한다.
+     *
+     * <p>점주 승인·연결·연결 끊기에 쓴다. 잠그지 않으면 서로 다른 점주 둘을 같은 빈 가게에 동시에 승인할 때 둘 다
+     * "비어 있다"고 보고 영업시간·메뉴를 두 번 넣는다. 트랜잭션 안에서만 부르고, 그 트랜잭션에서 가게를 처음 읽는
+     * 자리에서 불러야 한다 — 이미 읽어 둔 가게가 있으면 Hibernate 가 그 객체를 다시 읽지 않고 돌려줘 낡은 값을 본다.
+     *
+     * @param storeId 가게 ID
+     * @return 그 가게
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from Store s where s.storeId = :storeId")
+    Optional<Store> findByIdForUpdate(@Param("storeId") Long storeId);
 }

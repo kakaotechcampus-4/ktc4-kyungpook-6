@@ -18,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -52,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * </pre>
  * 끝에 다른 신청자의 가입 거절도 확인한다 — 거절된 신청자는 로그인도, 승인도, 가게 연결도 되지 않는다.
  *
- * <p>관리자 계정은 실제 운영과 같은 경로(기동 시 환경변수)로 만든다. 권한 검사 스위치를 켜서 실제 규칙으로 돈다.
+ * <p>관리자 계정은 실제 운영과 같은 경로(기동 시 환경변수)로 만든다. 권한 검사도 실제 규칙으로 돈다.
  * {@code @SpringBootTest} 는 롤백하지 않으므로 끝나면 회원 테이블을 비운다 — 같은 컨테이너를 쓰는 다른 테스트가
  * 빈 테이블을 전제하기 때문이다. 계정 정보는 모두 가짜 값이다.
  */
@@ -71,7 +72,6 @@ class OwnerSignupFlowIntegrationTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("auth.enforce", () -> "true");
         registry.add("auth.admin.email", () -> ADMIN_EMAIL);
         registry.add("auth.admin.password", () -> ADMIN_PASSWORD);
         // 가입하면 파일이 실제로 디스크에 쓰인다. 프로젝트 폴더가 아니라 임시 폴더에 쓰게 한다
@@ -103,13 +103,20 @@ class OwnerSignupFlowIntegrationTest {
     @Autowired
     private StoreRepository storeRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private final List<Long> createdStoreIds = new ArrayList<>();
 
     @AfterEach
     void cleanUp() {
-        // 연결이 회원·가게를 가리키므로 연결부터 지운다. 파일 기록도 회원을 가리킨다
+        // 외래 키 순서대로 지운다 — 연결, 파일 기록(회원을 가리킴), 가게의 영업시간·메뉴(승인 때 옮겨 적힌 것), 회원, 가게
         storeOwnerRepository.deleteAll();
         uploadFileRepository.deleteAll();
+        for (Long storeId : createdStoreIds) {
+            jdbcTemplate.update("delete from store_business_hour where store_id = ?", storeId);
+            jdbcTemplate.update("delete from store_menu where store_id = ?", storeId);
+        }
         memberRepository.deleteAll();
         storeRepository.deleteAllById(createdStoreIds);
     }
@@ -245,6 +252,12 @@ class OwnerSignupFlowIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(first.get("memberId").asLong()).isEqualTo(ownerId);
         org.assertj.core.api.Assertions.assertThat(first.get("bizNo").asText()).isEqualTo("1234567890");
         org.assertj.core.api.Assertions.assertThat(first.get("phone").asText()).isEqualTo("01000000001");
+        // 가입 때 적은 가게 정보가 신청서에 저장돼 그대로 보인다
+        org.assertj.core.api.Assertions.assertThat(first.get("storeAddress").asText()).isEqualTo("가상특별시 예시구 샘플로 123");
+        org.assertj.core.api.Assertions.assertThat(first.get("storePhone").asText()).isEqualTo("053-000-0009");
+        org.assertj.core.api.Assertions.assertThat(first.get("businessHours").toString())
+                .isEqualTo("[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}]");
+        org.assertj.core.api.Assertions.assertThat(first.get("menus").toString()).isEqualTo("[{\"name\":\"김치찌개\"}]");
 
         // 4. 후보 가게 조회 — 사업자번호도 이름도 다르지만, 신청서의 휴대폰 번호가 가게에 등록된 점주 휴대폰 번호와 같아
         //    후보에 오른다. 표기(하이픈·공백)가 달라도 같은 번호로 본다. 아직 연결된 점주는 없다.
@@ -288,7 +301,16 @@ class OwnerSignupFlowIntegrationTest {
         mockMvc.perform(get(candidates).header(HttpHeaders.AUTHORIZATION, admin))
                 .andExpect(jsonPath("$[0].linkedOwnerCount").value(1));
 
-        // 6-0. 승인되면 대표 사진이 그 가게의 사진으로 공개된다 — 토큰 없이 열린다. 사업자등록증은 승인 뒤에도 열리지 않는다
+        // 6-0-1. 승인하면 신청서의 영업시간·메뉴가 비어 있던 가게에 옮겨 적힌다. 가게 전화는 이미 있어 그대로다
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForList(
+                        "select day, open_minute, close_minute from store_business_hour where store_id = ?", myStoreId))
+                .containsExactly(java.util.Map.of("day", "MON", "open_minute", 660, "close_minute", 1260));
+        org.assertj.core.api.Assertions.assertThat(jdbcTemplate.queryForList(
+                        "select name from store_menu where store_id = ? and on_sale", String.class, myStoreId))
+                .containsExactly("김치찌개");
+        org.assertj.core.api.Assertions.assertThat(storeRepository.findById(myStoreId).orElseThrow().getPhone())
+                .isEqualTo("053-000-0001");
+        // 6-0-2. 승인되면 대표 사진이 그 가게의 사진으로 공개된다 — 토큰 없이 열린다. 사업자등록증은 승인 뒤에도 열리지 않는다
         mockMvc.perform(get("/api/stores/" + myStoreId + "/images"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))

@@ -14,8 +14,6 @@
 #
 # 현재는 dev 에서만 쓰므로 여기 둡니다. prod 에도 필요해지면 두 환경에 같은 줄을 반복하지 않도록
 # base(docker-compose.yml)로 옮깁니다.
-#
-# AUTH_ENFORCE 기본값은 켜짐(true)입니다 — Java·application.yml 기본값과 같습니다.
 services:
   postgres:
     ports:
@@ -29,7 +27,6 @@ services:
     environment:
       # 백엔드가 부를 AI 주소. base 는 http://ai:8000 으로 고정이고, dev 에서만 .env.development 로 바꿀 수 있다.
       AI_BASE_URL: ${AI_BASE_URL:-http://ai:8000}
-      AUTH_ENFORCE: ${AUTH_ENFORCE:-true}
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}

@@ -268,7 +268,9 @@ class CheckInServiceTest extends PostgresContainerTest {
         private static final LocalDateTime LINKED_AT = LocalDateTime.of(2026, 10, 6, 10, 0);
 
         private Member persistOwner(String email) {
-            Member owner = Member.ownerApplicant(email, "hash", new OwnerInfo("0000000000", "예시분식", "홍길동", "01000000000"));
+            Member owner = Member.ownerApplicant(email, "hash", OwnerInfo.builder()
+                    .bizNo("0000000000").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                    .build());
             owner.approve(LINKED_AT);
             return entityManager.persistAndFlush(owner);
         }
@@ -417,14 +419,17 @@ class CheckInServiceTest extends PostgresContainerTest {
         }
 
         @Test
-        @DisplayName("로그인 정보 없이 들어온 요청(권한 검사 스위치가 꺼진 동안)은 연결을 확인하지 않는다")
-        void skipsLinkCheckWithoutLogin() {
+        @DisplayName("로그인 정보가 없으면 UNAUTHORIZED — 기록이 남지 않는다. 보안 필터가 늘 막지만, 규칙을 잘못 열어도 통과시키지 않는다")
+        void rejectsWithoutLogin() {
             String payload = issue();
 
-            checkInService.checkIn(storeId, payload, null);
+            assertThatThrownBy(() -> checkInService.checkIn(storeId, payload, null))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(CheckInServiceTest::errorCodeOf)
+                    .isEqualTo(ErrorCode.UNAUTHORIZED);
             entityManager.flush();
 
-            assertThat(checkInRepository.count()).isEqualTo(1);
+            assertThat(checkInRepository.count()).isZero();
         }
     }
 

@@ -166,6 +166,11 @@ class _Capturing:
         self._inner, self.last, self.queries, self.calls = inner, None, [], 0
         self._client = getattr(inner, "_client", None)
 
+    @property
+    def client(self) -> object:
+        """Gemini 판단(AGENT_MODEL 없음)일 때 에이전트가 같은 Vertex 클라이언트를 쓴다(`AgentInvestigator`)."""
+        return self._client
+
     def research(self, target: InvestigationTarget) -> ResearchResult:
         self.calls += 1
         self.last = self._inner.research(target)

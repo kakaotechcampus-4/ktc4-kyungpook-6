@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.store.dto;
 
+import com.ktc4.backend.domain.store.validation.NonOverlappingBusinessHours;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -32,6 +33,7 @@ public record OperatingInfoRequest(
                 minItems = 1, maxItems = BusinessHourRequest.MAX_LINES)
         @NotNull(message = "영업시간을 보내 주세요")
         @Size(min = 1, max = BusinessHourRequest.MAX_LINES, message = "영업시간은 {min} ~ {max}줄이어야 합니다")
+        @NonOverlappingBusinessHours
         List<@Valid @NotNull(message = "빈 영업시간 줄이 있습니다") BusinessHourRequest> businessHours,
 
         @ArraySchema(arraySchema = @Schema(description = """

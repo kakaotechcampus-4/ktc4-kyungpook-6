@@ -84,3 +84,11 @@ export const postRequest = async <T>(
 export const getRequest = async <T>(url: string, options?: AxiosRequestConfig) => {
   return axiosApiInstance.get<T>(url, options).then(successHandler);
 };
+
+export const putRequest = async <T>(
+  url: string,
+  payload: unknown,
+  options?: AxiosRequestConfig
+) => {
+  return axiosApiInstance.put<T>(url, payload, options).then(successHandler);
+};

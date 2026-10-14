@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import unquote
+
 import httpx
 import pytest
 
@@ -138,14 +140,25 @@ class TestLookups:
     def _http(self, payload: dict) -> httpx.Client:
         return httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)))
 
-    def test_네이버_지역_검색은_상호와_주소를_관측으로_준다(self):
-        payload = {"items": [{"title": "<b>빠레뜨치킨</b> 비산점", "roadAddress": "대구광역시 서구 국채보상로67길 38"}]}
+    def test_네이버_지역_검색은_상호와_주소를_저장할_수_없는_관측으로_준다(self):
+        payload = {"items": [{"title": "<b>빠레뜨치킨</b> 비산점", "roadAddress": "대구광역시 서구 국채보상로67길 40"}]}
 
         observations = NaverLocalLookup(http=self._http(payload)).observe(TARGET)
 
-        assert [(o.field, o.storable) for o in observations] == [(ChangeField.NAME, True), (ChangeField.ADDRESS, True)]
+        assert [(o.field, o.storable) for o in observations] == [(ChangeField.NAME, False), (ChangeField.ADDRESS, False)]
         assert observations[0].value == "빠레뜨치킨 비산점"
-        assert observations[0].sources[0].url.startswith("https://map.naver.com/p/search/")
+        # 근거 문구·링크에는 네이버 값이 들어가지 않는다 — 링크는 DB 상호·주소로 검색한다(저장 금지).
+        url = unquote(observations[0].sources[0].url)
+        assert url.startswith("https://map.naver.com/p/search/") and "비산점" not in url and "67길 38" in url
+        assert all("비산점" not in o.evidence and "67길 40" not in o.evidence for o in observations)
+
+    def test_네이버에만_다른_값이면_수정안_없이_신호만_남는다(self):
+        payload = {"items": [{"title": "빠레뜨치킨", "roadAddress": "대구광역시 서구 국채보상로67길 40"}]}
+
+        found = classify(TARGET, ResearchResult(NaverLocalLookup(http=self._http(payload)).observe(TARGET)))
+
+        assert found.proposed_changes == {} and [s.field for s in found.signals] == [ChangeField.ADDRESS]
+        assert "67길 40" not in found.model_dump_json(by_alias=True)
 
     def test_카카오_값은_저장할_수_없는_관측이다(self):
         payload = {"documents": [{"place_name": "빠레뜨치킨 비산점", "road_address_name": "대구 서구 국채보상로67길 38",

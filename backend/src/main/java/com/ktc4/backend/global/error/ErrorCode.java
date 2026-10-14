@@ -30,7 +30,9 @@ public enum ErrorCode {
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 가게를 찾을 수 없습니다"),
     INVALID_QR_TOKEN(HttpStatus.BAD_REQUEST, "유효하지 않은 QR 입니다"),
 
-    // 인증·권한. 앞의 둘(UNAUTHORIZED, FORBIDDEN)은 컨트롤러에 닿기 전 보안 필터가 직접 응답한다.
+    // 인증·권한. 앞의 둘(UNAUTHORIZED, FORBIDDEN)은 대개 컨트롤러에 닿기 전 보안 필터가 직접 응답한다.
+    // 서비스가 던지기도 한다 — 체크인의 "그 가게에 연결된 점주인지"(FORBIDDEN)처럼 데이터를 봐야 아는 확인과,
+    // 로그인 정보 없이 닿은 요청을 막는 방어(UNAUTHORIZED). 응답 모양은 둘 다 같다.
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다"),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다"),

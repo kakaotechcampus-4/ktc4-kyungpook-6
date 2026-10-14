@@ -102,7 +102,9 @@ DEADLINES = [
 # 찍어 준다. 수요일은 1차 PR 을 쓰기 직전, 일요일 아침은 머지까지 남은 것을 본다.
 # (요일, 시각): (제목, 마감 설명)
 READINESS = {
-    (2, 17): ("1차 PR 마감 1시간 전", "오늘 18:00 까지 develop → main PR"),
+    # 수요일 17:00 은 "마감 알림"이 아니라 **PM 이 1차 PR 을 올리겠다는 예고**다.
+    # 받는 사람이 할 일이 "더 넣을 게 있으면 지금 말하기" 하나로 떨어지게 적는다.
+    (2, 17): ("1시간 뒤 1차 PR 을 올립니다", "오늘 18:00 · develop → main"),
     (6, 9): ("main 머지 준비 점검", "오늘 23:59 까지 main 머지"),
 }
 # 멘토 쪽은 시각으로 보지 않는다. 리뷰가 언제 올지 정해져 있지 않고, 재촉할 일도 아니다.
@@ -281,6 +283,19 @@ def stale_nudge_due(created: datetime, now: datetime, opened_hours: float) -> bo
     return now - second_wake >= timedelta(hours=STALE_MIN_GAP_HOURS)
 
 
+def needs_reviewer(assigned: list, reviews: list) -> bool:
+    """"리뷰어를 정해 달라"고 부를 차례인가.
+
+    🚨 **리뷰가 하나라도 있으면 부르지 않는다.** GitHub 은 리뷰를 제출하면 그 사람을
+    **요청 목록(requested_reviewers)에서 뺀다.** 그래서 리뷰어가 한 명뿐인 PR 은 그 사람이
+    리뷰를 올리는 순간 요청 목록이 비고, 예전 조건(`not assigned`)으로는 "리뷰어가 아직
+    없습니다" 가 작성자에게 날아갔다 — 리뷰가 끝난 PR 인데도(2026-10-14, #108).
+
+    리뷰가 늦어지는 것과 아무도 안 보는 것은 다른 상태다. 여기는 뒤쪽만 본다.
+    """
+    return not assigned and not reviews
+
+
 def latest_review_state(reviews: list[dict]) -> str | None:
     """사람별 마지막 리뷰만 본다. COMMENTED 는 승인·변경요청을 덮지 않는다."""
     by_user: dict[str, dict] = {}
@@ -347,8 +362,8 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         created = parse_ts(pr["created_at"])
         assigned = reviewers(pr)
 
-        if not assigned:
-            # 리뷰어가 없으면 아무도 안 본다. 리뷰 독촉 대신 "정해 달라"고 한다.
+        if needs_reviewer(assigned, reviews):
+            # 아무도 안 보고 있다. 리뷰 독촉 대신 "정해 달라"고 한다.
             if due_now(created, NO_REVIEWER_HOURS, now):
                 pr_findings.append({
                     "color": COLOR_DEADLINE,
@@ -537,27 +552,42 @@ def readiness_report(repo: str, token: str, now: datetime,
     if not slot:
         return []
     title, deadline = slot
-    lines = [f"마감: {deadline}", ""]
+    lines = [deadline, ""]
     ok = True
 
     if (k.weekday(), k.hour) == (2, 17):
-        lines.append(f"{'✅' if main_pr else '❌'} 멘토 PR: "
-                     + (f"#{main_pr['number']} 올라와 있음" if main_pr else "아직 없음"))
+        if main_pr:
+            lines.append(f"✅ 멘토 PR 은 이미 올라가 있습니다 — #{main_pr['number']}")
+        else:
+            lines.append("지금 develop 에 있는 것으로 올립니다.")
         ok = ok and bool(main_pr)
 
         try:
             cmp_ = gh(f"/repos/{repo}/compare/main...develop", token)
-            lines.append(f"ℹ️ develop 이 main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있음")
+            lines.append(f"    (main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있습니다)")
         except urllib.error.HTTPError:
             pass
 
         unreviewed = [pr for pr, rv in dev if not rv]
         if dev:
-            lines.append(f"{'⚠️' if unreviewed else '✅'} 열린 develop PR {len(dev)}건"
-                         + (f" · 그중 리뷰 0건이 {len(unreviewed)}건" if unreviewed else ""))
-            for pr, _ in dev[:5]:
-                lines.append(f"      #{pr['number']} {pr['title'][:40]}")
-            lines.append("      → 이번 주 PR 에 포함할지 먼저 정하세요")
+            # PR 번호만 늘어놓으면 받는 사람이 무엇을 해야 할지 모른다(2026-10-14 피드백).
+            # **지금 머지해야 이번 주 PR 에 들어간다**는 것과, PR 별로 머지를 막고 있는 게
+            # 무엇인지(리뷰·승인)를 같이 적는다.
+            lines.append("")
+            lines.append(f"아직 develop 에 안 들어간 PR {len(dev)}건입니다 — 지금 머지하면 같이 올라갑니다")
+            for pr, rv in dev[:5]:
+                states = [r.get("state") for r in rv]
+                if "APPROVED" in states:
+                    mark = "승인 — 머지만 하면 됨"
+                elif "CHANGES_REQUESTED" in states:
+                    mark = "변경 요청 — 반영 필요"
+                elif rv:
+                    mark = f"리뷰 {len(rv)}건 · 승인 아직"
+                else:
+                    mark = "리뷰 0건 — 리뷰부터"
+                lines.append(f"      #{pr['number']} {pr['title'][:34]}  ({mark})")
+            lines.append("")
+            lines.append("**더 넣을 게 있으면 지금 말해 주세요.** 18:00 이후 머지분은 다음 주로 갑니다.")
             ok = False
         else:
             lines.append("✅ 열린 develop PR 없음")

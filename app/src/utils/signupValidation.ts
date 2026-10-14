@@ -82,3 +82,45 @@ export const validatePhone = (phone: string) =>
 /** 백엔드 BizNoNormalizer — 숫자 10자리 */
 export const validateBizNo = (bizNo: string) =>
   toDigits(bizNo).length === 10 ? null : "사업자등록번호 10자리를 입력해주세요";
+
+/** 백엔드 storeAddress @Size(max = 500) */
+export const STORE_ADDRESS_MAX_LENGTH = 500;
+/** 백엔드 storePhone @Size(max = 20) */
+export const STORE_PHONE_MAX_LENGTH = 20;
+/** 백엔드 MenuRequest.MAX_NAME_LENGTH·MAX_COUNT */
+export const MENU_NAME_MAX_LENGTH = 50;
+export const MENU_MAX_COUNT = 50;
+/** 백엔드 BusinessHourRequest.MAX_LINES */
+export const BUSINESS_HOUR_MAX_LINES = 21;
+
+/** 백엔드 가게 주소: 필수(@NotBlank), 500자 이하. 글자 규칙은 따로 없다. */
+export const validateStoreAddress = (address: string) =>
+  address.trim() !== "" && address.length <= STORE_ADDRESS_MAX_LENGTH ? null : "가게 주소를 입력해주세요";
+
+/*
+  백엔드는 가게 전화번호를 @NotBlank·20자 이하로만 본다(유선 번호도 받으려고 형식은 보지 않는다).
+  앱은 숫자로만 입력받으므로 국내 전화번호 길이(대표번호 8자리 ~ 휴대폰 11자리)만 확인한다.
+*/
+export const validateStorePhone = (storePhone: string) => {
+  const length = toDigits(storePhone).length;
+  return length >= 8 && length <= 11 && storePhone.length <= STORE_PHONE_MAX_LENGTH
+    ? null
+    : "가게 전화번호를 확인해주세요";
+};
+
+/** 백엔드 메뉴 이름: 상호명과 같은 글자 규칙, 50자 이하 */
+export const validateMenuName = (name: string) =>
+  isValidName(name, MENU_NAME_MAX_LENGTH) ? null : "메뉴 이름을 확인해주세요";
+
+/** 백엔드 BusinessHourRequest 의 OPEN_TIME — 00:00 ~ 23:59 */
+const OPEN_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** 백엔드 BusinessHourRequest 의 CLOSE_TIME — 00:01 ~ 23:59 와 24:00 */
+const CLOSE_TIME_PATTERN = /^(?!00:00)(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
+
+/** 영업시간 한 줄: 요일을 골랐고, 시간 형식이 맞고, 여는 시간과 닫는 시간이 다른지(백엔드 isOpenDifferentFromClose). */
+export const validateBusinessHour = ({ day, open, close }: { day: string; open: string; close: string }) => {
+  if (day === "") return "요일을 골라주세요";
+  if (!OPEN_TIME_PATTERN.test(open) || !CLOSE_TIME_PATTERN.test(close)) return "시간을 골라주세요";
+  if (open === close) return "여는 시간과 닫는 시간이 같아요";
+  return null;
+};

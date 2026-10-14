@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 가게 명단을 JSON 으로 넣는 관리자 전용 진입점.
  *
  * <p>경로를 {@code /api/admin/**} 아래에 둔 것은 의도적이다. {@code SecurityConfig} 에서 이 경로는
- * {@code auth.enforce} 스위치와 무관하게 항상 관리자만 부를 수 있다 — 스위치가 꺼진 동안에도 열리지 않는다.
+ * 관리자만 부를 수 있다.
  *
  * <p>{@code @Profile} 로 환경을 가르지 않는다. 이 API 의 용도 자체가 <b>배포 환경</b>에 자료를 넣는
  * 것이라 운영에서 빈이 사라지면 쓸 곳이 없어진다. 관리자 토큰을 가진 사람은 이미
