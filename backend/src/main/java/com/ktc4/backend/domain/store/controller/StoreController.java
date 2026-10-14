@@ -193,6 +193,7 @@ public class StoreController {
                     - 관리자와 **그 가게에 연결된 점주**만 부를 수 있습니다.
 
                     형식 오류는 `errors` 에 몇 번째 줄의 어느 칸인지(예: `businessHours[1].open`, `menus[0].onSale`) 담깁니다.
+                    영업시간끼리 겹치면(같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간) `errors` 에 `businessHours` 칸으로 담깁니다.
                     요일 값만은 읽는 단계에서 걸려 `errors` 없이 `invalid-request` 입니다(MON~SUN).
 
                     ⚠️ **아직 구현 전이라, 검증을 통과하면 저장하지 않고 본문 없이 501 을 돌려줍니다.**
@@ -201,8 +202,9 @@ public class StoreController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "저장 성공 — 저장된 가게 상세를 돌려줍니다 (구현 후)"),
             @ApiResponse(responseCode = "400",
-                    description = "형식·개수가 틀린 경우(errors 배열). 구현 후에는 같은 요일 시간이 겹치거나, "
-                            + "다른 가게의 menuId·같은 menuId 를 두 번 보낸 경우도 포함",
+                    description = "형식·개수가 틀리거나 영업시간이 겹치는 경우(errors 배열, 겹침은 businessHours 칸) — "
+                            + "같은 요일 시간대끼리, 또는 자정을 넘긴 시간과 다음 날 시간이 겹치는 경우. "
+                            + "구현 후에는 다른 가게의 menuId·같은 menuId 를 두 번 보낸 경우도 포함",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "401", description = "토큰이 없거나 유효하지 않은 경우",

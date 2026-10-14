@@ -268,7 +268,9 @@ class CheckInServiceTest extends PostgresContainerTest {
         private static final LocalDateTime LINKED_AT = LocalDateTime.of(2026, 10, 6, 10, 0);
 
         private Member persistOwner(String email) {
-            Member owner = Member.ownerApplicant(email, "hash", new OwnerInfo("0000000000", "예시분식", "홍길동", "01000000000"));
+            Member owner = Member.ownerApplicant(email, "hash", OwnerInfo.builder()
+                    .bizNo("0000000000").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                    .build());
             owner.approve(LINKED_AT);
             return entityManager.persistAndFlush(owner);
         }

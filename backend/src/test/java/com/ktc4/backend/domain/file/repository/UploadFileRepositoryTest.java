@@ -51,7 +51,9 @@ class UploadFileRepositoryTest extends PostgresContainerTest {
     // 가입 신청만 한 상태(승인 대기)
     private Member persistApplicant(String email) {
         return entityManager.persistAndFlush(
-                Member.ownerApplicant(email, "hash", new OwnerInfo("0000000000", "예시분식", "홍길동", "01000000000")));
+                Member.ownerApplicant(email, "hash", OwnerInfo.builder()
+                        .bizNo("0000000000").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                        .build()));
     }
 
     private StoreOwner link(Store store, Member owner) {

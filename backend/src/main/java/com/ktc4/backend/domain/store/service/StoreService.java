@@ -134,6 +134,24 @@ public class StoreService {
     }
 
     /**
+     * 가게를 잠그고 찾는다. 다른 도메인(점주 승인 등)이 가게를 보고 판단한 뒤 바꿀 때 이 메서드를 거친다.
+     *
+     * <p>호출하는 트랜잭션에서 가게를 처음 읽는 자리에서 불러야 한다 — 이유는
+     * {@link StoreRepository#findByIdForUpdate} 참고.
+     *
+     * <p><b>회원도 잠그는 흐름이면 반드시 회원을 먼저 잠근다.</b> 점주 승인·연결·끊기가 회원 → 가게 순서로 잠그므로,
+     * 가게를 먼저 잠근 뒤 회원을 잠그는 흐름이 생기면 서로를 기다리며 멈춘다(교착).
+     *
+     * @param storeId 찾을 가게 ID
+     * @return 잠긴 가게 엔티티
+     * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    public Store findStoreForUpdate(Long storeId) {
+        return storeRepository.findByIdForUpdate(storeId)
+                .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+    }
+
+    /**
      * 점주 가입 신청에 연결할 후보 가게를 찾는다. 사업자등록번호가 같은 가게, 점주 휴대폰 번호가 같은 가게,
      * 이름이 겹치는 가게 순서다. 휴대폰 번호는 가게 전화번호가 아니라 가게의 점주 개인 번호와 비교한다.
      *
