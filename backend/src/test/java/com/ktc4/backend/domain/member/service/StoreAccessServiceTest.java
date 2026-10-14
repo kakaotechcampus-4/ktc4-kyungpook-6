@@ -5,6 +5,8 @@ import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.entity.StoreOwner;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
+import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
@@ -26,7 +28,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * "그 가게를 다룰 수 있는 사람"의 규칙을 실제 DB 의 연결 기록으로 확인한다. 체크인·가게 상세·운영 정보 저장이 이 규칙을 같이 쓴다.
  * 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import(StoreAccessService.class)
+// 가게 관리 테스트들과 같은 구성으로 둬 스프링 컨텍스트를 함께 쓴다 — 구성마다 컨텍스트(와 DB 연결 풀)가 따로 떠서
+// 테스트용 Postgres 의 연결 수 상한에 걸린다
+@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class})
 @DisplayName("StoreAccessService")
 class StoreAccessServiceTest extends PostgresContainerTest {
 

@@ -41,6 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -372,6 +373,51 @@ class OwnerSignupFlowIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(wrongQr))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/invalid-qr-token")));
+
+        // 9-1. 가게 관리 — 내 가게 상세에는 승인 때 옮겨 적힌 영업시간·메뉴가 보인다. 저장하면 다시 읽어도 그대로다.
+        //      남의 가게·없는 가게는 점주에게 403(가게가 있는지 알려 주지 않는다), 관리자는 없는 가게에 404
+        String myStore = "/api/stores/" + myStoreId;
+        String detailBody = mockMvc.perform(get(myStore).header(HttpHeaders.AUTHORIZATION, owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phone").value("053-000-0001"))
+                .andExpect(jsonPath("$.businessHours[0].day").value("MON"))
+                .andExpect(jsonPath("$.businessHours[0].close").value("21:00"))
+                .andExpect(jsonPath("$.menus[0].name").value("김치찌개"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        long menuId = JSON.readTree(detailBody).get("menus").get(0).get("menuId").asLong();
+        String operatingInfo = "{\"phone\":\" 053-777-0000 \","
+                + "\"businessHours\":[{\"day\":\"SUN\",\"open\":\"10:00\",\"close\":\"14:00\"},"
+                + "{\"day\":\"MON\",\"open\":\"21:00\",\"close\":\"02:00\"}],"
+                + "\"menus\":[{\"menuId\":" + menuId + ",\"name\":\"김치찌개 특\",\"onSale\":false},"
+                + "{\"name\":\"라면\",\"onSale\":true}]}";
+        for (var result : List.of(
+                mockMvc.perform(put(myStore + "/operating-info").header(HttpHeaders.AUTHORIZATION, owner)
+                        .contentType(MediaType.APPLICATION_JSON).content(operatingInfo)),
+                mockMvc.perform(get(myStore).header(HttpHeaders.AUTHORIZATION, owner)))) {
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.phone").value("053-777-0000"))
+                    .andExpect(jsonPath("$.businessHours[0].day").value("MON"))     // 요일 순 — 보낸 순서가 아니다
+                    .andExpect(jsonPath("$.businessHours[0].close").value("02:00"))
+                    .andExpect(jsonPath("$.businessHours[1].day").value("SUN"))
+                    .andExpect(jsonPath("$.menus.length()").value(2))
+                    .andExpect(jsonPath("$.menus[0].menuId").value(menuId))
+                    .andExpect(jsonPath("$.menus[0].name").value("김치찌개 특"))
+                    .andExpect(jsonPath("$.menus[0].onSale").value(false))
+                    .andExpect(jsonPath("$.menus[1].name").value("라면"));
+        }
+        for (String path : List.of("/api/stores/" + otherStoreId, "/api/stores/" + MISSING_STORE_ID)) {
+            mockMvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, owner))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/forbidden")));
+            mockMvc.perform(put(path + "/operating-info").header(HttpHeaders.AUTHORIZATION, owner)
+                            .contentType(MediaType.APPLICATION_JSON).content(operatingInfo))
+                    .andExpect(status().isForbidden());
+        }
+        mockMvc.perform(get("/api/stores/" + MISSING_STORE_ID).header(HttpHeaders.AUTHORIZATION, admin))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/store-not-found")));
+        mockMvc.perform(get("/api/stores/" + otherStoreId).header(HttpHeaders.AUTHORIZATION, admin))
+                .andExpect(status().isOk());
 
         // 10. 연결을 끊으면 이미 받은 토큰으로도 그 즉시 내 가게에 체크인할 수 없다. 행은 지워지지 않고,
         //     후보 조회의 연결된 점주 수에서는 빠진다. 승인 때 가게에 적힌 내 휴대폰 번호도 지워져 더는 번호로 후보에 오르지 않는다

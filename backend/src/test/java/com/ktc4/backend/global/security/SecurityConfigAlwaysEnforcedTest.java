@@ -1,6 +1,7 @@
 package com.ktc4.backend.global.security;
 
 import com.ktc4.backend.domain.store.controller.StoreController;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -43,6 +44,9 @@ class SecurityConfigAlwaysEnforcedTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private StoreManagementService storeManagementService;
 
     // 보안 필터의 거절 응답이 docs/에러_처리_가이드.md 의 모양(RFC 9457)인지 본다 — SecurityConfigTest 와 같은 확인이다.
     private static void expectProblem(ResultActions result, ErrorCode errorCode) throws Exception {

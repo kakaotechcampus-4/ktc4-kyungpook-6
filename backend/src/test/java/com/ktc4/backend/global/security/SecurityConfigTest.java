@@ -11,6 +11,7 @@ import com.ktc4.backend.domain.member.service.OwnerApprovalService;
 import com.ktc4.backend.domain.qr.controller.QrCredentialController;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.controller.StoreController;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -64,6 +65,9 @@ class SecurityConfigTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private StoreManagementService storeManagementService;
 
     @MockitoBean
     private AuthService authService;
@@ -408,12 +412,12 @@ class SecurityConfigTest {
         }
 
         @Test
-        @DisplayName("점주·관리자는 컨트롤러까지 닿는다 (지금은 501) — 연결된 가게인지는 서비스가 본다")
+        @DisplayName("점주·관리자는 컨트롤러까지 닿는다 — 연결된 가게인지는 서비스가 본다")
         void ownerAndAdminReachController() throws Exception {
             for (MemberRole role : List.of(MemberRole.OWNER, MemberRole.ADMIN)) {
                 mockMvc.perform(get(DETAIL).header(HttpHeaders.AUTHORIZATION, bearer(role)))
-                        .andExpect(status().isNotImplemented());
-                save(bearer(role)).andExpect(status().isNotImplemented());
+                        .andExpect(status().isOk());
+                save(bearer(role)).andExpect(status().isOk());
             }
         }
 
