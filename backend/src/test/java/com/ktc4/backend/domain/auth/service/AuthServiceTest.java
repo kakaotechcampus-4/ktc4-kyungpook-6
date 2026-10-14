@@ -7,6 +7,9 @@ import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
 import com.ktc4.backend.domain.member.entity.Member;
+import com.ktc4.backend.domain.member.entity.OwnerInfo;
+import com.ktc4.backend.domain.member.entity.SignupBusinessHour;
+import com.ktc4.backend.domain.member.entity.SignupMenu;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
@@ -235,6 +238,30 @@ class AuthServiceTest {
         return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ", phone,
                 "대구광역시 북구 대학로 80", "053-123-4567",
                 List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")), List.of(new SignupMenuRequest("김치찌개")));
+    }
+
+    @Test
+    @DisplayName("가게 주소·가게 전화·영업시간·메뉴를 신청서에 담는다 — 글자 칸은 앞뒤 공백을 지우고, 영업시간은 HH:mm 그대로, 순서 유지")
+    void storesStoreInfoOnApplication() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        OwnerSignupRequest request = new OwnerSignupRequest(EMAIL, PASSWORD, "1234567890", "예시분식", "홍길동",
+                "010-0000-0000", "  대구광역시 북구 대학로 80 ", " 053-123-4567 ",
+                List.of(new BusinessHourRequest(BusinessDay.SUN, "21:00", "02:00"),
+                        new BusinessHourRequest(BusinessDay.MON, "00:00", "24:00")),
+                List.of(new SignupMenuRequest(" 다슬기국 "), new SignupMenuRequest("가락국수")));
+
+        authService.signupOwner(request);
+
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(saved.capture());
+        OwnerInfo info = saved.getValue().getOwnerInfo();
+        assertThat(info.getStoreAddress()).isEqualTo("대구광역시 북구 대학로 80");
+        assertThat(info.getStorePhone()).isEqualTo("053-123-4567");
+        assertThat(info.getBusinessHours()).containsExactly(
+                new SignupBusinessHour(BusinessDay.SUN, "21:00", "02:00"),
+                new SignupBusinessHour(BusinessDay.MON, "00:00", "24:00"));
+        assertThat(info.getMenus()).containsExactly(new SignupMenu("다슬기국"), new SignupMenu("가락국수"));
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\"")

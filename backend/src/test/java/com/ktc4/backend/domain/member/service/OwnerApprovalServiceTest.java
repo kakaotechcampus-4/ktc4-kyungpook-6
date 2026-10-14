@@ -67,7 +67,9 @@ class OwnerApprovalServiceTest {
 
     private static Member pendingOwner(long id) {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("1234567890", "예시분식", "홍길동", "01000000000"));
+                OwnerInfo.builder()
+                        .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                        .build());
         ReflectionTestUtils.setField(owner, "memberId", id);
         return owner;
     }
@@ -194,7 +196,9 @@ class OwnerApprovalServiceTest {
     @DisplayName("신청서의 사업자번호가 비어 있으면 번호가 빈 가게와도 일치로 보지 않는다")
     void emptyApplicantBizNoNeverMatches() {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("", "예시분식", "홍길동", "01000000000"));
+                OwnerInfo.builder()
+                        .bizNo("").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                        .build());
         when(memberRepository.findById(3L)).thenReturn(Optional.of(owner));
         when(storeService.findOwnerCandidates(any(), any(), any())).thenReturn(List.of(
                 store(10L, "예시분식", "", null),
@@ -223,7 +227,9 @@ class OwnerApprovalServiceTest {
     @DisplayName("휴대폰 번호 없이 가입한 점주는 휴대폰 일치로 표시되지 않는다 — 가게의 점주 휴대폰 번호가 비어 있어도")
     void applicantWithoutPhoneNeverMatchesByPhone() {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("1234567890", "예시분식", "홍길동", null));
+                OwnerInfo.builder()
+                        .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone(null)
+                        .build());
         when(memberRepository.findById(3L)).thenReturn(Optional.of(owner));
         when(storeService.findOwnerCandidates("1234567890", null, "예시분식")).thenReturn(List.of(
                 store(10L, "예시분식", "1234567890", null),
@@ -312,7 +318,9 @@ class OwnerApprovalServiceTest {
     @DisplayName("휴대폰 번호 없이 가입한 점주를 승인해도 가게의 점주 휴대폰 번호는 비어 있는 그대로다")
     void approveWithoutApplicantPhoneLeavesOwnerPhoneEmpty() {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("1234567890", "예시분식", "홍길동", null));
+                OwnerInfo.builder()
+                        .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone(null)
+                        .build());
         ReflectionTestUtils.setField(owner, "memberId", 3L);
         Store store = store(STORE_ID, "예시분식", null);
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));

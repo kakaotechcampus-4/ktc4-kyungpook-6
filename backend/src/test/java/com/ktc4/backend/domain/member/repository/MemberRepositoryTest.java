@@ -67,7 +67,9 @@ class MemberRepositoryTest extends PostgresContainerTest {
     }
 
     private static Member owner(String email) {
-        return Member.ownerApplicant(email, "hash", new OwnerInfo("1234567890", "예시분식", "홍길동", "01000000000"));
+        return Member.ownerApplicant(email, "hash", OwnerInfo.builder()
+                .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                .build());
     }
 
     @Test
