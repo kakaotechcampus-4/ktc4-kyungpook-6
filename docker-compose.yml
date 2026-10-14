@@ -35,6 +35,11 @@ services:
       # AI 가 X-API-KEY 로 확인하는 키. 백엔드도 AI 를 부를 때 같은 키를 싣는다.
       # 비우면 AI 쪽 검사가 꺼지므로 로컬에서는 없어도 돈다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      # 컨테이너는 배포할 때마다 새로 만들어진다. 볼륨에 두지 않으면 올라온 파일이 그때 사라지고 DB 기록만 남는다.
+      - backend-uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,6 +85,7 @@ services:
 
 volumes:
   postgres-data:
+  backend-uploads:
 
 networks:
   db-net:
