@@ -28,6 +28,11 @@ services:
       DB_USERNAME: ${DB_USERNAME:-ktc4}
       DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      # 컨테이너는 배포할 때마다 새로 만들어진다. 볼륨에 두지 않으면 올라온 파일이 그때 사라지고 DB 기록만 남는다.
+      - backend-uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,6 +78,7 @@ services:
 
 volumes:
   postgres-data:
+  backend-uploads:
 
 networks:
   db-net:

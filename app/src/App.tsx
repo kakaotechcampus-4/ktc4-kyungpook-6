@@ -11,6 +11,8 @@ import OwnerSignupStorePage from "./pages/OwnerSignupStorePage";
 import OwnerSignupHoursPage from "./pages/OwnerSignupHoursPage";
 import OwnerSignupMenusPage from "./pages/OwnerSignupMenusPage";
 import OwnerSignupCompletePage from "./pages/OwnerSignupCompletePage";
+import OwnerQrScanPage from "./pages/OwnerQrScanPage";
+import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
 
 /*
   로그인 뒤 넘어갈 임시 화면. 점주 홈이 아직 없어서 둔다(hooks/login.ts 의 AFTER_LOGIN_PATH).
@@ -44,6 +46,8 @@ function App() {
           <Route path="store/menus" element={<OwnerSignupMenusPage />} />
           <Route path="complete" element={<OwnerSignupCompletePage />} />
         </Route>
+        <Route path="/owner/qr" element={<OwnerQrScanPage />} />
+        <Route path="/owner/qr/result" element={<OwnerCheckInResultPage />} />
       </Routes>
     </BrowserRouter>
   );

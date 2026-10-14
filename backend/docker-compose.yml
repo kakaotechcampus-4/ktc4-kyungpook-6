@@ -40,9 +40,15 @@ services:
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/ktc4}
       DB_USERNAME: ${DB_USERNAME:-ktc4}
       DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
+      # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      # DB 는 볼륨에 남는데 파일만 컨테이너와 함께 사라지면, 기록은 있고 파일은 없는 상태가 된다.
+      - backend-uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
   postgres-data:
+  backend-uploads:
