@@ -11,6 +11,7 @@ import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.entity.StoreOwner;
 import com.ktc4.backend.domain.member.enums.MemberRole;
+import com.ktc4.backend.domain.member.service.StoreAccessService;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -49,7 +50,7 @@ import static org.assertj.core.api.Assertions.within;
  * <p>QR 해석({@code QrCredentialService})과 가게 조회({@code StoreService})를 Mock 으로 바꾸지 않는다.
  * 세 서비스가 한 트랜잭션 안에서 실제로 맞물리는지가 이 테스트의 목적이다.
  */
-@Import({CheckInService.class, QrCredentialService.class, StoreService.class})
+@Import({CheckInService.class, QrCredentialService.class, StoreService.class, StoreAccessService.class})
 @DisplayName("CheckInService")
 class CheckInServiceTest extends PostgresContainerTest {
 
