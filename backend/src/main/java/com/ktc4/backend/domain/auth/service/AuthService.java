@@ -8,6 +8,8 @@ import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
+import com.ktc4.backend.domain.member.entity.SignupBusinessHour;
+import com.ktc4.backend.domain.member.entity.SignupMenu;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.global.error.CustomException;
@@ -89,7 +91,9 @@ public class AuthService {
      * <p>가입 상태 확인용 토큰을 함께 준다. 신청자가 승인됐는지 보려고 비밀번호로 로그인을 되풀이하지 않게 하기 위해서다.
      * 이 토큰으로는 자기 가입 상태만 읽을 수 있고, 승인된 뒤에도 접근 토큰으로 바뀌지 않는다 — 로그인해야 한다.
      *
-     * @param request 이메일·비밀번호·사업자 정보·휴대폰 번호
+     * <p>가게 주소·가게 전화·영업시간·메뉴는 신청서에 신청 당시 그대로 담고, 관리자가 승인할 때 가게에 옮겨 적는다.
+     *
+     * @param request 이메일·비밀번호·사업자 정보·휴대폰 번호·가게 정보
      * @return 만들어진 계정(승인 대기)과 가입 상태 확인용 토큰
      * @throws CustomException 비밀번호가 72바이트를 넘으면 {@code PASSWORD_TOO_LONG},
      *                         사업자등록번호가 10자리가 아니면 {@code INVALID_BIZ_NO},
@@ -115,7 +119,7 @@ public class AuthService {
         }
 
         Member applicant = Member.ownerApplicant(email, passwordEncoder.encode(request.password()),
-                new OwnerInfo(bizNo, request.storeName().strip(), request.representativeName().strip(), phone));
+                toOwnerInfo(request, bizNo, phone));
         try {
             Member saved = memberRepository.saveAndFlush(applicant);
             return OwnerSignupResponse.of(saved, jwtProvider.issueSignupStatus(saved.getMemberId()));
@@ -127,6 +131,25 @@ public class AuthService {
             }
             throw e;
         }
+    }
+
+    // 신청서에 담는다. 사람이 적은 글자 칸은 앞뒤 공백을 지운다 — 관리자 화면과, 승인 때 가게로 옮길 값에 그대로 나간다.
+    // 영업시간은 받은 "HH:mm" 그대로 둔다(검증은 요청 단계에서 끝났다).
+    private static OwnerInfo toOwnerInfo(OwnerSignupRequest request, String bizNo, String phone) {
+        return OwnerInfo.builder()
+                .bizNo(bizNo)
+                .storeName(request.storeName().strip())
+                .representativeName(request.representativeName().strip())
+                .phone(phone)
+                .storeAddress(request.storeAddress().strip())
+                .storePhone(request.storePhone().strip())
+                .businessHours(request.businessHours().stream()
+                        .map(hour -> new SignupBusinessHour(hour.day(), hour.open(), hour.close()))
+                        .toList())
+                .menus(request.menus().stream()
+                        .map(menu -> new SignupMenu(menu.name().strip()))
+                        .toList())
+                .build();
     }
 
     // 원인 사슬에서 Hibernate 가 알려준 제약 이름을 찾는다. 이름이 바뀌면 이 구분이 조용히 무너지므로
