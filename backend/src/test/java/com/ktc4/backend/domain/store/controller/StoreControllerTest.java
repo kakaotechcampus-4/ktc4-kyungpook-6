@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.ktc4.backend.global.security.SecurityConfig;
+import com.ktc4.backend.support.BusinessHourFixtures;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -484,8 +485,20 @@ class StoreControllerTest {
             save(body("053-123-4567", "[]", repeat(MENU, 1)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("businessHours"));
-            save(body("053-123-4567", repeat(HOUR, 21), repeat(MENU, 1))).andExpect(status().isNotImplemented());
-            save(body("053-123-4567", repeat(HOUR, 22), repeat(MENU, 1))).andExpect(status().isBadRequest());
+            // 겹치지 않는 줄로 센다 — 같은 줄을 반복하면 개수가 아니라 겹침 때문에 거절된다
+            save(body("053-123-4567", BusinessHourFixtures.nonOverlappingJson(21), repeat(MENU, 1)))
+                    .andExpect(status().isNotImplemented());
+            save(body("053-123-4567", BusinessHourFixtures.nonOverlappingJson(22), repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].message").value("영업시간은 1 ~ 21줄이어야 합니다"));
+        }
+
+        @Test
+        @DisplayName("영업시간이 겹치면 400 — 가입과 같은 겹침 검증이 붙어 있다")
+        void rejectsOverlappingHours() throws Exception {
+            save(body("053-123-4567", repeat(HOUR, 2), repeat(MENU, 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("businessHours"));
         }
 
         @Test

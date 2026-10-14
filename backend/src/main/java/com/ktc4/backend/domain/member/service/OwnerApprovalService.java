@@ -5,13 +5,16 @@ import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
+import com.ktc4.backend.domain.member.entity.SignupMenu;
 import com.ktc4.backend.domain.member.entity.StoreOwner;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
+import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
@@ -44,6 +47,7 @@ public class OwnerApprovalService {
     private final MemberRepository memberRepository;
     private final StoreOwnerRepository storeOwnerRepository;
     private final StoreService storeService;
+    private final StoreOperatingInfoService storeOperatingInfoService;
 
     /**
      * 점주 가입 신청을 상태별로 신청 순서(회원 ID 오름차순)대로 조회한다.
@@ -107,6 +111,9 @@ public class OwnerApprovalService {
      *
      * <p>가게에 점주 휴대폰 번호가 비어 있으면 신청서의 번호로 채운다. 이미 있으면 바꾸지 않는다.
      *
+     * <p>신청서의 가게 전화·영업시간·메뉴를 가게의 빈 항목에만 옮겨 적는다({@link #fillStoreIfFirstStore}).
+     * 가게를 잠그고 읽는다 — 서로 다른 점주를 같은 빈 가게에 동시에 승인해도 한 번만 옮겨 적게.
+     *
      * @param memberId 승인할 회원 ID
      * @param storeId  연결할 가게 ID
      * @param adminId  승인하는 관리자의 회원 ID
@@ -122,7 +129,8 @@ public class OwnerApprovalService {
         if (member.getStatus() != MemberStatus.PENDING) {
             throw new CustomException(ErrorCode.OWNER_ALREADY_REVIEWED);
         }
-        Store store = storeService.findStore(storeId);
+        Store store = storeService.findStoreForUpdate(storeId);
+        fillStoreIfFirstStore(member, store);
 
         LocalDateTime approvedAt = LocalDateTime.now();
         member.approve(approvedAt);
@@ -161,6 +169,11 @@ public class OwnerApprovalService {
      *
      * <p>끊긴 적이 있는 가게면 그 연결을 되살린다. 가게에 점주 휴대폰 번호가 비어 있으면 승인 때와 같이 채운다.
      *
+     * <p>이 점주에게 살아 있는 다른 가게가 없을 때만 신청서의 가게 정보를 가게의 빈 항목에 옮겨 적는다 — 승인과 같은 규칙
+     * ({@link #fillStoreIfFirstStore}). 그래서 잘못 고른 가게를 바로잡을 때는 <b>잘못된 가게를 먼저 끊고</b> 연결해야
+     * 맞는 가게에 옮겨 적힌다. 반대 순서면 연결하는 순간 다른 가게가 살아 있어 옮겨 적지 않는다.
+     * 잘못된 가게에 이미 옮겨 적힌 값은 연결을 끊어도 남는다 — 그 가게의 점주가 가게 관리에서 고친다.
+     *
      * @param memberId 연결할 점주의 회원 ID
      * @param storeId  연결할 가게 ID
      * @param adminId  연결을 인정하는 관리자의 회원 ID
@@ -176,15 +189,17 @@ public class OwnerApprovalService {
         if (member.getStatus() != MemberStatus.APPROVED) {
             throw new CustomException(ErrorCode.OWNER_NOT_APPROVED);
         }
-        Store store = storeService.findStore(storeId);
+        Store store = storeService.findStoreForUpdate(storeId);
         Member admin = memberRepository.getReferenceById(adminId);
         LocalDateTime linkedAt = LocalDateTime.now();
 
         Optional<StoreOwner> existing = storeOwnerRepository.findByStoreIdAndMemberId(storeId, memberId);
+        if (existing.isPresent() && existing.get().isActive()) {
+            throw new CustomException(ErrorCode.STORE_ALREADY_LINKED);
+        }
+        // 연결을 만들거나 되살리기 전에 부른다 — 그 뒤면 방금 만든 연결이 "다른 가게"로 세어진다
+        fillStoreIfFirstStore(member, store);
         if (existing.isPresent()) {
-            if (existing.get().isActive()) {
-                throw new CustomException(ErrorCode.STORE_ALREADY_LINKED);
-            }
             existing.get().relink(admin, linkedAt);
         } else {
             storeOwnerRepository.save(StoreOwner.link(store, member, admin, linkedAt));
@@ -208,13 +223,38 @@ public class OwnerApprovalService {
     @Transactional
     public void unlinkStore(Long memberId, Long storeId, Long adminId) {
         Member member = findOwnerForUpdate(memberId);
+        // 연결 조회는 가게를 읽지 않는다(가게 ID 만 비교) — 그래서 아래 잠금 조회가 가게를 처음 읽는 것이 된다.
         StoreOwner link = storeOwnerRepository.findByStoreIdAndMemberId(storeId, memberId)
                 .filter(StoreOwner::isActive)
                 .orElseThrow(() -> new CustomException(ErrorCode.STORE_LINK_NOT_FOUND));
+        // 가게를 잠그고 읽는다 — 가게는 바뀐 칸만이 아니라 행 전체를 다시 쓰므로, 낡은 가게로 쓰면 그 사이 다른
+        // 승인이 채운 가게 전화 등을 지운다.
+        Store store = storeService.findStoreForUpdate(storeId);
 
         link.unlink(memberRepository.getReferenceById(adminId), LocalDateTime.now());
-        link.getStore().clearOwnerPhoneIfSame(member.getOwnerInfo().getPhone());
+        store.clearOwnerPhoneIfSame(member.getOwnerInfo().getPhone());
         log.info("가게 연결 끊음 - storeId={}, memberId={}, adminId={}", storeId, memberId, adminId);
+    }
+
+    // 이 점주에게 살아 있는 다른 가게가 없으면, 신청서의 가게 전화·영업시간·메뉴를 가게의 빈 항목에 옮겨 적는다.
+    // 신청서는 가게 하나를 설명한 기록이라(주소도 하나다) 그 점주의 "그 가게" 하나에만 들어가야 한다. 승인할 때는
+    // 연결이 아직 없으니 늘 옮겨 적고, 따로 연결할 때는 잘못 고른 가게를 끊은 뒤 맞는 가게에 잇는 경우만 옮겨 적는다.
+    // 연결을 만들거나 되살리기 전에 불러야 한다 — 그 뒤면 방금 만든 연결이 "다른 가게"로 세어진다.
+    // member 와 store 는 둘 다 잠근 것이어야 한다.
+    private void fillStoreIfFirstStore(Member member, Store store) {
+        boolean hasOtherStore = storeOwnerRepository.findLinkedStoresByMemberId(member.getMemberId()).stream()
+                .anyMatch(linked -> !linked.getStoreId().equals(store.getStoreId()));
+        if (hasOtherStore) {
+            log.info("신청서 가게 정보를 옮기지 않음 - 점주에게 다른 가게가 연결돼 있음, memberId={}, storeId={}",
+                    member.getMemberId(), store.getStoreId());
+            return;
+        }
+        OwnerInfo application = member.getOwnerInfo();
+        storeOperatingInfoService.fillIfEmpty(store, application.getStorePhone(),
+                application.getBusinessHours().stream()
+                        .map(hour -> new BusinessHourRequest(hour.day(), hour.open(), hour.close()))
+                        .toList(),
+                application.getMenus().stream().map(SignupMenu::name).toList());
     }
 
     // 관리자 계정 ID 를 넣어도 "없음"으로 답한다 — 이 API 들로 관리자 계정의 존재를 알아낼 수 없게.
