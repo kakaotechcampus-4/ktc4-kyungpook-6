@@ -79,6 +79,7 @@ public class AuthController {
                     영업시간(`businessHours`, 1~21줄)·메뉴(`menus`, 1~50개). 모두 필수이고, 관리자가 승인하면 그 가게에 옮겨 적습니다.
                     영업시간은 `HH:mm` 이고 자정에 닫으면 `24:00`, 여는 시간보다 이르면 다음 날 닫는다는 뜻입니다.
                     형식 오류는 `errors` 에 몇 번째 줄의 어느 칸인지(예: `businessHours[0].close`) 담깁니다.
+                    영업시간끼리 겹치면(같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간) `errors` 에 `businessHours` 칸으로 담깁니다.
 
                     ⚠️ 가게 정보는 아직 신청서에 저장하지 않습니다(검증만 합니다). 저장은 다음 배포부터입니다.
                     """)
@@ -86,7 +87,8 @@ public class AuthController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "신청 완료 — 상태는 PENDING(승인 대기). 가입 상태 확인용 토큰을 함께 줍니다"),
             @ApiResponse(responseCode = "400",
-                    description = "입력값이 비었거나 형식이 틀린 경우(errors 에 필드 표시), 사업자등록번호가 10자리가 아닌 경우(invalid-biz-no), "
+                    description = "입력값이 비었거나 형식이 틀리거나 영업시간이 겹치는 경우(errors 에 필드 표시), "
+                            + "사업자등록번호가 10자리가 아닌 경우(invalid-biz-no), "
                             + "휴대폰 번호 형식이 아닌 경우(invalid-phone)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
