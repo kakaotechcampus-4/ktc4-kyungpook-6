@@ -226,3 +226,52 @@ class TestTimeBudget:
         assert time_budget_from_env() == 150.0
         monkeypatch.setenv("INVESTIGATION_TIME_BUDGET_SECONDS", "abc")
         assert time_budget_from_env() == DEFAULT_TIME_BUDGET_SECONDS
+
+
+class TestOpenAIDecider:
+    """OpenAI 호환 Responses API 로 부르는 판단 모델 — 프록시의 모델마다 받는 옵션이 다르다."""
+
+    @staticmethod
+    def _decider(status_for_include: int):
+        import httpx
+
+        from src.investigation.agent import OpenAIDecider
+
+        bodies = []
+
+        def handler(request):
+            body = json.loads(request.content)
+            bodies.append(body)
+            if "include" in body and status_for_include == 400:
+                return httpx.Response(400, json={"error": {"message": "Unsupported parameter(s): include"}})
+            return httpx.Response(200, json={"output": [{"type": "message", "content": []}]})
+
+        http = httpx.Client(transport=httpx.MockTransport(handler))
+        return OpenAIDecider("m", "https://proxy/v1", "k", http=http), bodies
+
+    def test_추론_옵션을_거절하는_모델이면_빼고_다시_보내고_그다음부터는_처음부터_뺀다(self):
+        decider, bodies = self._decider(400)
+
+        decider.respond([{"role": "user", "content": "x"}])
+        decider.respond([{"role": "user", "content": "y"}])
+
+        assert ["include" in b for b in bodies] == [True, False, False]
+
+    def test_받아_주는_모델이면_추론_옵션을_보낸다(self):
+        decider, bodies = self._decider(200)
+
+        decider.respond([{"role": "user", "content": "x"}])
+
+        assert len(bodies) == 1 and bodies[0]["include"] == ["reasoning.encrypted_content"]
+
+    def test_주소와_키는_AGENT_변수에서만_읽는다(self, monkeypatch):
+        from src.investigation.agent import OpenAIDecider
+
+        monkeypatch.setenv("AGENT_MODEL", "gemini-4-argon")
+        monkeypatch.setenv("AGENT_BASE_URL", "https://mlapi.run/x/v1")
+        monkeypatch.setenv("AGENT_API_KEY", "k")
+        decider = OpenAIDecider.from_env()
+
+        assert decider.model == "gemini-4-argon" and decider._url == "https://mlapi.run/x/v1/responses"
+        monkeypatch.delenv("AGENT_MODEL")
+        assert OpenAIDecider.from_env() is None
