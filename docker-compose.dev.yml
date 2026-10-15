@@ -33,6 +33,9 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       BIZNO_API_KEY: ${BIZNO_API_KEY}
       NTS_SERVICE_KEY: ${NTS_SERVICE_KEY}
+      # 개발 서버는 nginx 프록시 한 대 뒤에 있다. 가입 신청 횟수 제한이 보낸 쪽 IP 를 X-Forwarded-For 에서 읽는다
+      # (backend application.yml 의 signup.rate-limit.trusted-proxies 참고). 프록시가 없는 서버에는 넣지 않는다.
+      SIGNUP_TRUSTED_PROXIES: ${SIGNUP_TRUSTED_PROXIES:-1}
 
   # dev 에서만 AI 서버를 바깥에 연다(조사 동작을 직접 확인하려고). prod 는 base 대로 닫아 둔다.
   # 열면 공개 주소에서 누구나 POST /investigations 를 부를 수 있다 — Vertex·국세청 쿼터가 걸린 호출이다.
@@ -45,6 +48,3 @@ services:
       # 한 키를 두 뜻으로 쓰다가 10주차 리뷰에서 지적받아 갈랐다.
       BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:8080}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?}
-      # 개발 서버는 nginx 프록시 한 대 뒤에 있다. 가입 신청 횟수 제한이 보낸 쪽 IP 를 X-Forwarded-For 에서 읽는다
-      # (backend application.yml 의 signup.rate-limit.trusted-proxies 참고). 프록시가 없는 서버에는 넣지 않는다.
-      SIGNUP_TRUSTED_PROXIES: ${SIGNUP_TRUSTED_PROXIES:-1}
