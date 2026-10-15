@@ -644,3 +644,7 @@ class TestCityInRoad:
 
     def test_시_이름_뒤에_띄어_쓴_광역시는_그대로다(self):
         assert road_address_key("대구광역시 중구 동성로 12") == "동성로12"
+
+
+def test_앤과_앰퍼샌드는_같은_가게명이다():
+    assert comparison_key(ChangeField.NAME, "본죽&비빔밥") == comparison_key(ChangeField.NAME, "본죽앤비빔밥")

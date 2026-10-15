@@ -108,7 +108,9 @@ def comparison_key(change_field: ChangeField, value: str) -> str:
         return road if road else _squash(_CITY_NAME.sub(r"\1", value))
     if change_field is ChangeField.STATUS:
         return value.upper()
-    # 괄호를 지우고 나면 아무것도 안 남는 이름("(주)")은 원래대로 비교한다.
+    # 괄호를 지우고 나면 아무것도 안 남는 이름("(주)")은 원래대로 비교한다. "본죽&비빔밥" 과 "본죽앤비빔밥" 은 같은 이름이라
+    # 기호를 지우기 전에 & 를 "앤" 으로 바꾼다.
+    value = value.replace("&", "앤").replace("＆", "앤")
     key = _squash(_BRACKETED.sub("", value)) or _squash(value)
     return _REGION_BEFORE_BRANCH.sub("", key) or key
 
