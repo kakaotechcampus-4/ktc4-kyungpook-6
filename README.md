@@ -78,9 +78,22 @@ dev 서버에서만 쓰는 값은 `.env.development` 에 따로 둡니다(`.env.
 | `AI_PORT` | AI 서버를 바깥에 여는 포트(기본 8000). AI 포트를 열기 때문에 dev 는 `.env` 의 `INTERNAL_API_KEY` 가 비어 있으면 배포가 멈춥니다 |
 | `AI_BASE_URL` | 백엔드가 부를 AI 주소(기본 `http://ai:8000`). base·prod 는 이 주소로 고정이라 dev 에서만 바꿀 수 있습니다 |
 
-백엔드 주소 `BACKEND_BASE_URL` 은 `.env` 에 둡니다. frontend 빌드(브라우저가 부를 주소)에 쓰이고,
-dev 에서는 AI 컨테이너도 같은 값을 씁니다. 그래서 서버에서는 **브라우저와 AI 컨테이너 둘 다 닿는 공개 주소**를
-넣어야 합니다 — `http://localhost:8080` 은 AI 컨테이너 안에서 자기 자신을 가리킵니다.
+백엔드 주소는 **쓰임이 달라 키가 둘**입니다. 한 키를 두 뜻으로 쓰다가 10주차 멘토 리뷰에서 지적받아 갈랐습니다.
+
+| 값 | 누가 읽나 | 언제 박히나 |
+|---|---|---|
+| `PUBLIC_BACKEND_URL` | 브라우저 — 공개망 주소입니다 | frontend 를 빌드할 때 |
+| `BACKEND_BASE_URL` | AI 컨테이너 — dev 에서만 바꿉니다 | 컨테이너가 뜰 때 |
+
+`PUBLIC_` 접두사는 "여기 들어간 값은 전 세계가 본다" 는 뜻입니다. 내부망 주소를 넣지 마세요.
+
+서버 `.env` 에 `PUBLIC_BACKEND_URL` 이 없으면 옛 키(`BACKEND_BASE_URL`)로 떨어집니다 — 서버에 키를 넣기
+전에 머지돼도 화면이 죽지 않게 둔 폴백입니다. 서버 `.env` 에 키가 들어가면 `docker-compose.yml` 에서 그
+폴백을 지우세요.
+
+⚠️ dev 의 AI 컨테이너는 **지금 공개 주소로 백엔드를 부릅니다**(서버 `.env` 에 들어 있는 값이 그것입니다).
+내부망 `http://backend:8080` 으로 돌리는 쪽이 맞지만, 호출 경로가 달라지므로 배포본에서 조사가 도는지
+확인한 뒤에 바꿉니다. `http://localhost:8080` 은 AI 컨테이너 안에서 자기 자신을 가리키니 넣지 마세요.
 
 배포는 `main`·`develop` 푸시에 `.github/workflows/deploy-main.yml`·`deploy-dev.yml` 이 돕니다.
 

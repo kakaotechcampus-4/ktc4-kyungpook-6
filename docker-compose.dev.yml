@@ -41,6 +41,8 @@ services:
     ports:
       - "0.0.0.0:${AI_PORT:-8000}:8000"
     environment:
+      # AI 가 백엔드를 부르는 주소. 브라우저가 읽는 공개 주소(PUBLIC_BACKEND_URL)와는 다른 값이다 —
+      # 한 키를 두 뜻으로 쓰다가 10주차 리뷰에서 지적받아 갈랐다.
       BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:8080}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?}
       # 개발 서버는 nginx 프록시 한 대 뒤에 있다. 가입 신청 횟수 제한이 보낸 쪽 IP 를 X-Forwarded-For 에서 읽는다
