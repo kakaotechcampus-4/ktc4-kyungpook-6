@@ -9,7 +9,7 @@ import pytest
 
 from src.backend_client.models import StoreStatus
 from src.investigation.classify import classify, coverage
-from src.investigation.map_lookup import KakaoLocalLookup, MapLookup, NaverLocalLookup, same_store
+from src.investigation.map_lookup import KakaoLocalLookup, MapLookup, NaverLocalLookup, moved_store, same_store
 from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, PlaceStatus
 from src.investigation.web import WebInvestigator
 from src.investigation.web_research import Observation, ResearchResult, Source
@@ -71,6 +71,19 @@ class TestSameStore:
     )
     def test_큰길이_같으면_건물번호가_달라도_같은_가게다(self, road):
         assert same_store(TARGET, "빠레뜨치킨", road)
+
+    def test_다른_동네의_같은_이름은_전화번호가_같아야_이사한_가게다(self):
+        far = "대구광역시 수성구 들안로 38"
+
+        assert moved_store(TARGET, "빠레뜨치킨", far, "053-567-3050")
+        assert not moved_store(TARGET, "빠레뜨치킨", far, "053-111-2222")  # 다른 동네의 다른 가게
+        assert not moved_store(TARGET, "빠레뜨치킨", far, None)
+        assert not moved_store(TARGET, "빠레뜨치킨", "부산광역시 중구 중앙대로 1", "053-567-3050")  # 다른 시·도
+
+    def test_전국_대표번호로는_이사한_가게로_보지_않는다(self):
+        chain = TARGET.model_copy(update={"phone": "1588-1234"})
+
+        assert not moved_store(chain, "빠레뜨치킨", "대구광역시 수성구 들안로 38", "1588-1234")
 
     @pytest.mark.parametrize(
         ("ours", "theirs", "distance"),
@@ -234,6 +247,22 @@ class TestLookups:
 
         return KakaoLocalLookup(api_key="k", http=httpx.Client(transport=httpx.MockTransport(handler))), calls
 
+    def test_근처에_없고_다른_곳에_같은_전화번호의_가게가_있으면_이사로_주소_다름이_된다(self):
+        moved = {"place_name": "빠레뜨치킨", "road_address_name": "대구 수성구 들안로 38", "phone": "053-567-3050",
+                 "place_url": "http://place.map.kakao.com/2"}
+        lookup, _ = self._kakao(nearby=[], anywhere=[moved])
+
+        found = classify(TARGET, ResearchResult(lookup.observe(TARGET)))
+
+        assert [s.field for s in found.signals] == [ChangeField.ADDRESS] and found.proposed_changes == {}
+        assert found.signals[0].evidence_url == "http://place.map.kakao.com/2"
+
+    def test_다른_곳의_같은_이름이라도_전화번호가_다르면_보지_않는다(self):
+        other = {"place_name": "빠레뜨치킨", "road_address_name": "대구 수성구 들안로 38", "phone": "053-111-2222"}
+        lookup, _ = self._kakao(nearby=[], anywhere=[other])
+
+        assert lookup.observe(TARGET) == []
+
     def test_바로_옆이라서만_같은_가게로_본_후보의_이름으로는_가게명_다름을_내지_않는다(self):
         eunjeong = TARGET.model_copy(update={"name": "은정"})
         place = {"place_name": "은정식당", "road_address_name": "대구 서구 국채보상로67길 38", "phone": "053-567-3050",
@@ -244,6 +273,14 @@ class TestLookups:
 
         assert {o.field for o in observations} == {ChangeField.ADDRESS, ChangeField.PHONE}
         assert classify(eunjeong, ResearchResult(observations)).signals == []
+
+    def test_근처에_이_가게가_있으면_멀리_찾지_않는다(self):
+        here = {"place_name": "빠레뜨치킨", "road_address_name": "대구 서구 국채보상로67길 38", "phone": "053-567-3050"}
+        lookup, calls = self._kakao(nearby=[here], anywhere=[])
+
+        lookup.observe(TARGET)
+
+        assert all("radius" in c for c in calls)
 
     def test_한_출처가_실패해도_나머지는_쓴다(self):
         class Broken:

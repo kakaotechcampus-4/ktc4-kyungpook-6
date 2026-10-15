@@ -29,7 +29,7 @@ from urllib.parse import quote
 
 import httpx
 
-from src.investigation.classify import comparison_key
+from src.investigation.classify import comparison_key, domestic_phone
 from src.investigation.kakao_map import KakaoPlaceChecker, search_name
 from src.investigation.models import ChangeField, InvestigationTarget
 from src.investigation.web_research import Observation, Source
@@ -65,7 +65,7 @@ def _same_locality(a: str, b: str) -> bool:
 
     시·도와 구·군만 보면 군 단위가 넓어 다른 읍의 같은 이름 가게를 같은 가게로 골랐다(실측: 화원읍 상하이반점에
     가창면 상하이반점, 다사읍 시골뚝배기에 유가읍 시골뚝배기). DB 값이 맞는 60곳 중 4곳이 이렇게 "주소 다름"이 됐다.
-    다른 동으로 이전한 가게는 못 찾게 되지만, 변화는 드물고 엉뚱한 주소를 올리는 것보다 낫다.
+    다른 동으로 이사한 가게는 여기서 걸러지고, 전화번호가 같은지로 따로 찾는다(`moved_store`).
     """
     left, right = _localities(a), _localities(b)
     return not left or not right or bool(left & right)
@@ -112,6 +112,21 @@ def same_store(target: InvestigationTarget, name: str, road_address: str, distan
     if road_address and target.address and not _same_locality(road_address, target.address):
         return False
     return _similar_name(target, name, distance)
+
+
+def moved_store(target: InvestigationTarget, name: str, road_address: str, phone: str | None) -> bool:
+    """다른 동네의 같은 이름 후보가 이사한 이 가게인가 — 전화번호가 DB 와 같아야 한다.
+
+    지도의 상호·주소만으로는 "우리 가게가 이사함"과 "다른 동네에 원래 있던 같은 이름 가게"가 똑같이 보인다.
+    가게는 이사해도 번호를 보통 그대로 쓰고, 다른 가게는 번호가 다르다. 시·도만 같으면 된다(다른 구로 옮길 수 있다).
+    전국 대표번호(15xx 등)는 `domestic_phone` 이 버린다 — 체인 본사 번호로 다른 지점을 잡지 않는다.
+    """
+    ours, theirs = domestic_phone(target.phone or ""), domestic_phone(phone or "")
+    if not ours or ours != theirs:
+        return False
+    if road_address and target.address and _region(road_address)[0] != _region(target.address)[0]:
+        return False
+    return _similar_name(target, name)
 
 
 def _observe(field: ChangeField, value: str, domain: str, url: str, *, storable: bool, label: str) -> Observation:
@@ -169,6 +184,15 @@ class KakaoLocalLookup(KakaoPlaceChecker):
                     # 적혀 있는 것이다 — 그 이름으로 "가게명 다름"을 내지 않는다. 주소·전화 비교에는 쓴다.
                     same_name = same_store(target, place["place_name"], place.get("road_address_name", ""))
                     return self._observations(place, "카카오맵", with_name=same_name)
+        # 근처에 없으면 이사했을 수 있다 — 반경 없이 상호로 찾아 전화번호가 DB 와 같은 후보만 이사한 이 가게로 본다
+        # (`moved_store`). 근처에 이 가게가 있으면 여기까지 오지 않으니, 다른 동네의 같은 이름 가게는 보지 않는다.
+        if not domestic_phone(target.phone or ""):
+            return []
+        region = _region(target.address or "")[0]
+        query = f"{region} {search_name(target.name)}".strip()
+        for place in self._get("keyword.json", {"query": query, "size": 15}):
+            if moved_store(target, place["place_name"], place.get("road_address_name", ""), place.get("phone")):
+                return self._observations(place, "카카오맵(같은 전화번호의 가게)")
         return []
 
     @staticmethod
