@@ -69,11 +69,20 @@ for key in ('internalStatus','ntsLookup','ntsStatus','statusComparison','dataPro
     print(f'   {key:17}', dict(collections.Counter(r.get(key) for r in rows)))
 "
 
-step "5. 조사 시작 (앞 5곳)"
-IDS=$(curl -s "${AUTH[@]}" "$API/api/stores?page=0&limit=5" \
-      | python3 -c "import sys,json;print(','.join(str(s['storeId']) for s in json.load(sys.stdin)['content']))")
+# 조사 대상이 될 가게를 고른다. /api/stores 의 앞 5곳을 그냥 집으면, 국세청과 대조할 수 없는
+# 가게(NOT_COMPARABLE)만 걸려서 백엔드가 400 no-investigation-target 으로 거절한다.
+# 그래서 국세청 대조가 끝난 가게 중 비교 결과가 있는 것부터 고른다.
+step "5. 조사 시작 (대조 결과가 있는 앞 5곳)"
+IDS=$(curl -s "${AUTH[@]}" "$API/api/stores/nts-checks?page=0&limit=100" | python3 -c "
+import sys, json
+rows = json.load(sys.stdin)['content']
+pick = [r for r in rows if r.get('statusComparison') not in (None, 'NOT_COMPARABLE')]
+print(','.join(str(r['storeId']) for r in pick[:5]))
+")
 if [[ -z "$IDS" ]]; then
-  echo "   가게가 없습니다 — 먼저 자료를 넣으세요."; exit 1
+  echo "   조사 대상이 될 가게가 없습니다 — 국세청 대조가 끝난 가게가 있어야 합니다."
+  echo "   주입 JSON 에 ntsCheck 를 함께 넣으면 대조 기록까지 만들어집니다(4번 참고)."
+  exit 1
 fi
 echo "   storeIds=[$IDS]"
 JOB=$(curl -s -X POST "$API/api/jobs" "${AUTH[@]}" -d "{\"storeIds\":[$IDS]}")
