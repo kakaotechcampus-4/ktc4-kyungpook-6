@@ -646,5 +646,62 @@ class TestCityInRoad:
         assert road_address_key("대구광역시 중구 동성로 12") == "동성로12"
 
 
+class TestConfirmations:
+    """변화가 없을 때 항목마다 확인했는지 남긴다 — "확인됨"과 "못 찾음"이 같은 변화없음으로 섞이지 않게."""
+
+    @staticmethod
+    def _confirm(*observations: Observation):
+        from src.investigation.classify import with_confirmations
+
+        finding = classify(TARGET, ResearchResult(list(observations)))
+        return with_confirmations(TARGET, list(observations), finding)
+
+    def test_아무_근거도_없으면_영업_상태_한_행으로_직접_확인을_권한다(self):
+        from src.investigation.classify import NOT_FOUND_TEXT
+
+        found = self._confirm()
+
+        assert found.classification is TaskClassification.NO_CHANGE
+        assert [(s.signal_type, s.field, s.evidence_text) for s in found.signals] == [
+            (SignalType.SIGNAL_NONE, ChangeField.STATUS, NOT_FOUND_TEXT)]
+
+    def test_항목마다_일치와_못_찾음을_나눠_남긴다(self):
+        found = self._confirm(
+            obs(ChangeField.NAME, "예시분식", "map.kakao.com", evidence="카카오맵에 등록된 값"),
+            obs(ChangeField.ADDRESS, "대구 중구 동성로 12", "a.com", "b.com"),
+        )
+
+        assert found.classification is TaskClassification.NO_CHANGE and found.proposed_changes == {}
+        assert [(s.field, s.evidence_text) for s in found.signals] == [
+            (ChangeField.NAME, "가게명: DB 값과 일치 — 카카오맵"),
+            (ChangeField.ADDRESS, "주소: DB 값과 일치 — a.com, b.com"),
+            (ChangeField.PHONE, "전화번호: 확인할 근거를 찾지 못함"),
+        ]
+        assert found.signals[0].evidence_url == "https://map.kakao.com/post" and found.signals[2].evidence_url is None
+
+    def test_DB_에_값이_없는_항목은_남기지_않는다(self):
+        from src.investigation.classify import with_confirmations
+
+        no_phone = TARGET.model_copy(update={"phone": None})
+        observations = [obs(ChangeField.NAME, "예시분식", "a.com")]
+
+        found = with_confirmations(no_phone, observations, classify(no_phone, ResearchResult(observations)))
+
+        assert [s.field for s in found.signals] == [ChangeField.NAME, ChangeField.ADDRESS]
+
+    def test_변화가_잡힌_결과에는_붙이지_않는다(self):
+        found = self._confirm(obs(ChangeField.PHONE, "053-999-8888", "a.com"),
+                              obs(ChangeField.NAME, "예시분식", "a.com"))
+
+        assert found.classification is TaskClassification.PRIORITY_CHECK
+        assert all(s.signal_type is SignalType.SIGNAL_HIGH for s in found.signals)
+
+    def test_응답에는_백엔드_Signal_칸으로_나간다(self):
+        dumped = self._confirm().model_dump(mode="json", by_alias=True)
+
+        assert dumped["signals"][0] == {"signalType": "SIGNAL_NONE", "confidence": None, "field": "status",
+                                        "evidenceText": dumped["signals"][0]["evidenceText"], "evidenceUrl": None}
+
+
 def test_앤과_앰퍼샌드는_같은_가게명이다():
     assert comparison_key(ChangeField.NAME, "본죽&비빔밥") == comparison_key(ChangeField.NAME, "본죽앤비빔밥")

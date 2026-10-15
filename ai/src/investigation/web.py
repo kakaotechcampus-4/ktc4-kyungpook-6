@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol
 
-from src.investigation.classify import classify, coverage
+from src.investigation.classify import classify, coverage, with_confirmations
 from src.investigation.models import InvestigationTarget, PlaceCheck, StoreFinding
 from src.investigation.web_research import Observation, ResearchParseError, ResearchProvider, ResearchResult
 
@@ -79,13 +79,16 @@ class WebInvestigator:
         if maps:
             finding = classify(target, ResearchResult(maps), place)
             if self._settled(target, maps, finding):
-                return finding
+                return with_confirmations(target, maps, finding)
         # 에이전트는 지도 대조를 마친 가게만 이어서 조사한다. 지도 대조가 꺼져 있으면 "지도를 봤고 전부 못 찾았다"는
         # 거짓 전제로 시작하게 되므로 기존 웹검색으로 간다.
         if self._agent is not None and self._map_lookup is not None:
-            return self._agent.continue_from(target, maps, place=place)
+            finding = self._agent.continue_from(target, maps, place=place)
+            return with_confirmations(target, self._agent.last_observations, finding)
         result = self._research(target)
-        return classify(target, ResearchResult(maps + result.observations, queries=result.queries), place)
+        observations = maps + result.observations
+        finding = classify(target, ResearchResult(observations, queries=result.queries), place)
+        return with_confirmations(target, observations, finding)
 
     def _settled(self, target: InvestigationTarget, maps: list[Observation], finding: StoreFinding) -> bool:
         """지도만으로 확정됐는가. 에이전트가 붙어 있으면 카카오에만 다른 값(수정안에 값을 못 담음)은 확정이 아니다 —

@@ -37,7 +37,7 @@ from collections import Counter
 
 from eval import mock_db
 from eval.mock_round import _force_utf8_output
-from src.investigation import ChangeField, InvestigationTarget
+from src.investigation import ChangeField, InvestigationTarget, SignalType
 from src.investigation.classify import comparison_key, coverage, domestic_phone, road_address_key
 from src.investigation.kakao_map import KakaoPlaceChecker
 from src.investigation.web import WebInvestigator
@@ -241,7 +241,7 @@ def run(tag: str, mode: str = "web") -> int:
             out |= {
                 "AI판정": found.classification.value,
                 "수정안": json.dumps(found.proposed_changes, ensure_ascii=False),
-                "신호항목": json.dumps([s.field.value for s in found.signals if s.field]),
+                "신호항목": json.dumps([s.field.value for s in found.signals if s.field and s.signal_type is SignalType.SIGNAL_HIGH]),
                 "덩어리": coverage(target, (agent.last_observations or maps.last) if agent is not None else maps.last + web),
                 "LLM호출": str(trace.llm_calls if trace is not None else provider.calls),
                 "관측": json.dumps(

@@ -13,8 +13,8 @@
 **Signal 은 잡힌 변화 하나다.** 백엔드 `Signal` 이 "이상 징후 하나 + 근거 문장·URL 한 쌍" 구조라,
 DB 와 다른 값이 잡힌 항목마다 한 행을 만든다. 근거는 그 값을 가리킨 관측 중 대표 하나이고, 그 값을
 가리킨 **서로 다른 출처(도메인) 수**를 근거 문구 끝에 "(출처 N곳)" 으로 적는다. 출처끼리 엇갈리면 그것도
-문구 끝에 표시한다. DB 값을 확인한 근거·비교할 수 없는 근거는 이상 징후가 아니라 Signal 로 만들지 않는다 —
-변화가 없으면 Signal 은 0행이다. 저장할 수 없는 값(카카오, `Observation.storable`)만 가리키는 변화는 수정안에
+문구 끝에 표시한다. DB 값을 확인한 근거·비교할 수 없는 근거는 이상 징후가 아니라 변화 Signal 로 만들지 않는다.
+변화가 없으면 조사를 마친 뒤 항목마다 확인 근거(`SIGNAL_NONE`)를 붙인다(`with_confirmations`). 저장할 수 없는 값(카카오, `Observation.storable`)만 가리키는 변화는 수정안에
 값을 담지 않고 Signal(근거·링크)만 남긴다.
 
 **신호에 등급을 두지 않는다.** 가게 정보는 어차피 담당자가 승인해야 바뀌므로, 근거가 약하다고
@@ -437,3 +437,61 @@ def classify(
         signals=signals,
         map_check=place,
     )
+
+
+#: 지도·웹 어디서도 이 가게를 못 찾았을 때 담당자에게 보이는 문구. 폐업한 가게는 대부분 여기 온다(인허가 폐업 30곳 중
+#: 29곳이 지도에서 사라짐) — 다만 영업 중인 가게도 약 30% 가 와서 우선확인으로 올리지는 않는다.
+NOT_FOUND_TEXT = "지도·웹에서 이 가게를 찾지 못함 — 영업 여부를 직접 확인하세요"
+
+
+def _source_labels(o: Observation) -> set[str]:
+    """근거 출처 이름. 지도 관측은 근거 문구가 "카카오맵에 등록된 값" 꼴이라 앞부분을, 웹 관측은 도메인들을 쓴다."""
+    if "에 등록된 값" in o.evidence:
+        return {o.evidence.split("에 등록된 값")[0]}
+    return set(o.domains)
+
+
+def confirmation_signals(target: InvestigationTarget, observations: list[Observation]) -> list[Signal]:
+    """변화가 없을 때 항목마다 확인했는지 못 했는지를 남긴다 — `SIGNAL_NONE`(변화근거부족) 행으로.
+
+    분류는 그대로 변화없음이다. 지금까지는 지도에서 전부 확인된 가게와 아무것도 못 찾은 가게가 똑같이 "변화없음"
+    이라 담당자가 어느 쪽인지 알 수 없었다. 가게명·주소·전화 중 DB 에 값이 있는 항목마다 한 행 — "DB 값과 일치 +
+    출처 링크" 또는 "확인할 근거를 찾지 못함". 아무 근거도 없으면 항목별로 나누지 않고 영업 상태 한 행으로 남긴다.
+    """
+    usable = []
+    for o in observations:
+        if not o.sources:
+            continue
+        if o.field is ChangeField.PHONE:
+            phone = domestic_phone(o.value)
+            if phone is None:
+                continue
+            o = replace(o, value=phone)
+        usable.append(o)
+    if not usable:
+        return [Signal(signalType=SignalType.SIGNAL_NONE, field=ChangeField.STATUS, evidenceText=NOT_FOUND_TEXT)]
+    signals = []
+    for change_field in (ChangeField.NAME, ChangeField.ADDRESS, ChangeField.PHONE):
+        if not _current_value(target, change_field):
+            continue
+        same = [o for o in usable if o.field is change_field and relation_to_db(target, change_field, o.value) == "same"]
+        label = _FIELD_LABELS[change_field]
+        if same:
+            sources = sorted({label for o in same for label in _source_labels(o)})
+            text = f"{label}: DB 값과 일치 — {', '.join(sources)}"
+            signals.append(Signal(signalType=SignalType.SIGNAL_NONE, field=change_field, evidenceText=text,
+                                  evidenceUrl=same[0].sources[0].url))
+        else:
+            signals.append(Signal(signalType=SignalType.SIGNAL_NONE, field=change_field,
+                                  evidenceText=f"{label}: 확인할 근거를 찾지 못함"))
+    return signals
+
+
+def with_confirmations(target: InvestigationTarget, observations: list[Observation], finding: StoreFinding) -> StoreFinding:
+    """조사를 마친 변화없음 결과에 확인 근거를 붙인다. 변화가 잡혔거나 실패한 결과는 그대로 둔다.
+
+    **조사 중간에는 붙이지 않는다** — `coverage` 와 지도 확정 판단은 Signal 이 있으면 변화로 본다.
+    """
+    if finding.classification is not TaskClassification.NO_CHANGE or finding.signals or finding.failure:
+        return finding
+    return finding.model_copy(update={"signals": confirmation_signals(target, observations)})

@@ -42,6 +42,7 @@ from src.backend_client.models import StoreCheck  # noqa: E402
 from src.investigation import (  # noqa: E402
     ChangeField,
     InvestigationTarget,
+    SignalType,
     StoreFinding,
 )
 from src.investigation.classify import classify  # noqa: E402
@@ -114,7 +115,7 @@ def change_summary(found: StoreFinding) -> str:
     return "; ".join(
         f"{s.field.value}:{s.observed}({s.source_count}곳{',지도와 다름' if MAP_DISAGREES in s.evidence_text else ''})"
         for s in found.signals
-        if s.field
+        if s.field and s.signal_type is SignalType.SIGNAL_HIGH  # 변화없음의 확인 근거(SIGNAL_NONE)는 변화가 아니다
     )
 
 

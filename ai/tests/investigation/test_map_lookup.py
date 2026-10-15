@@ -10,7 +10,7 @@ import pytest
 from src.backend_client.models import StoreStatus
 from src.investigation.classify import classify, coverage
 from src.investigation.map_lookup import KakaoLocalLookup, MapLookup, NaverLocalLookup, moved_store, same_store
-from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, PlaceStatus
+from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, PlaceStatus, SignalType, TaskClassification
 from src.investigation.web import WebInvestigator
 from src.investigation.web_research import Observation, ResearchResult, Source
 
@@ -181,7 +181,12 @@ class TestMapsFirst:
 
         found = WebInvestigator(research, map_lookup=maps).investigate(TARGET)
 
-        assert research.calls == 0 and found.signals == []
+        assert research.calls == 0 and found.classification is TaskClassification.NO_CHANGE
+        # 변화는 없고, 항목마다 "DB 값과 일치" 확인 근거가 남는다(`SIGNAL_NONE`).
+        assert [(s.signal_type, s.field) for s in found.signals] == [
+            (SignalType.SIGNAL_NONE, ChangeField.NAME), (SignalType.SIGNAL_NONE, ChangeField.ADDRESS),
+            (SignalType.SIGNAL_NONE, ChangeField.PHONE)]
+        assert all(s.evidence_text.endswith("DB 값과 일치 — 지도") and s.evidence_url for s in found.signals)
 
     def test_지도로_안_끝나면_웹검색을_더한다(self):
         web = Observation(field=ChangeField.PHONE, value="053-567-9999", evidence="전화 053-567-9999",
@@ -314,6 +319,7 @@ class StubAgent:
     def continue_from(self, target, maps, *, place=None):
         self.calls.append(maps)
         self.place = place
+        self.last_observations = list(maps)
         return classify(target, ResearchResult(maps), place)
 
 
