@@ -19,6 +19,7 @@
     uv run python -m eval.mismatch_bench run --tag m1                 # 웹검색만(원래 운영)
     uv run python -m eval.mismatch_bench run --tag f1 --mode fixed    # 지도 먼저, 안 되면 웹(고정 순서)
     uv run python -m eval.mismatch_bench run --tag a1 --mode agent    # 에이전트(AGENT_MODEL 이 있으면 그 모델이 판단)
+    uv run python -m eval.mismatch_bench run --tag r1 --mode hybrid_rule  # 혼합과 같되 다음 도구를 규칙이 고름(기준선)
     uv run python -m eval.mismatch_bench grade --tag m1
 
 결과(2026-10-06, 같은 58곳·오류 34): 웹만 10 · 고정 순서 22(LLM 가게당 0.5회, 7초) · 에이전트 Gemini 판단 20(4.2회,
@@ -193,17 +194,80 @@ class _CapturingMaps:
         return self.last
 
 
+class RuleDecider:
+    """규칙 기준선 — 판단 모델 자리에서 정해 둔 순서로 도구를 고른다(LLM 없음). 에이전트 판단이 규칙보다 나은지 재려고.
+
+    혼합 방식 프롬프트의 지도 결과("상호: 다름(map.kakao.com)" …)를 읽어, "다름"인 항목 → "못 찾음"·"판단 보류"인 항목 순으로
+    그 항목만 웹검색한다(최대 `MAX_WEB_SEARCHES` 번). 셋 다 못 찾았으면 전체 검색 한 번. DB 값이 없는 항목은 찾지 않는다.
+    프롬프트가 에이전트에게 시키는 방법과 같다 — 다른 건 "누가 고르느냐"뿐이다.
+    """
+
+    model = "rule"
+    _FIELDS = {"상호": "name", "주소": "address", "전화": "phone"}
+    _LABELS = {"name": "상호", "address": "주소", "phone": "전화번호"}
+
+    def __init__(self, *, anchored: bool = False) -> None:
+        #: 검색 목적에 이미 아는 다른 항목(주소·전화 등)을 닻으로 건다 — 판단 모델이 쓰는 목적 문장을 흉내 낸다.
+        #: 모델이 규칙보다 값을 더 고친 사례(영화반점·연산식당)는 이 차이였다(rule1 vs luna1).
+        self.anchored = anchored
+
+    def _goal(self, prompt: str, field: str, plain: str) -> str:
+        if not self.anchored:
+            return plain
+        known = {}
+        for line in prompt.split("\n\n", 2)[1].splitlines():
+            label, _, value = line.partition(":")
+            if label.strip() in self._FIELDS and value.strip() and value.strip() != "(없음)":
+                known[self._FIELDS[label.strip()]] = value.strip()
+        if field == "all":
+            anchors = ", ".join(f"{self._LABELS[f]} {v}" for f, v in known.items())
+            return f"{anchors} 인 가게의 현재 상호·주소·전화번호·영업 상태를 웹 자료에서 찾아 DB 와 대조할 수 있게 확인한다"
+        anchors = ", ".join(f"{self._LABELS[f]} {v}" for f, v in known.items() if f != field)
+        return (f"{anchors} 에 해당하는 이 가게의 실제 {self._LABELS[field]}을 지도 외 웹 자료에서 찾아, 수정안에 쓸 수 있는 "
+                f"값을 확인한다")
+
+    def respond(self, items: list[dict], tool_names: list[str] | None = None) -> list[dict]:
+        from src.investigation.agent import MAX_WEB_SEARCHES
+
+        prompt = items[0]["content"]
+        summary = prompt.split("결과(항목: DB 와의 관계(출처)):", 1)[-1].split("\n\n", 1)[0]
+        status = {}
+        for line in summary.strip().splitlines():
+            label, _, rest = line.partition(":")
+            if label.strip() in self._FIELDS:
+                status[self._FIELDS[label.strip()]] = rest
+        if status and all("못 찾음" in v for v in status.values()):
+            plan = [("all", self._goal(prompt, "all", "지도에서 전부 못 찾아 전체 확인"))]
+        else:
+            differ = [f for f, v in status.items() if "다름" in v]
+            unknown = [f for f, v in status.items() if f not in differ and ("못 찾음" in v or "판단 보류" in v)]
+            plan = ([(f, self._goal(prompt, f, "지도와 다른 값 확인")) for f in differ]
+                    + [(f, self._goal(prompt, f, "지도에서 확인 못 한 값 확인")) for f in unknown])
+        plan = plan[:MAX_WEB_SEARCHES]
+        done = sum(1 for i in items if i.get("type") == "function_call_output")
+        if done < len(plan):
+            field, goal = plan[done]
+            return [{"type": "function_call", "call_id": f"r{done}", "name": "web_search",
+                     "arguments": json.dumps({"field": field, "goal": goal}, ensure_ascii=False)}]
+        return [{"type": "function_call", "call_id": f"r{done}", "name": "finish",
+                 "arguments": json.dumps({"reason": "규칙에 정한 검색을 마침"}, ensure_ascii=False)}]
+
+
 def _investigator(mode: str, provider: _Capturing, maps: _CapturingMaps):
     """web: 웹검색만 · fixed: 지도 먼저, 안 되면 웹(규칙) · agent: 에이전트가 처음부터 ·
-    hybrid: 지도 먼저, 확정 안 되면 에이전트가 이어서."""
+    hybrid: 지도 먼저, 확정 안 되면 에이전트가 이어서 · hybrid_rule: hybrid 와 같되 다음 도구를 규칙이 고른다."""
     if mode == "web":
         return WebInvestigator(provider, place_checker=KakaoPlaceChecker())
     if mode == "fixed":
         return WebInvestigator(provider, map_lookup=maps)  # 카카오는 값 대조 한 경로만(운영과 같게)
     from src.investigation.agent import AgentInvestigator, OpenAIDecider
     # AGENT_MODEL 이 있으면 그 모델(OpenAI 호환, 카테캠 프록시 등)이 판단하고, 없으면 Vertex Gemini 가 판단한다.
-    agent = AgentInvestigator(provider, map_lookup=maps, decider=OpenAIDecider.from_env())
-    if mode == "hybrid":
+    if mode in ("hybrid_rule", "hybrid_rule_anchored"):
+        decider = RuleDecider(anchored=mode == "hybrid_rule_anchored")
+    else:
+        decider = OpenAIDecider.from_env()
+    agent = AgentInvestigator(provider, map_lookup=maps, decider=decider)
+    if mode in ("hybrid", "hybrid_rule", "hybrid_rule_anchored"):
         return WebInvestigator(provider, map_lookup=maps, agent=agent)
     return agent
 
@@ -352,7 +416,7 @@ def main() -> int:
     sub.add_parser("build").add_argument("--n", type=int, default=60)
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--tag", required=True)
-    run_parser.add_argument("--mode", choices=("web", "fixed", "agent", "hybrid"), default="web")
+    run_parser.add_argument("--mode", choices=("web", "fixed", "agent", "hybrid", "hybrid_rule", "hybrid_rule_anchored"), default="web")
     sub.add_parser("grade").add_argument("--tag", required=True)
     args = parser.parse_args()
     if args.command == "build":
