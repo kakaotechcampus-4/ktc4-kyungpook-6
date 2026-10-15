@@ -95,7 +95,33 @@ dev 서버에서만 쓰는 값은 `.env.development` 에 따로 둡니다(`.env.
 내부망 `http://backend:8080` 으로 돌리는 쪽이 맞지만, 호출 경로가 달라지므로 배포본에서 조사가 도는지
 확인한 뒤에 바꿉니다. `http://localhost:8080` 은 AI 컨테이너 안에서 자기 자신을 가리키니 넣지 마세요.
 
+### AI 조사에 필요한 값
+
+조사는 **Vertex AI** 로 돕니다. 키가 없으면 **배포는 성공하고 화면도 뜨는데 조사만 503** 이라 티가
+안 납니다(`ai/src/server/main.py` 가 `GOOGLE_CLOUD_PROJECT` 가 없으면 조사기를 안 꽂습니다).
+
+Vertex 는 API 키가 아니라 **서비스 계정 JSON(ADC)** 으로 인증합니다. 배포에서는 저장소 시크릿에서
+받아 붙입니다 — **서버 `.env` 를 고치지 않습니다.**
+
+```
+GitHub Secrets (GCP_SA_KEY)  →  deploy-dev.yml 이 ~/.ktc4/vertex.json 으로 씀
+                             →  VERTEX_KEY_PATH  →  컨테이너 /run/secrets/vertex.json
+```
+
+| 이름 | 종류 | 없으면 |
+|---|---|---|
+| `GCP_SA_KEY` · `GCP_PROJECT_ID` | Secret | 조사가 503 |
+| `KAKAO_REST_API_KEY` | Secret | 지도 확인 없이 웹검색만 |
+| `NAVER_CLIENT_ID` · `NAVER_CLIENT_SECRET` | Secret | 네이버 대조 불가 |
+| `AGENT_API_KEY` | Secret | 판단 모델이 Vertex 로 떨어집니다 |
+| `AI_NAVER_LOCAL_ENABLED` · `AI_KAKAO_COMPARE_ENABLED` · `AI_AGENT_ENABLED` · `AI_AGENT_MODEL` | Variable | 전부 꺼짐 |
+
+⚠️ **지도 대조 스위치를 켜기 전에** `ai/src/investigation/classify.py:84` 를 고쳐야 합니다 —
+`"대구왕갈비본점" → "왕갈비본점"` 으로 잘려서 같은 구 안의 **다른 가게** 정보를 끌어옵니다.
+
 배포는 `main`·`develop` 푸시에 `.github/workflows/deploy-main.yml`·`deploy-dev.yml` 이 돕니다.
+**main 쪽은 `workflow_dispatch` 로 손으로도 돌릴 수 있습니다** — 그게 없으면 주간 멘토 리뷰 PR 이
+머지될 때만 돌아서, 배포를 고쳐도 다음 주까지 시험할 방법이 없었습니다.
 
 ## 브랜치와 PR
 
