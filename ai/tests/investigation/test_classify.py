@@ -7,7 +7,14 @@ from datetime import datetime
 import pytest
 
 from src.backend_client.models import StoreStatus
-from src.investigation.classify import classify, comparison_key, domestic_phone, name_relation, road_address_key
+from src.investigation.classify import (
+    classify,
+    comparison_key,
+    domestic_phone,
+    name_relation,
+    relation_to_db,
+    road_address_key,
+)
 from src.investigation.models import (
     ChangeField,
     InvestigationTarget,
@@ -374,6 +381,20 @@ class TestClassify:
         found = run(obs(ChangeField.PHONE, phone, "tistory.com"))
 
         assert found.classification is TaskClassification.NO_CHANGE
+
+    @pytest.mark.parametrize(("db", "seen"), [("053-111-2222", "0507-1480-0708"), ("0502-123-4567", "053-999-0000"),
+                                              ("0507-1480-0708", "0502-123-4567"), (None, "0507-1480-0708")])
+    def test_안심번호는_DB_번호와_다르거나_DB_가_비어도_변화가_아니다(self, db, seen):
+        target = TARGET.model_copy(update={"phone": db})
+        found = classify(target, ResearchResult([obs(ChangeField.PHONE, seen, "map.kakao.com")]))
+
+        assert found.classification is TaskClassification.NO_CHANGE
+        assert relation_to_db(target, ChangeField.PHONE, seen) == "unknown"
+
+    def test_안심번호도_DB_와_같은_번호면_확인_근거다(self):
+        target = TARGET.model_copy(update={"phone": "0507-1480-0708"})
+
+        assert relation_to_db(target, ChangeField.PHONE, "050714800708") == "same"
 
     def test_DB_에_없는_값을_찾으면_채우자고_제안한다(self):
         target = InvestigationTarget(store_id=2, name="예시분식")
