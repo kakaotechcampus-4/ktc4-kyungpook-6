@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -140,6 +141,20 @@ public class StoreService {
     public Store findStore(Long storeId) {
         return storeRepository.findById(storeId)
                 .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+    }
+
+    /**
+     * 가게 엔티티를 찾되, 없는 것을 <b>오류로 보지 않는</b> 경로용이다 — 지금은 조사 실행기만 쓴다.
+     *
+     * <p>조사가 도는 중에 담당자가 그 가게를 지울 수 있다({@code force=true}). 그때 실행기가
+     * {@link #findStore} 를 부르면 예외가 올라가 <b>조사 전체가 멈춘다</b>. 사라진 가게는 건너뛰고
+     * 나머지를 계속 조사하는 편이 맞으므로, 그 판단을 부르는 쪽이 하게 빈 값으로 돌려준다.
+     *
+     * @param storeId 찾을 가게 ID
+     * @return 가게 엔티티. 없으면 빈 값
+     */
+    public Optional<Store> findStoreIfPresent(Long storeId) {
+        return storeRepository.findById(storeId);
     }
 
     /**

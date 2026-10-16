@@ -31,6 +31,9 @@ import java.time.LocalDateTime;
  * 잡지 않는 예외(한도 초과·구현 없음)는 남은 가게도 다 같은 실패라 Job 을 멈춘다. 그 밖의 예상 못 한 예외도 바깥에서
  * 받아 Job 을 실패로 끝낸다 — 반환형이 void 인 {@code @Async} 는 예외를 로그 한 줄로 삼켜, 받지 않으면 Job 이 영원히
  * 진행 중으로 남는다.
+ *
+ * <p><b>조사 도중 가게가 지워지면 그 가게만 건너뛴다.</b> 저장 메서드가 {@code false} 를 돌려주는 경우다 —
+ * 예외가 아니라서 위의 안전망에 걸리지 않는다. 자세한 이유는 {@link TaskService} Javadoc 에 있다.
  */
 @Slf4j
 @Service
@@ -106,11 +109,13 @@ public class InvestigationRunner {
 
     private void saveNts(Long jobId, NtsTarget target) {
         try {
-            taskService.saveNts(jobId, target);
+            if (!taskService.saveNts(jobId, target)) {
+                log.info("1차 결과를 남기지 않음 - 조사 도중 가게가 지워졌다. jobId={}, storeId={}", jobId, target.storeId());
+            }
         } catch (RuntimeException e) {
             log.error("1차 결과 저장 실패 - jobId={}, storeId={}", jobId, target.storeId(), e);
             // 실패 기록마저 실패하면 위로 올라가 안전망이 Job 을 끝낸다 — 그 가게를 빠뜨린 채 계속 가지 않는다
-            taskService.saveFailure(jobId, target.storeId(), REASON_SAVE_FAILED);
+            saveFailure(jobId, target.storeId(), REASON_SAVE_FAILED);
         }
     }
 
@@ -134,14 +139,16 @@ public class InvestigationRunner {
         if (finding.isFailed()) {
             // AI 가 이미 판단을 끝낸 실패다. 다시 부르면 또 60초를 쓴다.
             log.info("AI 가 가게를 조사하지 못함 - jobId={}, storeId={}, 이유={}", jobId, storeId, finding.failure());
-            taskService.saveFailure(jobId, storeId, REASON_AI_FAILED);
+            saveFailure(jobId, storeId, REASON_AI_FAILED);
             return;
         }
         try {
-            taskService.save(jobId, finding, LocalDateTime.now());
+            if (!taskService.save(jobId, finding, LocalDateTime.now())) {
+                log.info("AI 결과를 남기지 않음 - 조사 도중 가게가 지워졌다. jobId={}, storeId={}", jobId, storeId);
+            }
         } catch (RuntimeException e) {
             log.error("AI 결과 저장 실패 - jobId={}, storeId={}", jobId, storeId, e);
-            taskService.saveFailure(jobId, storeId, REASON_SAVE_FAILED);
+            saveFailure(jobId, storeId, REASON_SAVE_FAILED);
         }
     }
 
@@ -165,7 +172,14 @@ public class InvestigationRunner {
         checkInterrupted();
         log.warn("AI 조사 실패 - jobId={}, storeId={}, 종류={}, 내용={}",
                 jobId, storeId, cause.getClass().getSimpleName(), cause.getMessage());
-        taskService.saveFailure(jobId, storeId, reason);
+        saveFailure(jobId, storeId, reason);
+    }
+
+    /** 실패를 남긴다. 그 가게가 조사 도중 지워졌으면 남길 곳이 없어 건너뛴 것을 로그로만 남긴다. */
+    private void saveFailure(Long jobId, Long storeId, String reason) {
+        if (!taskService.saveFailure(jobId, storeId, reason)) {
+            log.info("실패를 남기지 않음 - 조사 도중 가게가 지워졌다. jobId={}, storeId={}", jobId, storeId);
+        }
     }
 
     private void failJob(Long jobId, String errorMessage) {
