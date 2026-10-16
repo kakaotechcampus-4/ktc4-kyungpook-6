@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * @param tasks         함께 지운 조사 결과 수
  * @param verifications 함께 지운 확인 기록 수
  * @param signals       함께 지운 신호 수
+ * @param changeHistories 함께 지운 가게 변경 기록 수
  * @param ownerLinks    함께 끊은 점주 연결 수 — {@code force} 로 지웠을 때만 0보다 크다
  */
 public record StoreDeleteResponse(
@@ -46,6 +47,9 @@ public record StoreDeleteResponse(
 
         @Schema(description = "함께 지운 신호 수", example = "4")
         int signals,
+
+        @Schema(description = "함께 지운 가게 변경 기록 수", example = "2")
+        int changeHistories,
 
         @Schema(description = "함께 끊은 점주 연결 수. 0보다 크면 그 점주의 앱에서 이 가게가 사라집니다",
                 example = "0")

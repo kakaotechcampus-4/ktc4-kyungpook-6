@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.checkin.repository.CheckInRepository;
 import com.ktc4.backend.domain.job.enums.JobStatus;
+import com.ktc4.backend.domain.job.repository.JobRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.domain.signal.repository.SignalRepository;
 import com.ktc4.backend.domain.store.dto.StoreDeleteResponse;
@@ -11,6 +12,7 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsChangeRepository;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
 import com.ktc4.backend.domain.store.repository.StoreBusinessHourRepository;
+import com.ktc4.backend.domain.store.repository.StoreChangeHistoryRepository;
 import com.ktc4.backend.domain.store.repository.StoreMenuRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
@@ -39,10 +41,15 @@ import java.util.Set;
  *
  * <h2>지우는 순서</h2>
  * <pre>
- * 신호 → 확인 기록 → 조사 결과 → 메뉴 · 영업시간 · 국세청 변경 이력 · 국세청 확인 · 점주 연결 → 가게
+ * 신호 → 확인 기록 → 조사 결과
+ *      → 메뉴 · 영업시간 · 국세청 변경 이력 · 국세청 확인 · 변경 기록 · 점주 연결 → 가게
  * </pre>
  * 신호는 조사 결과를, 확인 기록은 가게와 조사 결과를 함께 가리킨다. 그래서 둘을 조사 결과보다 먼저
  * 지운다. 조사({@code job}) 자체는 남긴다 — 어떤 조사를 언제 돌렸는지는 가게와 별개의 기록이다.
+ *
+ * <p><b>가게를 가리키는 표가 늘면 여기도 늘려야 한다.</b> {@code Store} 에 {@code @OneToMany} 가 없어
+ * 컴파일로는 안 걸리고, 그 표에 줄이 있는 가게를 지울 때만 외래키 제약으로 터진다. 실제로 이 PR 이
+ * 올라온 뒤 {@code store_change_history}(#114) 가 들어와 빠뜨렸다 — 리뷰에서 잡혔다.
  *
  * <h2>지우지 않고 거절하는 경우</h2>
  * 실제 활동이 남은 가게는 그냥 지우지 않는다. 다만 <b>코드가 끝까지 막지는 않는다</b> —
@@ -53,8 +60,9 @@ import java.util.Set;
  *   <tr><th>무엇</th><th>{@code force} 로 넘길 수 있나</th><th>왜</th></tr>
  *   <tr><td>점주가 연결돼 있음</td><td>넘길 수 있다</td>
  *       <td>점주 앱에서 그 가게가 사라진다. 관리자가 알고 지우는 일이다</td></tr>
- *   <tr><td>끝나지 않은 조사에 들어 있음</td><td>넘길 수 있다</td>
- *       <td>돌고 있는 조사의 대상이 없어진다. 같은 이유로 관리자의 판단에 맡긴다</td></tr>
+ *   <tr><td>조사가 돌고 있음</td><td>넘길 수 있다</td>
+ *       <td>돌고 있는 조사의 대상이 없어진다. 같은 이유로 관리자의 판단에 맡긴다.
+ *           <b>가게 단위가 아니라 조사 단위로 본다</b> — 아래 설명</td></tr>
  *   <tr><td>방문(체크인) 기록이 있음</td><td><b>넘길 수 없다</b></td>
  *       <td>아동이 실제로 다녀간 기록인데 <b>보관할 자리가 아직 없다.</b> 지우면 영구히 사라진다 —
  *           보관 방법을 정하기 전까지는 지우는 쪽이 더 위험하다</td></tr>
@@ -62,13 +70,23 @@ import java.util.Set;
  *
  * <p>{@code force} 는 "지울 수 있게 해 달라"가 아니라 <b>"그 리스크를 알고 있다"는 표시</b>다.
  * 기본값은 꺼짐이라, 모르고 지우는 일은 여전히 한 번 막힌다.
+ *
+ * <h2>조사 중 삭제를 가게 단위로 막지 못하는 이유</h2>
+ * 조사는 시작할 때 {@code Job} 하나만 만들고, {@code Task} 는 <b>가게 한 곳이 끝날 때마다</b> 생긴다.
+ * 그래서 "이 가게가 지금 조사에 들어 있나" 를 물을 표가 없다 — 아직 차례가 안 온 가게는 어디에도 없다.
+ * 가게로 물으면 <b>이미 끝난 가게만 걸리고 아직 안 끝난 가게는 통과한다</b>(막으려던 것과 반대).
+ * 그래서 조사가 하나라도 안 끝났으면 그동안은 삭제를 받지 않는다. 조사는 한 번에 하나만 돌고
+ * ({@code JobService.create} 가 막는다) 보통 분 단위로 끝난다.
+ *
+ * <p>{@code force} 로 넘기면 대상이 사라진 채로 조사가 계속 돈다. 그때 실행기가 멈추지 않도록
+ * {@code TaskService} 가 사라진 가게를 건너뛴다 — 그쪽 Javadoc 참고.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class StoreDeletionService {
 
-    /** 끝나지 않은 것으로 보는 조사 상태. 이 중 하나라도 걸리면 그 가게는 지우지 않는다. */
+    /** 끝나지 않은 것으로 보는 조사 상태. 이 중 하나라도 있으면 그동안은 가게를 지우지 않는다. */
     private static final Set<JobStatus> UNFINISHED_JOBS = Set.of(JobStatus.PENDING, JobStatus.IN_PROGRESS);
 
     private final StoreRepository storeRepository;
@@ -76,11 +94,13 @@ public class StoreDeletionService {
     private final StoreNtsChangeRepository storeNtsChangeRepository;
     private final StoreMenuRepository storeMenuRepository;
     private final StoreBusinessHourRepository storeBusinessHourRepository;
+    private final StoreChangeHistoryRepository storeChangeHistoryRepository;
     private final StoreOwnerRepository storeOwnerRepository;
     private final CheckInRepository checkInRepository;
     private final TaskRepository taskRepository;
     private final VerificationRepository verificationRepository;
     private final SignalRepository signalRepository;
+    private final JobRepository jobRepository;
 
     /**
      * 가게 한 곳을 딸린 기록과 함께 지운다.
@@ -89,7 +109,7 @@ public class StoreDeletionService {
      * @return 지운 가게와, 함께 지운 기록의 줄 수
      * @throws CustomException 가게가 없으면 {@code STORE_NOT_FOUND},
      *                         점주가 연결돼 있으면 {@code STORE_HAS_OWNER},
-     *                         끝나지 않은 조사에 들어 있으면 {@code STORE_UNDER_INVESTIGATION},
+     *                         끝나지 않은 조사가 있으면 {@code STORE_UNDER_INVESTIGATION},
      *                         방문 기록이 있으면 {@code STORE_HAS_CHECK_IN}
      */
     @Transactional
@@ -150,7 +170,7 @@ public class StoreDeletionService {
      * 그제서야 체크인에 막힌다 — 한 번에 알려 주는 편이 낫다.
      *
      * @param storeId 가게 ID
-     * @param force   점주 연결·진행 중 조사를 넘길지
+     * @param force   점주 연결·돌고 있는 조사를 넘길지
      * @return 지우면 안 되는 이유. 지워도 되면 빈 값
      */
     private Optional<ErrorCode> refusalOf(Long storeId, boolean force) {
@@ -163,7 +183,9 @@ public class StoreDeletionService {
         if (storeOwnerRepository.existsLinkedByStoreId(storeId)) {
             return Optional.of(ErrorCode.STORE_HAS_OWNER);
         }
-        if (taskRepository.existsByStoreIdAndJobStatusIn(storeId, UNFINISHED_JOBS)) {
+        // 가게 단위로는 판정할 수 없다 — Task 는 그 가게가 끝났을 때 생기므로, 아직 차례가 안 온 가게는
+        // 어떤 표에도 없다. 그래서 조사가 돌고 있으면 그동안 삭제를 받지 않는다(PR #113 리뷰).
+        if (jobRepository.existsByStatusIn(UNFINISHED_JOBS)) {
             return Optional.of(ErrorCode.STORE_UNDER_INVESTIGATION);
         }
         return Optional.empty();
@@ -190,6 +212,7 @@ public class StoreDeletionService {
         int businessHours = storeBusinessHourRepository.deleteAllByStoreId(storeId);
         int ntsChanges = storeNtsChangeRepository.deleteAllByStoreId(storeId);
         int ntsChecks = storeNtsCheckRepository.deleteAllByStoreId(storeId);
+        int changeHistories = storeChangeHistoryRepository.deleteAllByStoreId(storeId);
         // force 로 지울 때만 0보다 크다. 끊긴 연결 행도 함께 지운다 — 가게가 사라지면 가리킬 곳이 없다.
         int ownerLinks = storeOwnerRepository.deleteAllByStoreId(storeId);
 
@@ -201,9 +224,9 @@ public class StoreDeletionService {
         if (ownerLinks > 0) {
             log.warn("가게 삭제 - 점주 연결을 함께 끊었다. storeId={}, 연결 {}건", storeId, ownerLinks);
         }
-        log.info("가게 삭제 - storeId={}, 조사결과 {}건, 국세청확인 {}건, 점주연결 {}건",
-                storeId, tasks, ntsChecks, ownerLinks);
+        log.info("가게 삭제 - storeId={}, 조사결과 {}건, 국세청확인 {}건, 변경기록 {}건, 점주연결 {}건",
+                storeId, tasks, ntsChecks, changeHistories, ownerLinks);
         return new StoreDeleteResponse(storeId, name, ntsChecks, ntsChanges, menus, businessHours,
-                tasks, verifications, signals, ownerLinks);
+                tasks, verifications, signals, changeHistories, ownerLinks);
     }
 }

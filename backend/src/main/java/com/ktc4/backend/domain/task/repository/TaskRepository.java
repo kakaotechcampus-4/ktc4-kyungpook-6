@@ -1,6 +1,5 @@
 package com.ktc4.backend.domain.task.repository;
 
-import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.task.entity.Task;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,7 +8,6 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,25 +23,6 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
      */
     @Query("select t.taskId from Task t where t.store.storeId = :storeId")
     List<Long> findTaskIdsByStoreId(@Param("storeId") Long storeId);
-
-    /**
-     * 그 가게가 아직 끝나지 않은 조사에 들어 있는지 — 가게를 지워도 되는지 판단하는 데 쓴다.
-     *
-     * <p>돌고 있는 조사의 대상을 지우면 AI 서버가 결과를 돌려줄 때 가리킬 가게가 없어진다.
-     * 그래서 {@code PENDING}·{@code IN_PROGRESS} 조사에 들어 있으면 삭제를 거절한다
-     * ({@code STORE_UNDER_INVESTIGATION}). 끝난 조사({@code DONE}·{@code FAILED})는 막지 않는다.
-     *
-     * @param storeId  가게 ID
-     * @param statuses 끝나지 않은 것으로 볼 조사 상태
-     * @return 그런 조사가 있으면 true
-     */
-    @Query("""
-            select count(t) > 0
-            from Task t
-            where t.store.storeId = :storeId and t.job.status in :statuses
-            """)
-    boolean existsByStoreIdAndJobStatusIn(@Param("storeId") Long storeId,
-                                          @Param("statuses") Collection<JobStatus> statuses);
 
     /**
      * 그 가게의 조사 결과를 한 번의 {@code delete} 문으로 지운다 — 가게를 지울 때 부른다.

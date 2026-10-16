@@ -27,7 +27,7 @@ public record StoreDeletionRequest(
         List<Long> storeIds,
 
         @Schema(description = """
-                점주 연결이나 진행 중인 조사가 있어도 지울지. 기본은 false 입니다.
+                점주 연결이 있거나 조사가 돌고 있어도 지울지. 기본은 false 입니다.
 
                 **관리자가 그 리스크를 알고 지운다는 표시입니다.** true 면 점주 앱에서 그 가게가
                 사라지고, 돌고 있는 조사의 대상이 없어집니다. 코드가 막는 대신 부른 쪽이

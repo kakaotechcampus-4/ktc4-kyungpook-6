@@ -10,15 +10,20 @@ import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.signal.enums.SignalSource;
 import com.ktc4.backend.domain.signal.enums.SignalType;
 import com.ktc4.backend.domain.signal.repository.SignalRepository;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreDeleteResponse;
 import com.ktc4.backend.domain.store.dto.StoreDeletionRequest;
 import com.ktc4.backend.domain.store.dto.StoreDeletionResponse;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.entity.StoreChangeHistory;
+import com.ktc4.backend.domain.store.enums.StoreChangeField;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsChange;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsChangeRepository;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
+import com.ktc4.backend.domain.store.repository.StoreChangeHistoryRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
@@ -84,6 +89,9 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
     private JobRepository jobRepository;
 
     @Autowired
+    private StoreChangeHistoryRepository storeChangeHistoryRepository;
+
+    @Autowired
     private TestEntityManager entityManager;
 
     @Test
@@ -142,8 +150,8 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
     }
 
     @Test
-    @DisplayName("끝나지 않은 조사에 들어 있으면 지우지 않는다")
-    void 진행중_조사에_든_가게는_거절한다() {
+    @DisplayName("조사가 돌고 있으면 지우지 않는다")
+    void 조사가_돌면_거절한다() {
         Store store = saveStore("미리내카페");
         Job running = jobRepository.saveAndFlush(Job.builder()
                 .requestedBy("admin")
@@ -167,7 +175,47 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
     }
 
     @Test
-    @DisplayName("끝난 조사에 들어 있는 가게는 지운다 — 막는 것은 진행 중일 때만이다")
+    @DisplayName("조사 차례가 아직 안 온 가게도 거절한다 — Task 가 없어 가게로는 판정할 수 없다")
+    void 조사_차례가_안_온_가게도_거절한다() {
+        // 조사는 시작할 때 Job 만 만들고, Task 는 가게 한 곳이 끝날 때마다 생긴다. 그래서 이 가게는
+        // 조사 대상인데도 어느 표에도 없다. 가게로 물으면 통과해 버리고, 지우면 그 차례에 조사가 멈춘다.
+        Store store = saveStore("들꽃반찬");
+        jobRepository.saveAndFlush(Job.builder()
+                .requestedBy("admin")
+                .status(JobStatus.IN_PROGRESS)
+                .targetCount(3)
+                .completedCount(0)
+                .build());
+        entityManager.clear();
+
+        assertThat(taskRepository.count()).isZero();
+        assertThatThrownBy(() -> storeDeletionService.delete(store.getStoreId(), false))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORE_UNDER_INVESTIGATION));
+
+        entityManager.clear();
+        assertThat(storeRepository.findById(store.getStoreId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("변경 기록이 남은 가게도 지운다 — #114 로 늘어난 표다")
+    void 변경_기록이_있는_가게를_지운다() {
+        Store store = saveStore("구름빵집");
+        saveChangeHistory(store, StoreChangeField.PHONE, "\"053-000-0000\"", "\"053-111-1111\"");
+        saveChangeHistory(store, StoreChangeField.STATUS, "\"OPEN\"", "\"CLOSED\"");
+        entityManager.flush();
+        entityManager.clear();
+
+        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId(), false);
+
+        assertThat(response.changeHistories()).isEqualTo(2);
+        entityManager.clear();
+        assertThat(storeRepository.findById(store.getStoreId())).isEmpty();
+        assertThat(storeChangeHistoryRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("끝난 조사에 들어 있는 가게는 지운다 — 막는 것은 돌고 있을 때만이다")
     void 끝난_조사에_든_가게는_지운다() {
         Store store = saveStore("한빛국밥");
         saveFinishedTask(store);
@@ -183,19 +231,11 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
     @Test
     @DisplayName("여러 곳을 지울 때, 거절된 가게는 결과에 담고 나머지는 지운다")
     void 여러곳_부분_성공() {
+        // 거절 사유는 가게 단위 조건(체크인)으로 만든다 — 조사는 조사 단위로 막으므로 한 곳만 거절하는
+        // 상황을 만들 수 없다.
         Store deletable = saveStore("구름빵집");
         Store blocked = saveStore("해오름식당");
-        Job running = jobRepository.saveAndFlush(Job.builder()
-                .requestedBy("admin")
-                .status(JobStatus.PENDING)
-                .targetCount(1)
-                .completedCount(0)
-                .build());
-        entityManager.persistAndFlush(Task.builder()
-                .job(running)
-                .store(blocked)
-                .classification(TaskClassification.ADDITIONAL_CHECK)
-                .build());
+        entityManager.persistAndFlush(CheckIn.of(1L, blocked));
         entityManager.clear();
 
         StoreDeletionResponse response = storeDeletionService.deleteAll(new StoreDeletionRequest(
@@ -209,7 +249,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
                 .satisfies(refusal -> {
                     assertThat(refusal.storeId()).isEqualTo(blocked.getStoreId());
                     assertThat(refusal.name()).isEqualTo("해오름식당");
-                    assertThat(refusal.reason()).isEqualTo(ErrorCode.STORE_UNDER_INVESTIGATION.getTitle());
+                    assertThat(refusal.reason()).isEqualTo(ErrorCode.STORE_HAS_CHECK_IN.getTitle());
                 });
 
         entityManager.clear();
@@ -233,7 +273,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
     }
 
     @Test
-    @DisplayName("force 면 끝나지 않은 조사에 들어 있어도 지운다")
+    @DisplayName("force 면 조사가 돌고 있어도 지운다")
     void force_면_진행중_조사도_넘긴다() {
         Store store = saveStore("미리내카페");
         Job running = jobRepository.saveAndFlush(Job.builder()
@@ -269,6 +309,15 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
 
         entityManager.clear();
         assertThat(storeRepository.findById(store.getStoreId())).isPresent();
+    }
+
+    private void saveChangeHistory(Store store, StoreChangeField field, String before, String after) {
+        entityManager.persist(StoreChangeHistory.of(
+                store,
+                field,
+                new StoreChange(StoreChangeSource.STORE_EDIT, 1L, null, LocalDateTime.now()),
+                before,
+                after));
     }
 
     private Store saveStore(String name) {

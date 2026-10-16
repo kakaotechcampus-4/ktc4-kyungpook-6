@@ -102,14 +102,15 @@ class StoreDeleteAdminControllerTest {
         @DisplayName("단건 삭제는 함께 지운 줄 수를 돌려준다")
         void 단건_삭제() throws Exception {
             when(storeDeletionService.delete(12L, false))
-                    .thenReturn(new StoreDeleteResponse(12L, "가나다분식", 1, 2, 0, 0, 3, 1, 4, 0));
+                    .thenReturn(new StoreDeleteResponse(12L, "가나다분식", 1, 2, 0, 0, 3, 1, 4, 2, 0));
 
             mockMvc.perform(delete(STORE_PATH))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.storeId").value(12))
                     .andExpect(jsonPath("$.name").value("가나다분식"))
                     .andExpect(jsonPath("$.tasks").value(3))
-                    .andExpect(jsonPath("$.signals").value(4));
+                    .andExpect(jsonPath("$.signals").value(4))
+                    .andExpect(jsonPath("$.changeHistories").value(2));
         }
 
         @Test
@@ -137,7 +138,7 @@ class StoreDeleteAdminControllerTest {
         void 여러건_삭제() throws Exception {
             when(storeDeletionService.deleteAll(any())).thenReturn(StoreDeletionResponse.of(
                     3, 1,
-                    List.of(new StoreDeleteResponse(1L, "구름빵집", 1, 0, 0, 0, 0, 0, 0, 0)),
+                    List.of(new StoreDeleteResponse(1L, "구름빵집", 1, 0, 0, 0, 0, 0, 0, 0, 0)),
                     List.of(new StoreDeletionResponse.Refusal(2L, "해오름식당",
                             ErrorCode.STORE_UNDER_INVESTIGATION.getTitle()))));
 
@@ -200,7 +201,7 @@ class StoreDeleteAdminControllerTest {
         @DisplayName("force=true 를 서비스에 그대로 넘긴다")
         void force를_넘긴다() throws Exception {
             when(storeDeletionService.delete(12L, true))
-                    .thenReturn(new StoreDeleteResponse(12L, "미리내카페", 0, 0, 0, 0, 1, 0, 0, 2));
+                    .thenReturn(new StoreDeleteResponse(12L, "미리내카페", 0, 0, 0, 0, 1, 0, 0, 0, 2));
 
             mockMvc.perform(delete(STORE_PATH).param("force", "true"))
                     .andExpect(status().isOk())
@@ -213,7 +214,7 @@ class StoreDeleteAdminControllerTest {
         @DisplayName("경로의 가게 ID 를 그대로 서비스에 넘긴다")
         void 경로_ID를_넘긴다() throws Exception {
             when(storeDeletionService.delete(eq(12L), eq(false)))
-                    .thenReturn(new StoreDeleteResponse(12L, "달빛국수", 0, 0, 0, 0, 0, 0, 0, 0));
+                    .thenReturn(new StoreDeleteResponse(12L, "달빛국수", 0, 0, 0, 0, 0, 0, 0, 0, 0));
 
             mockMvc.perform(delete(STORE_PATH)).andExpect(status().isOk());
 
