@@ -108,7 +108,8 @@ def test_판정은_규칙이_한다_도구를_안_불러도_결과가_나온다(
 
     found = agent.investigate(TARGET)
 
-    assert found.classification.value == "NO_CHANGE" and found.signals == []
+    assert found.classification.value == "NO_CHANGE"
+    assert [s.signal_type.value for s in found.signals] == ["SIGNAL_NONE"]  # 아무것도 못 찾음 한 행
 
 
 class TestContinueFrom:
@@ -126,6 +127,21 @@ class TestContinueFrom:
         first_prompt = decider.seen[0]
         assert "지도 대조는 이미 했다" in first_prompt and "빠레또치킨" not in first_prompt
         assert agent.last_trace.steps[0].startswith("지도 대조(규칙)")
+
+    def test_변화가_없으면_이번_조사의_관측으로_확인_근거를_붙여_돌려준다(self):
+        """서버는 에이전트를 하나만 두고 요청을 동시에 돌린다 — 근거를 인스턴스 기록에서 읽으면 다른 가게 것이 섞인다."""
+        decider = ScriptedDecider([call("web_search", field="phone", goal="지도에 없는 전화 확인")],
+                                  [call("finish", reason="확인")])
+        research = Research(ResearchResult([web(ChangeField.PHONE, "053-567-3050")]))
+        agent = AgentInvestigator(research, decider=decider, client=object())
+
+        found = agent.continue_from(TARGET, [kakao(ChangeField.NAME, "빠레뜨치킨")])
+
+        assert [(s.field, s.evidence_text) for s in found.signals] == [
+            (ChangeField.NAME, "가게명: DB 값과 일치 — 카카오맵"),
+            (ChangeField.ADDRESS, "주소: 확인할 근거를 찾지 못함"),
+            (ChangeField.PHONE, "전화번호: DB 값과 일치 — blog.naver.com"),
+        ]
 
     def test_웹에서_확인한_값으로_수정안을_채운다(self):
         decider = ScriptedDecider([call("web_search", field="phone", goal="카카오에만 다른 전화 확인")],
@@ -226,3 +242,52 @@ class TestTimeBudget:
         assert time_budget_from_env() == 150.0
         monkeypatch.setenv("INVESTIGATION_TIME_BUDGET_SECONDS", "abc")
         assert time_budget_from_env() == DEFAULT_TIME_BUDGET_SECONDS
+
+
+class TestOpenAIDecider:
+    """OpenAI 호환 Responses API 로 부르는 판단 모델 — 프록시의 모델마다 받는 옵션이 다르다."""
+
+    @staticmethod
+    def _decider(status_for_include: int):
+        import httpx
+
+        from src.investigation.agent import OpenAIDecider
+
+        bodies = []
+
+        def handler(request):
+            body = json.loads(request.content)
+            bodies.append(body)
+            if "include" in body and status_for_include == 400:
+                return httpx.Response(400, json={"error": {"message": "Unsupported parameter(s): include"}})
+            return httpx.Response(200, json={"output": [{"type": "message", "content": []}]})
+
+        http = httpx.Client(transport=httpx.MockTransport(handler))
+        return OpenAIDecider("m", "https://proxy/v1", "k", http=http), bodies
+
+    def test_추론_옵션을_거절하는_모델이면_빼고_다시_보내고_그다음부터는_처음부터_뺀다(self):
+        decider, bodies = self._decider(400)
+
+        decider.respond([{"role": "user", "content": "x"}])
+        decider.respond([{"role": "user", "content": "y"}])
+
+        assert ["include" in b for b in bodies] == [True, False, False]
+
+    def test_받아_주는_모델이면_추론_옵션을_보낸다(self):
+        decider, bodies = self._decider(200)
+
+        decider.respond([{"role": "user", "content": "x"}])
+
+        assert len(bodies) == 1 and bodies[0]["include"] == ["reasoning.encrypted_content"]
+
+    def test_주소와_키는_AGENT_변수에서만_읽는다(self, monkeypatch):
+        from src.investigation.agent import OpenAIDecider
+
+        monkeypatch.setenv("AGENT_MODEL", "gemini-4-argon")
+        monkeypatch.setenv("AGENT_BASE_URL", "https://mlapi.run/x/v1")
+        monkeypatch.setenv("AGENT_API_KEY", "k")
+        decider = OpenAIDecider.from_env()
+
+        assert decider.model == "gemini-4-argon" and decider._url == "https://mlapi.run/x/v1/responses"
+        monkeypatch.delenv("AGENT_MODEL")
+        assert OpenAIDecider.from_env() is None

@@ -40,8 +40,9 @@ class TaskClassification(str, Enum):
 class SignalType(str, Enum):
     """백엔드 `SignalType` 을 옮긴 것. 화면 라벨은 괄호 안.
 
-    2차 조사는 등급을 나누지 않는다 — 변화 Signal 은 전부 `SIGNAL_HIGH` 이고 `SIGNAL_LOW`·`SIGNAL_NONE` 은
-    쓰지 않는다(`classify.py`). 백엔드와 값을 맞추려고 남겨 둔다.
+    2차 조사는 변화에 등급을 나누지 않는다 — 변화 Signal 은 전부 `SIGNAL_HIGH` 다. 변화가 없을 때 항목마다 남기는
+    확인 근거("DB 값과 일치"·"확인할 근거를 찾지 못함")는 `SIGNAL_NONE` 이다(`classify.confirmation_signals`).
+    `SIGNAL_LOW` 는 쓰지 않는다.
     """
 
     SIGNAL_HIGH = "SIGNAL_HIGH"  # 우선검토필요
@@ -108,7 +109,7 @@ class PlaceCheck(BaseModel):
 class Signal(BaseModel):
     """잡힌 변화 하나와 그 대표 근거. 백엔드 `Signal` 한 행("이상 징후 하나")에 대응한다.
 
-    DB 와 다른 값이 잡힌 항목마다 한 행이다(`SIGNAL_HIGH`). 변화가 없으면 Signal 은 없다.
+    DB 와 다른 값이 잡힌 항목마다 한 행이다(`SIGNAL_HIGH`). 변화가 없으면 항목마다 확인 근거 한 행(`SIGNAL_NONE`).
     응답에는 백엔드 `Signal` 칸과 `field` 만 나간다. `observed`·`sourceCount` 는 규칙·평가용이다.
     """
 

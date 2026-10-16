@@ -7,7 +7,14 @@ from datetime import datetime
 import pytest
 
 from src.backend_client.models import StoreStatus
-from src.investigation.classify import classify, comparison_key, domestic_phone, name_relation, road_address_key
+from src.investigation.classify import (
+    classify,
+    comparison_key,
+    domestic_phone,
+    name_relation,
+    relation_to_db,
+    road_address_key,
+)
 from src.investigation.models import (
     ChangeField,
     InvestigationTarget,
@@ -25,6 +32,11 @@ TARGET = InvestigationTarget(
     phone="053-111-2222",
     internal_status=StoreStatus.OPEN,
 )
+
+
+def conflicted(text: str) -> bool:
+    """근거 문구에 출처끼리 엇갈린다는 표시가 있나 — "(웹 2곳은 DB 와 같음)" · "(카카오맵은 다른 값)"."""
+    return "DB 와 같음)" in text or "다른 값)" in text
 
 
 def obs(field: ChangeField, value: str, *domains: str, evidence: str = "근거 문장") -> Observation:
@@ -201,7 +213,7 @@ class TestClassify:
         )
 
         assert found.proposed_changes == {"status": "CLOSED"}
-        assert "다른 값을 가리키는 출처도 있음" in found.signals[0].evidence_text
+        assert conflicted(found.signals[0].evidence_text)
 
     def test_서로_다른_새_값이_엇갈리면_출처가_많은_쪽을_제안한다(self):
         found = run(
@@ -212,7 +224,7 @@ class TestClassify:
 
         assert found.proposed_changes == {"addressRoad": "대구 중구 동성로 30"}
         assert found.signals[0].source_count == 2
-        assert "다른 값을 가리키는 출처도 있음" in found.signals[0].evidence_text
+        assert conflicted(found.signals[0].evidence_text)
 
     def test_출처가_많은_값이_뒤에_와도_그_값을_제안한다(self):
         found = run(
@@ -233,7 +245,7 @@ class TestClassify:
     def test_엇갈림이_없으면_표시도_없다(self):
         found = run(obs(ChangeField.PHONE, "053-999-0000", "blog.naver.com"))
 
-        assert "다른 값을 가리키는 출처도 있음" not in found.signals[0].evidence_text
+        assert not conflicted(found.signals[0].evidence_text)
 
     def test_출처가_이어지지_않은_관측은_세지도_보여주지도_않는다(self):
         found = run(
@@ -252,7 +264,7 @@ class TestClassify:
         )
 
         assert found.proposed_changes == {"addressRoad": "대구 중구 중앙대로 397"}
-        assert "다른 값을 가리키는 출처도 있음" not in found.signals[0].evidence_text
+        assert not conflicted(found.signals[0].evidence_text)
 
     def test_수정안에는_가장_흔하고_짧은_표기를_올린다(self):
         found = run(
@@ -310,7 +322,7 @@ class TestClassify:
         )
 
         assert found.proposed_changes == {"status": "CLOSED"}
-        assert "다른 값을 가리키는 출처도 있음" not in found.signals[0].evidence_text
+        assert not conflicted(found.signals[0].evidence_text)
 
     def test_상태를_몰라도_영업_출처가_있으면_폐업_변화에_엇갈림을_표시한다(self):
         """OPEN 을 변화로 세지 않아도 엇갈림 판단에서 빼면 '폐업, 엇갈림 없음'으로 보인다."""
@@ -327,7 +339,7 @@ class TestClassify:
         )
 
         assert found.proposed_changes == {"status": "CLOSED"}
-        assert "다른 값을 가리키는 출처도 있음" in found.signals[0].evidence_text
+        assert conflicted(found.signals[0].evidence_text)
 
     @pytest.mark.parametrize("phone", ["1544-8855", "1588 1234", "1899-0000"])
     def test_전국_대표번호는_가게_전화번호로_세지_않는다(self, phone):
@@ -370,6 +382,26 @@ class TestClassify:
 
         assert found.classification is TaskClassification.NO_CHANGE
 
+    @pytest.mark.parametrize(("db", "seen"), [("053-111-2222", "0507-1480-0708"), ("0507-1480-0708", "0502-123-4567"),
+                                              (None, "0507-1480-0708")])
+    def test_찾은_안심번호는_DB_번호와_다르거나_DB_가_비어도_변화가_아니다(self, db, seen):
+        target = TARGET.model_copy(update={"phone": db})
+        found = classify(target, ResearchResult([obs(ChangeField.PHONE, seen, "map.kakao.com")]))
+
+        assert found.classification is TaskClassification.NO_CHANGE
+        assert relation_to_db(target, ChangeField.PHONE, seen) == "unknown"
+
+    def test_DB_의_안심번호는_진짜_번호를_찾으면_바꾸자고_한다(self):
+        target = TARGET.model_copy(update={"phone": "0502-123-4567"})
+        found = classify(target, ResearchResult([obs(ChangeField.PHONE, "053-999-0000", "blog.naver.com")]))
+
+        assert found.proposed_changes == {"phone": "053-999-0000"}
+
+    def test_안심번호도_DB_와_같은_번호면_확인_근거다(self):
+        target = TARGET.model_copy(update={"phone": "0507-1480-0708"})
+
+        assert relation_to_db(target, ChangeField.PHONE, "050714800708") == "same"
+
     def test_DB_에_없는_값을_찾으면_채우자고_제안한다(self):
         target = InvestigationTarget(store_id=2, name="예시분식")
         found = classify(target, ResearchResult([obs(ChangeField.PHONE, "053-999-0000", "blog.naver.com")]))
@@ -385,7 +417,7 @@ class TestClassify:
         assert set(dumped["signals"][0]) == {"signalType", "confidence", "evidenceText", "evidenceUrl", "field"}
         assert dumped["signals"][0]["field"] == "status"
         assert dumped["signals"][0]["confidence"] is None
-        assert dumped["signals"][0]["evidenceText"].endswith("(출처 1곳)")
+        assert "→ 웹 1곳" in dumped["signals"][0]["evidenceText"]
         assert "mapCheck" not in dumped
 
 
@@ -644,3 +676,121 @@ class TestCityInRoad:
 
     def test_시_이름_뒤에_띄어_쓴_광역시는_그대로다(self):
         assert road_address_key("대구광역시 중구 동성로 12") == "동성로12"
+
+
+class TestConfirmations:
+    """변화가 없을 때 항목마다 확인했는지 남긴다 — "확인됨"과 "못 찾음"이 같은 변화없음으로 섞이지 않게."""
+
+    @staticmethod
+    def _confirm(*observations: Observation):
+        from src.investigation.classify import with_confirmations
+
+        finding = classify(TARGET, ResearchResult(list(observations)))
+        return with_confirmations(TARGET, list(observations), finding)
+
+    def test_아무_근거도_없으면_영업_상태_한_행으로_직접_확인을_권한다(self):
+        from src.investigation.classify import NOT_FOUND_TEXT
+
+        found = self._confirm()
+
+        assert found.classification is TaskClassification.NO_CHANGE
+        assert [(s.signal_type, s.field, s.evidence_text) for s in found.signals] == [
+            (SignalType.SIGNAL_NONE, ChangeField.STATUS, NOT_FOUND_TEXT)]
+
+    def test_항목마다_일치와_못_찾음을_나눠_남긴다(self):
+        found = self._confirm(
+            obs(ChangeField.NAME, "예시분식", "map.kakao.com", evidence="카카오맵에 등록된 값"),
+            obs(ChangeField.ADDRESS, "대구 중구 동성로 12", "a.com", "b.com"),
+        )
+
+        assert found.classification is TaskClassification.NO_CHANGE and found.proposed_changes == {}
+        assert [(s.field, s.evidence_text) for s in found.signals] == [
+            (ChangeField.NAME, "가게명: DB 값과 일치 — 카카오맵"),
+            (ChangeField.ADDRESS, "주소: DB 값과 일치 — a.com, b.com"),
+            (ChangeField.PHONE, "전화번호: 확인할 근거를 찾지 못함"),
+        ]
+        assert found.signals[0].evidence_url == "https://map.kakao.com/post" and found.signals[2].evidence_url is None
+
+    def test_DB_에_값이_없는_항목은_남기지_않는다(self):
+        from src.investigation.classify import with_confirmations
+
+        no_phone = TARGET.model_copy(update={"phone": None})
+        observations = [obs(ChangeField.NAME, "예시분식", "a.com")]
+
+        found = with_confirmations(no_phone, observations, classify(no_phone, ResearchResult(observations)))
+
+        assert [s.field for s in found.signals] == [ChangeField.NAME, ChangeField.ADDRESS]
+
+    def test_변화가_잡힌_결과에는_붙이지_않는다(self):
+        found = self._confirm(obs(ChangeField.PHONE, "053-999-8888", "a.com"),
+                              obs(ChangeField.NAME, "예시분식", "a.com"))
+
+        assert found.classification is TaskClassification.PRIORITY_CHECK
+        assert all(s.signal_type is SignalType.SIGNAL_HIGH for s in found.signals)
+
+    def test_응답에는_백엔드_Signal_칸으로_나간다(self):
+        dumped = self._confirm().model_dump(mode="json", by_alias=True)
+
+        assert dumped["signals"][0] == {"signalType": "SIGNAL_NONE", "confidence": None, "field": "status",
+                                        "evidenceText": dumped["signals"][0]["evidenceText"], "evidenceUrl": None}
+
+
+def test_앤과_앰퍼샌드는_같은_가게명이다():
+    assert comparison_key(ChangeField.NAME, "본죽&비빔밥") == comparison_key(ChangeField.NAME, "본죽앤비빔밥")
+
+
+class TestChangeText:
+    """변화 근거 문구는 코드가 정한 틀이다 — "DB 값 → 찾은 값", 출처는 이름과 수만. 모델이 쓴 근거 문장은 넣지 않는다."""
+
+    def test_웹에서_찾은_값은_DB_값과_나란히_적고_모델_문장은_넣지_않는다(self):
+        o = Observation(field=ChangeField.ADDRESS, value="대구 중구 동성로 30", observed_at="2026-09-12",
+                        evidence="모델이 쓴 문장 30, Dongseong-ro",
+                        sources=(Source("a.com", "https://a.com"), Source("b.com", "https://b.com")))
+
+        text = classify(TARGET, ResearchResult([o])).signals[0].evidence_text
+
+        assert text == '주소: DB "대구광역시 중구 동성로 12" → 웹 2곳 "대구 중구 동성로 30" (최근 글 2026-09-12)'
+
+    @pytest.mark.parametrize(("label", "expected"), [("카카오맵", "카카오맵과"), ("네이버 지도", "네이버 지도와")])
+    def test_지도에만_다른_값은_값_없이_지도_이름과_링크만(self, label, expected):
+        o = Observation(field=ChangeField.PHONE, value="053-999-8888", evidence=f"{label}에 등록된 값",
+                        sources=(Source("map.kakao.com", "https://map"),), storable=False)
+
+        text = classify(TARGET, ResearchResult([o])).signals[0].evidence_text
+
+        assert text == f"전화번호: {expected} 다름 — 링크에서 확인" and "053-999-8888" not in text
+
+    def test_이사는_같은_전화번호의_가게가_다른_주소에_있다고_적는다(self):
+        o = Observation(field=ChangeField.ADDRESS, value="대구 수성구 들안로 38",
+                        evidence="카카오맵(같은 전화번호의 가게)에 등록된 값",
+                        sources=(Source("map.kakao.com", "https://map"),), storable=False)
+
+        text = classify(TARGET, ResearchResult([o])).signals[0].evidence_text
+
+        assert text == "주소: 같은 전화번호의 가게가 다른 주소에 있음(카카오맵) — 링크에서 확인"
+
+    def test_엇갈림은_누가_무엇을_말하는지_적는다(self):
+        observations = [
+            Observation(field=ChangeField.PHONE, value="053-999-8888", evidence="카카오맵에 등록된 값",
+                        sources=(Source("map.kakao.com", "https://map"),), storable=False),
+            obs(ChangeField.PHONE, "053-111-2222", "a.com", "b.com"),
+        ]
+
+        text = classify(TARGET, ResearchResult(observations)).signals[0].evidence_text
+
+        assert text == "전화번호: 카카오맵과 다름 — 링크에서 확인 (웹 2곳은 DB 와 같음)"
+
+    def test_영업_상태는_한국어로_적는다(self):
+        unknown = TARGET.model_copy(update={"internal_status": StoreStatus.UNKNOWN})
+
+        text = classify(unknown, ResearchResult([obs(ChangeField.STATUS, "CLOSED", "a.com")])).signals[0].evidence_text
+
+        assert text == '영업 상태: DB "확인 안 됨" → 웹 1곳 "폐업"'
+
+    def test_다른_값이_여러_갈래여도_한_번에_묶어_적는다(self):
+        observations = [obs(ChangeField.NAME, "새이름분식", "a.com", "b.com"),
+                        obs(ChangeField.NAME, "딴이름분식", "c.com"), obs(ChangeField.NAME, "또다른분식", "d.com")]
+
+        text = classify(TARGET, ResearchResult(observations)).signals[0].evidence_text
+
+        assert text.count("다른 값") == 1 and "(웹 2곳은 다른 값)" in text

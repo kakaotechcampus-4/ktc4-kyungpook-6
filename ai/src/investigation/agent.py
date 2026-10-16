@@ -22,8 +22,8 @@ Responses API(`/v1/responses`)로 부른다 — gpt-6-luna 는 chat/completions 
 상태는 서버에 남기지 않고(`store=false`) 암호화된 추론을 다음 턴에 되돌려 준다.
 
     AGENT_MODEL     판단 모델 이름. 비우면 Vertex Gemini(MODEL)
-    AGENT_BASE_URL  OpenAI 호환 /v1 주소. 비우면 GOOGLE_PROXY_URL + "/v1"
-    AGENT_API_KEY   그 API 키. 비우면 GOOGLE_API_KEY
+    AGENT_BASE_URL  OpenAI 호환 /v1 주소 (카테캠 프록시는 모델마다 주소가 다르다 — `https://mlapi.run/<uuid>/v1`)
+    AGENT_API_KEY   그 API 키
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field as dc_field
 
 import httpx
 
-from src.investigation.classify import classify, relation_to_db
+from src.investigation.classify import classify, relation_to_db, with_confirmations
 from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, StoreFinding
 from src.investigation.web import RATE_LIMIT_WAITS_SECONDS, MapObserver, PlaceChecker, _is_rate_limited
 from src.investigation.web_research import (
@@ -173,22 +173,28 @@ class OpenAIDecider:
         self._url = base_url.rstrip("/") + "/responses"
         self._http = http if http is not None else httpx.Client(
             timeout=LLM_TIMEOUT_SECONDS, headers={"Authorization": f"Bearer {api_key}"})
+        #: 암호화된 추론을 받아 다음 턴에 되돌려 준다(OpenAI 추론 모델). 프록시의 다른 모델(gemini-4-argon·
+        #: claude-sonnet-5)은 이 옵션을 400 으로 거절한다 — 한 번 거절되면 이 판단 모델에서는 빼고 보낸다.
+        self._include_reasoning = True
 
     @classmethod
     def from_env(cls) -> OpenAIDecider | None:
         model = os.environ.get("AGENT_MODEL")
         if not model:
             return None
-        base = os.environ.get("AGENT_BASE_URL") or (os.environ.get("GOOGLE_PROXY_URL", "").rstrip("/") + "/v1")
-        return cls(model, base, os.environ.get("AGENT_API_KEY") or os.environ.get("GOOGLE_API_KEY", ""))
+        return cls(model, os.environ.get("AGENT_BASE_URL", ""), os.environ.get("AGENT_API_KEY", ""))
 
     def respond(self, items: list[dict], tool_names: list[str] | None = None) -> list[dict]:
         """지금까지의 입력·출력 항목을 주고 이번 출력 항목(추론·함수 호출·문장)을 받는다."""
         tools = [t for t in OPENAI_TOOLS if tool_names is None or t["name"] in tool_names]
-        response = self._http.post(self._url, json={
-            "model": self.model, "input": items, "tools": tools,
-            "store": False, "include": ["reasoning.encrypted_content"],
-        })
+        body = {"model": self.model, "input": items, "tools": tools, "store": False}
+        if self._include_reasoning:
+            response = self._http.post(self._url, json=body | {"include": ["reasoning.encrypted_content"]})
+            if not (response.status_code == 400 and "include" in response.text):
+                response.raise_for_status()
+                return response.json()["output"]
+            self._include_reasoning = False
+        response = self._http.post(self._url, json=body)
         response.raise_for_status()
         return response.json()["output"]
 
@@ -225,6 +231,8 @@ class AgentInvestigator:
         self._sleep = sleep
         self._clock = clock
         self._time_budget = time_budget if time_budget is not None else time_budget_from_env()
+        #: 평가용 기록(`eval/mismatch_bench.py`). 서버는 조사기를 하나만 두고 요청을 동시에 돌리므로, 응답에 쓰는 값은
+        #: 여기서 읽지 않고 반환값으로 받는다.
         self.last_trace = Trace()
         self.last_observations: list[Observation] = []
 
@@ -370,7 +378,7 @@ class AgentInvestigator:
         # 웹검색이 전부 실패해 아무것도 못 잡았으면 "변화없음"이 아니라 실패다 — 서버가 failure 로 바꾼다.
         if search_errors and len(search_errors) == trace.web_searches and not finding.signals:
             raise search_errors[-1]
-        return finding
+        return with_confirmations(target, observations, finding)
 
     def _run_openai(self, prompt: str, tools: dict, trace: Trace) -> None:
         items: list[dict] = [{"role": "user", "content": prompt}]
