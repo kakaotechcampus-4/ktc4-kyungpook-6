@@ -31,7 +31,8 @@ class StoreDetailResponseJsonTest {
     void fieldNamesAndFormats() throws Exception {
         StoreDetailResponse response = new StoreDetailResponse(12L, "예시분식", "대구광역시 북구 대학로 80", "053-123-4567",
                 List.of(new BusinessHourResponse(BusinessDay.MON, "00:00", "24:00")),
-                List.of(new MenuResponse(3L, "김치찌개", false)));
+                List.of(new MenuResponse(3L, "김치찌개", false, null),
+                        new MenuResponse(4L, "라면", true, "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")));
 
         JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(response));
 
@@ -40,7 +41,9 @@ class StoreDetailResponseJsonTest {
         assertThat(json.get("businessHours").get(0).toString())
                 .isEqualTo("{\"day\":\"MON\",\"open\":\"00:00\",\"close\":\"24:00\"}");
         assertThat(json.get("menus").get(0).toString())
-                .isEqualTo("{\"menuId\":3,\"name\":\"김치찌개\",\"onSale\":false}");
+                .isEqualTo("{\"menuId\":3,\"name\":\"김치찌개\",\"onSale\":false,\"photoFileId\":null}");
+        // 사진이 없어도 칸은 빠지지 않고 null 로 나간다 — 앱이 "칸이 없음"과 "사진 없음"을 따로 다루지 않게
+        assertThat(json.get("menus").get(1).get("photoFileId").asText()).isEqualTo("9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d");
     }
 
     @ParameterizedTest

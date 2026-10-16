@@ -6,7 +6,8 @@ import com.ktc4.backend.domain.auth.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
-import com.ktc4.backend.domain.file.dto.SignupFiles;
+import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
+import com.ktc4.backend.domain.file.dto.SignupFileIds;
 import com.ktc4.backend.domain.file.service.UploadFileService;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
@@ -104,19 +105,21 @@ public class AuthService {
      * 이 토큰으로는 자기 가입 상태만 읽을 수 있고, 승인된 뒤에도 접근 토큰으로 바뀌지 않는다 — 로그인해야 한다.
      *
      * <p>가게 주소·가게 전화·영업시간·메뉴는 신청서에 신청 당시 그대로 담고, 관리자가 승인할 때 가게에 옮겨 적는다.
-     * 함께 온 사진·사업자등록증도 저장한다. 계정과 파일은 함께 남거나 함께 남지 않는다.
+     *
+     * <p>실은 파일 ID 의 파일(먼저 업로드 API 로 올린 것)을 이 신청이 가져간다. 계정과 같은 트랜잭션이라
+     * 파일을 쓸 수 없으면 계정도 만들어지지 않는다.
      *
      * @param request 이메일·비밀번호·사업자 정보·휴대폰 번호·가게 정보
-     * @param files   가게 대표 사진·메뉴 사진·사업자등록증. 받아도 되는 파일인지는 컨트롤러가 먼저 확인한다
      * @return 만들어진 계정(승인 대기)과 가입 상태 확인용 토큰
      * @throws CustomException 비밀번호가 72바이트를 넘으면 {@code PASSWORD_TOO_LONG},
      *                         사업자등록번호가 10자리가 아니면 {@code INVALID_BIZ_NO},
      *                         휴대폰 번호 형식이 아니면 {@code INVALID_PHONE},
      *                         이미 가입된 이메일이면 {@code DUPLICATE_EMAIL},
-     *                         승인 대기 신청이 너무 많이 쌓였으면 {@code SIGNUP_TEMPORARILY_CLOSED}
+     *                         승인 대기 신청이 너무 많이 쌓였으면 {@code SIGNUP_TEMPORARILY_CLOSED},
+     *                         실은 파일 ID 가 없거나 이미 쓰였거나 자리에 맞지 않으면 {@code INVALID_FILE_REFERENCE}
      */
     @Transactional
-    public OwnerSignupResponse signupOwner(OwnerSignupRequest request, SignupFiles files) {
+    public OwnerSignupResponse signupOwner(OwnerSignupRequest request) {
         if (request.password().getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
             throw new CustomException(ErrorCode.PASSWORD_TOO_LONG);
         }
@@ -155,9 +158,8 @@ public class AuthService {
             }
             throw e;
         }
-        // 파일은 계정이 저장된 뒤에 쓴다 — 중복 이메일처럼 흔한 거절에 디스크를 쓰지 않는다.
-        // 파일 저장이 실패하면 이 트랜잭션이 되돌아가 계정도 남지 않고, 디스크에 쓴 파일은 저장하는 쪽이 치운다.
-        uploadFileService.storeSignupFiles(saved, files);
+        uploadFileService.claimSignupFiles(saved, new SignupFileIds(request.storeImageFileId(), request.bizCertFileId(),
+                request.menus().stream().map(SignupMenuRequest::photoFileId).toList()));
         return OwnerSignupResponse.of(saved, jwtProvider.issueSignupStatus(saved.getMemberId()));
     }
 
@@ -175,7 +177,7 @@ public class AuthService {
                         .map(hour -> new SignupBusinessHour(hour.day(), hour.open(), hour.close()))
                         .toList())
                 .menus(request.menus().stream()
-                        .map(menu -> new SignupMenu(menu.name().strip()))
+                        .map(menu -> new SignupMenu(menu.name().strip(), menu.photoFileId()))
                         .toList())
                 .build();
     }

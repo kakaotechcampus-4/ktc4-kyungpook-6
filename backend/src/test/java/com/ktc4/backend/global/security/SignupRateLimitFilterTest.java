@@ -21,22 +21,21 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.net.URI;
 import java.util.Collections;
 import java.util.Enumeration;
 
 import static com.ktc4.backend.support.SignupMultipart.SIGNUP_URL;
-import static com.ktc4.backend.support.SignupMultipart.data;
-import static com.ktc4.backend.support.SignupMultipart.jpeg;
-import static com.ktc4.backend.support.SignupMultipart.pdf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -53,9 +52,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
         "signup.rate-limit.max-attempts=3", "signup.rate-limit.window-minutes=10",
-        "signup.rate-limit.max-signups-per-day=2", "signup.rate-limit.trusted-proxies=1"})
+        "signup.rate-limit.max-signups-per-day=2", "signup.rate-limit.trusted-proxies=1",
+        "signup.max-body-bytes=2048"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
-@DisplayName("가입 신청 횟수 제한")
+@DisplayName("가입 신청 횟수·본문 크기 제한")
 class SignupRateLimitFilterTest {
 
     // 글자 정보가 틀린 요청 — 컨트롤러가 400 으로 거절한다. 실패한 요청도 세는지 보려고 쓴다
@@ -66,7 +66,8 @@ class SignupRateLimitFilterTest {
                     + "\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\",\"phone\":\"010-0000-0000\","
                     + "\"storeAddress\":\"가상특별시 예시구 샘플로 123\",\"storePhone\":\"053-000-0000\","
                     + "\"businessHours\":[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}],"
-                    + "\"menus\":[{\"name\":\"김치찌개\"}]}";
+                    + "\"menus\":[{\"name\":\"김치찌개\"}],"
+                    + "\"bizCertFileId\":\"7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f\"}";
     // 우리 프록시의 주소 — 프록시 뒤에서는 모든 요청의 접속 주소가 이 값이다
     private static final String PROXY = "192.0.2.1";
 
@@ -76,13 +77,13 @@ class SignupRateLimitFilterTest {
     @MockitoBean
     private AuthService authService;
 
-    private static MockMultipartHttpServletRequestBuilder signup(URI uri, String dataJson) {
-        return multipart(uri).file(data(dataJson)).file(jpeg("storeImage")).file(pdf("bizCert"));
+    private static MockHttpServletRequestBuilder signup(URI uri, String dataJson) {
+        return post(uri).contentType(MediaType.APPLICATION_JSON).content(dataJson);
     }
 
     /** 프록시 없이 {@code ip} 에서 직접 온 요청. */
-    private static MockMultipartHttpServletRequestBuilder signupFrom(String ip, String dataJson) {
-        MockMultipartHttpServletRequestBuilder request = signup(URI.create(SIGNUP_URL), dataJson);
+    private static MockHttpServletRequestBuilder signupFrom(String ip, String dataJson) {
+        MockHttpServletRequestBuilder request = signup(URI.create(SIGNUP_URL), dataJson);
         request.with(servletRequest -> {
             servletRequest.setRemoteAddr(ip);
             return servletRequest;
@@ -91,8 +92,8 @@ class SignupRateLimitFilterTest {
     }
 
     /** 우리 프록시를 거쳐 온 요청 — 접속 주소는 프록시이고, 보낸 쪽은 X-Forwarded-For 에 실려 온다. */
-    private static MockMultipartHttpServletRequestBuilder signupViaProxy(String forwardedFor) {
-        MockMultipartHttpServletRequestBuilder request = signupFrom(PROXY, INVALID_DATA);
+    private static MockHttpServletRequestBuilder signupViaProxy(String forwardedFor) {
+        MockHttpServletRequestBuilder request = signupFrom(PROXY, INVALID_DATA);
         request.header("X-Forwarded-For", forwardedFor);
         return request;
     }
@@ -122,17 +123,17 @@ class SignupRateLimitFilterTest {
         }
 
         @Test
-        @DisplayName("거절된 요청은 컨트롤러에 닿지 않는다 — 본문(사진·서류)을 읽기 전에 막는다")
+        @DisplayName("거절된 요청은 컨트롤러에 닿지 않는다 — 본문을 읽기 전에 막는다")
         void rejectedRequestNeverReachesController() throws Exception {
             // 서비스가 거절하는 가입(성공이 아님) — 하루 성공 수가 아니라 시도 횟수에 걸리게 한다
-            when(authService.signupOwner(any(), any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
+            when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
 
             for (int i = 0; i < 5; i++) {
                 mockMvc.perform(signupFrom("203.0.113.20", VALID_DATA));
             }
 
             // 다섯 번 보냈지만 서비스까지 간 것은 한도인 세 번뿐이다
-            verify(authService, times(3)).signupOwner(any(), any());
+            verify(authService, times(3)).signupOwner(any());
         }
 
         @Test
@@ -202,7 +203,7 @@ class SignupRateLimitFilterTest {
             mockMvc.perform(signupFrom("203.0.113.70", VALID_DATA))
                     .andExpect(status().isTooManyRequests())
                     .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
-            verify(authService, times(2)).signupOwner(any(), any());
+            verify(authService, times(2)).signupOwner(any());
         }
 
         @Test
@@ -379,5 +380,77 @@ class SignupRateLimitFilterTest {
     @DisplayName("로그에 남기는 IP 는 끝자리를 가린다")
     void masksIp(String ip, String masked) {
         assertThat(SignupRateLimitFilter.maskIp(ip)).isEqualTo(masked);
+    }
+
+    @Nested
+    @DisplayName("본문 크기 (이 테스트의 상한 2048바이트)")
+    class BodySize {
+
+        // 공백으로 채운 JSON 객체 — 크기만 맞춘다. 칸이 비어 있어 상한을 통과하면 칸별 검증에서 400 이 난다
+        private MockHttpServletRequestBuilder signupWithBodyOf(String ip, int bytes) {
+            return signupFrom(ip, "{" + " ".repeat(bytes - 2) + "}");
+        }
+
+        @Test
+        @DisplayName("상한을 1바이트라도 넘기면 413 request-too-large 이고 컨트롤러에 닿지 않는다 — 팀 에러 규격으로")
+        void rejectsOverLimit() throws Exception {
+            mockMvc.perform(signupWithBodyOf("203.0.113.50", 2049))
+                    .andExpect(status().isPayloadTooLarge())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value(ErrorCode.REQUEST_TOO_LARGE.getType().toString()))
+                    .andExpect(jsonPath("$.title").value(ErrorCode.REQUEST_TOO_LARGE.getTitle()))
+                    .andExpect(jsonPath("$.status").value(413))
+                    .andExpect(jsonPath("$.detail").doesNotExist());
+
+            verify(authService, never()).signupOwner(any());
+        }
+
+        @Test
+        @DisplayName("상한과 같은 크기는 통과한다 — 그다음 칸별 검증이 본다")
+        void allowsExactLimit() throws Exception {
+            mockMvc.perform(signupWithBodyOf("203.0.113.51", 2048))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
+        }
+
+        @Test
+        @DisplayName("너무 큰 요청도 한 번의 시도로 센다 — 413 을 되풀이하면 한도 뒤에는 429 다")
+        void countsTooLargeAsAttempt() throws Exception {
+            for (int i = 0; i < 3; i++) {
+                mockMvc.perform(signupWithBodyOf("203.0.113.53", 2049)).andExpect(status().isPayloadTooLarge());
+            }
+
+            mockMvc.perform(signupWithBodyOf("203.0.113.53", 2049)).andExpect(status().isTooManyRequests());
+            mockMvc.perform(signupFrom("203.0.113.53", VALID_DATA)).andExpect(status().isTooManyRequests());
+            verify(authService, never()).signupOwner(any());
+        }
+
+        @Test
+        @DisplayName("길이를 알리지 않고 보낸 큰 본문은 읽다가 상한에서 멈춰 400 이고 서비스에 닿지 않는다")
+        void stopsUndeclaredLengthBodyAtLimit() throws Exception {
+            // 상한이 없으면 201 이 될 올바른 신청을 공백으로 부풀려 상한(2048)을 넘긴다 — 400 과 never() 가 상한 때문에만
+            // 성립하게. 길이를 알리지 않으면(-1) 필터가 읽기 전에 거절할 수 없어, 읽다가 멈추는 쪽이 막아야 한다
+            String body = VALID_DATA.substring(0, VALID_DATA.length() - 1) + " ".repeat(3000) + "}";
+            MockHttpServletRequestBuilder request = signupFrom("203.0.113.54", body);
+            request.with(servletRequest -> {
+                MockHttpServletRequest undeclared = spy(servletRequest);
+                doReturn(-1L).when(undeclared).getContentLengthLong();
+                doReturn(-1).when(undeclared).getContentLength();
+                return undeclared;
+            });
+
+            mockMvc.perform(request)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
+            verify(authService, never()).signupOwner(any());
+        }
+
+        @Test
+        @DisplayName("보통 크기의 가입 신청은 그대로 받는다")
+        void allowsNormalSignup() throws Exception {
+            mockMvc.perform(signupFrom("203.0.113.52", VALID_DATA)).andExpect(status().isCreated());
+
+            verify(authService).signupOwner(any());
+        }
     }
 }

@@ -68,7 +68,7 @@ class OwnerAdminControllerTest {
         return new OwnerApplicationResponse(3L, "owner@example.com", "1234567890", "예시분식", "홍길동",
                 "01000000000", "대구광역시 북구 대학로 80", "053-123-4567",
                 List.of(new BusinessHourResponse(BusinessDay.SAT, "21:00", "02:00")),
-                List.of(new SignupMenuResponse("김치찌개")),
+                List.of(new SignupMenuResponse("김치찌개", null)),
                 status, LocalDateTime.of(2026, 9, 29, 9, 0), null);
     }
 

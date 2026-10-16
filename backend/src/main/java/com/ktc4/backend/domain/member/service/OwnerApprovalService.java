@@ -6,7 +6,6 @@ import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
-import com.ktc4.backend.domain.member.entity.SignupMenu;
 import com.ktc4.backend.domain.member.entity.StoreOwner;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
@@ -14,6 +13,7 @@ import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.dto.MenuSeed;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
@@ -302,7 +302,7 @@ public class OwnerApprovalService {
                 application.getBusinessHours().stream()
                         .map(hour -> new BusinessHourRequest(hour.day(), hour.open(), hour.close()))
                         .toList(),
-                application.getMenus().stream().map(SignupMenu::name).toList(),
+                application.getMenus().stream().map(menu -> new MenuSeed(menu.name(), menu.photoFileId())).toList(),
                 StoreChange.signupFill(adminId));
     }
 

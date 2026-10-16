@@ -1,6 +1,7 @@
 package com.ktc4.backend.global.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ktc4.backend.domain.file.FileIdFormat;
 import com.ktc4.backend.global.error.ErrorCode;
 import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
@@ -70,6 +71,20 @@ public class SecurityConfig {
     @Value("${signup.rate-limit.trusted-proxies:0}")
     private int signupTrustedProxies;
 
+    @Value("${signup.max-body-bytes:65536}")
+    private long signupMaxBodyBytes;
+
+    // 파일 업로드 횟수 제한. 가입 한 건에 메뉴 사진이 많으면 수십 장이라 가입 신청보다 넉넉하다
+    @Value("${upload.rate-limit.max-attempts:60}")
+    private int uploadMaxAttempts;
+
+    @Value("${upload.rate-limit.window-minutes:10}")
+    private long uploadWindowMinutes;
+
+    // 같은 곳에서 하루에 올릴 수 있는 파일 수(성공한 것만). 가입 한 건에 파일이 많아야 52개(메뉴 50 + 대표 사진 + 사업자등록증)다
+    @Value("${upload.rate-limit.max-uploads-per-day:150}")
+    private int uploadMaxPerDay;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtProvider jwtProvider,
@@ -94,11 +109,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/ping").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
-                        // 가게 사진은 누구나 본다. 무엇이 공개 사진인지는 조회 쿼리가 정한다(FilePublicController 주석) —
-                        // 사업자등록증은 이 경로로 나가지 않고 /api/admin/files/** 로만 나간다.
-                        // 번호를 숫자로 좁히는 이유는 아래 /api/stores/{storeId} 규칙과 같다.
-                        .requestMatchers(HttpMethod.GET, "/api/files/{fileId:\\d+}",
-                                "/api/stores/{storeId:\\d+}/images").permitAll()
+                        // 가입 신청에 붙일 파일. 가입 전이라 계정이 없다 — 횟수는 UploadRateLimitFilter 가 막는다
+                        .requestMatchers(HttpMethod.POST, "/api/files").permitAll()
+                        // 가게 사진은 관리자와 그 가게에 연결된 점주만 본다(StoreImageController 주석). 어느 가게의 점주인지는
+                        // 서비스가 확인한다. 사업자등록증은 이 경로로 나가지 않고 /api/admin/files/** 로만 나간다.
+                        // 가게 번호를 숫자로 좁히는 이유는 아래 /api/stores/{storeId} 규칙과 같다.
+                        .requestMatchers(HttpMethod.GET, "/api/files/{fileId:" + FileIdFormat.PATH_REGEX + "}",
+                                "/api/stores/{storeId:\\d+}/images").hasAnyRole("OWNER", "ADMIN")
                         // 토큰 주인을 알려주는 API 다. 가입 상태 확인용 토큰이 부를 수 있는 API 는 이것 하나다 —
                         // 승인 전 신청자가 자기 상태를 읽는다.
                         .requestMatchers(HttpMethod.GET, "/api/auth/me")
@@ -131,12 +148,19 @@ public class SecurityConfig {
                                 problemWriter.write(response, ErrorCode.UNAUTHORIZED))
                         .accessDeniedHandler((request, response, e) ->
                                 problemWriter.write(response, ErrorCode.FORBIDDEN)))
-                // 가입 신청은 로그인 없이 큰 파일을 받는다 — 같은 IP 에서 되풀이하면 본문을 읽기 전에 거절한다.
+                // 가입 신청은 로그인 없이 받는다 — 같은 IP 에서 되풀이하거나 본문이 너무 크면 본문을 읽기 전에 거절한다.
                 // 이 필터 앞에서 본문을 읽는 필터가 없어야 한다 — CSRF 필터는 토큰을 찾으려고 본문을 읽는데, 위에서 꺼 두었다.
                 .addFilterBefore(new SignupRateLimitFilter(
                                 new SignupRateLimiter(signupMaxAttempts, Duration.ofMinutes(signupWindowMinutes),
                                         Clock.systemUTC()),
                                 new SignupRateLimiter(signupMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
+                                signupTrustedProxies, problemWriter, signupMaxBodyBytes),
+                        UsernamePasswordAuthenticationFilter.class)
+                // 파일 업로드도 로그인 없이 받는다 — 같은 곳에서 되풀이하면 본문을 읽기 전에 거절한다. 프록시 수는 가입과 같다
+                .addFilterBefore(new UploadRateLimitFilter(
+                                new SignupRateLimiter(uploadMaxAttempts, Duration.ofMinutes(uploadWindowMinutes),
+                                        Clock.systemUTC()),
+                                new SignupRateLimiter(uploadMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
                                 signupTrustedProxies, problemWriter),
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new ApiKeyAuthenticationFilter(internalApiKey),

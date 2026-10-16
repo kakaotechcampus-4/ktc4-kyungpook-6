@@ -18,9 +18,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import static com.ktc4.backend.support.UploadFileFixtures.uploadFile;
 import static org.assertj.core.api.Assertions.assertThat;
 
-// 무엇이 공개 사진인지는 이 쿼리들이 정한다 — 실제 Postgres 로 확인한다. 계정·가게 정보는 모두 가짜 값이다.
+// 누가 어느 가게 사진을 볼 수 있는지는 이 쿼리들이 정한다 — 실제 Postgres 로 확인한다. 계정·가게 정보는 모두 가짜 값이다.
 class UploadFileRepositoryTest extends PostgresContainerTest {
 
     private static final LocalDateTime AT = LocalDateTime.of(2026, 10, 14, 10, 0);
@@ -64,17 +65,19 @@ class UploadFileRepositoryTest extends PostgresContainerTest {
     private UploadFile persistFile(Member owner, UploadKind kind) {
         FileType type = kind == UploadKind.BIZ_CERT ? FileType.PDF : FileType.JPEG;
         return entityManager.persistAndFlush(
-                new UploadFile(owner, kind, type, UUID.randomUUID() + "." + type.extension(), 100L));
+                uploadFile(owner, kind, type, UUID.randomUUID() + "." + type.extension(), 100L));
     }
 
     private List<Long> idsOfStore(Store store) {
-        return uploadFileRepository.findOfStore(store.getStoreId(), UploadKind.PUBLIC_KINDS).stream()
+        return uploadFileRepository.findOfStore(store.getStoreId(), UploadKind.STORE_PHOTO_KINDS).stream()
                 .map(UploadFile::getUploadFileId)
                 .toList();
     }
 
-    private boolean isPublic(UploadFile file) {
-        return uploadFileRepository.findLinkedById(file.getUploadFileId(), UploadKind.PUBLIC_KINDS).isPresent();
+    // 점주가 가게 사진 열기(GET /api/files/{fileId})로 이 파일을 열 수 있는지
+    private boolean visibleTo(UploadFile file, Member viewer) {
+        return uploadFileRepository.findVisibleToOwner(file.getFileKey(), viewer.getMemberId(), UploadKind.STORE_PHOTO_KINDS)
+                .isPresent();
     }
 
     @Test
@@ -103,31 +106,32 @@ class UploadFileRepositoryTest extends PostgresContainerTest {
         entityManager.clear();
 
         assertThat(idsOfStore(store)).containsExactly(storeImage.getUploadFileId(), menuImage.getUploadFileId());
-        assertThat(isPublic(storeImage)).isTrue();
-        assertThat(isPublic(menuImage)).isTrue();
-        assertThat(isPublic(bizCert)).isFalse();
+        assertThat(visibleTo(storeImage, owner)).isTrue();
+        assertThat(visibleTo(menuImage, owner)).isTrue();
+        // 사업자등록증은 올린 점주 본인에게도 이 길로는 열리지 않는다
+        assertThat(visibleTo(bizCert, owner)).isFalse();
     }
 
     @Test
-    void 승인_전_신청자의_사진은_어느_가게의_사진도_아니고_공개되지_않는다() {
+    void 승인_전_신청자의_사진은_어느_가게의_사진도_아니고_본인에게도_보이지_않는다() {
         Store store = persistStore("예시분식");
         Member applicant = persistApplicant("pending@example.com");
         UploadFile storeImage = persistFile(applicant, UploadKind.STORE_IMAGE);
         entityManager.clear();
 
         assertThat(idsOfStore(store)).isEmpty();
-        assertThat(isPublic(storeImage)).isFalse();
+        assertThat(visibleTo(storeImage, applicant)).isFalse();
     }
 
     @Test
-    void 거절된_신청자의_사진은_공개되지_않는다() {
+    void 거절된_신청자의_사진은_보이지_않는다() {
         Member applicant = persistApplicant("rejected@example.com");
         applicant.reject(AT, admin.getMemberId());
         entityManager.flush();
         UploadFile storeImage = persistFile(applicant, UploadKind.STORE_IMAGE);
         entityManager.clear();
 
-        assertThat(isPublic(storeImage)).isFalse();
+        assertThat(visibleTo(storeImage, applicant)).isFalse();
     }
 
     @Test
@@ -141,14 +145,14 @@ class UploadFileRepositoryTest extends PostgresContainerTest {
         entityManager.flush();
         entityManager.clear();
         assertThat(idsOfStore(store)).isEmpty();
-        assertThat(isPublic(storeImage)).isFalse();
+        assertThat(visibleTo(storeImage, owner)).isFalse();
 
         StoreOwner unlinked = entityManager.find(StoreOwner.class, linked.getStoreOwnerId());
         unlinked.relink(admin, AT.plusDays(2));
         entityManager.flush();
         entityManager.clear();
         assertThat(idsOfStore(store)).containsExactly(storeImage.getUploadFileId());
-        assertThat(isPublic(storeImage)).isTrue();
+        assertThat(visibleTo(storeImage, owner)).isTrue();
     }
 
     @Test
@@ -181,6 +185,63 @@ class UploadFileRepositoryTest extends PostgresContainerTest {
 
         assertThat(idsOfStore(mine)).containsExactly(myImage.getUploadFileId());
         assertThat(idsOfStore(theirs)).containsExactly(theirImage.getUploadFileId());
+        // 파일 ID 를 알아도 다른 가게 점주의 사진은 열리지 않는다
+        assertThat(visibleTo(theirImage, me)).isFalse();
+        assertThat(visibleTo(myImage, them)).isFalse();
+    }
+
+    @Test
+    void 같은_가게에_연결된_다른_점주는_그_가게_사진을_본다() {
+        Store store = persistStore("예시분식");
+        Member uploader = persistApplicant("owner@example.com");
+        Member coOwner = persistApplicant("co-owner@example.com");
+        UploadFile menuImage = persistFile(uploader, UploadKind.MENU_IMAGE);
+        link(store, uploader);
+        link(store, coOwner);
+        entityManager.clear();
+
+        assertThat(visibleTo(menuImage, coOwner)).isTrue();
+    }
+
+    @Test
+    void 올린_점주나_보는_점주_어느_한쪽이라도_연결이_끊기면_보이지_않는다() {
+        Store store = persistStore("예시분식");
+        Member uploader = persistApplicant("owner@example.com");
+        Member coOwner = persistApplicant("co-owner@example.com");
+        UploadFile menuImage = persistFile(uploader, UploadKind.MENU_IMAGE);
+        StoreOwner uploaderLink = link(store, uploader);
+        StoreOwner viewerLink = link(store, coOwner);
+
+        // 올린 점주가 끊기면 — 가게 메뉴에 사진 ID 가 남아 있어도 열리지 않는다
+        uploaderLink.unlink(admin, AT.plusDays(1));
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(visibleTo(menuImage, coOwner)).isFalse();
+
+        // 다시 이은 뒤 보는 점주가 끊기면
+        entityManager.find(StoreOwner.class, uploaderLink.getStoreOwnerId()).relink(admin, AT.plusDays(2));
+        entityManager.find(StoreOwner.class, viewerLink.getStoreOwnerId()).unlink(admin, AT.plusDays(2));
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(visibleTo(menuImage, coOwner)).isFalse();
+        assertThat(visibleTo(menuImage, uploader)).isTrue();
+    }
+
+    @Test
+    void 다른_가게에서_예전에_끊긴_연결로는_보이지_않는다() {
+        // 보는 점주가 예전에 이 가게에 연결됐다가 끊겼고 지금은 다른 가게에 연결돼 있는 경우
+        Store store = persistStore("예시분식");
+        Store elsewhere = persistStore("샘플카페");
+        Member uploader = persistApplicant("owner@example.com");
+        Member former = persistApplicant("former@example.com");
+        UploadFile storeImage = persistFile(uploader, UploadKind.STORE_IMAGE);
+        link(store, uploader);
+        StoreOwner formerLink = link(store, former);
+        formerLink.unlink(admin, AT.plusDays(1));
+        entityManager.persistAndFlush(StoreOwner.link(elsewhere, former, admin, AT.plusDays(1)));
+        entityManager.clear();
+
+        assertThat(visibleTo(storeImage, former)).isFalse();
     }
 
     @Test
@@ -199,7 +260,28 @@ class UploadFileRepositoryTest extends PostgresContainerTest {
     }
 
     @Test
-    void 없는_파일_번호는_공개_조회에서_빈_값이다() {
-        assertThat(uploadFileRepository.findLinkedById(999_999L, UploadKind.PUBLIC_KINDS)).isEmpty();
+    void 없는_파일_ID_는_빈_값이다() {
+        Member owner = persistApplicant("owner@example.com");
+        String unknown = UUID.randomUUID().toString();
+
+        assertThat(uploadFileRepository.findVisibleToOwner(unknown, owner.getMemberId(), UploadKind.STORE_PHOTO_KINDS))
+                .isEmpty();
+        assertThat(uploadFileRepository.findByFileKey(unknown)).isEmpty();
+    }
+
+    @Test
+    void 파일_ID_로_찾을_때_종류를_걸면_사업자등록증은_걸리지_않는다() {
+        Member owner = persistApplicant("owner@example.com");
+        UploadFile storeImage = persistFile(owner, UploadKind.STORE_IMAGE);
+        UploadFile bizCert = persistFile(owner, UploadKind.BIZ_CERT);
+        entityManager.clear();
+
+        assertThat(uploadFileRepository.findByFileKeyAndKindIn(storeImage.getFileKey(), UploadKind.STORE_PHOTO_KINDS))
+                .map(UploadFile::getUploadFileId).contains(storeImage.getUploadFileId());
+        assertThat(uploadFileRepository.findByFileKeyAndKindIn(bizCert.getFileKey(), UploadKind.STORE_PHOTO_KINDS))
+                .isEmpty();
+        // 관리자용 조회는 종류를 걸지 않는다
+        assertThat(uploadFileRepository.findByFileKey(bizCert.getFileKey()))
+                .map(UploadFile::getUploadFileId).contains(bizCert.getUploadFileId());
     }
 }

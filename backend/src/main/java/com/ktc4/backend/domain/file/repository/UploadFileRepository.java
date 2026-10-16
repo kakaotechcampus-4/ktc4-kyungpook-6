@@ -15,6 +15,12 @@ public interface UploadFileRepository extends JpaRepository<UploadFile, Long> {
     /** 회원이 올린 파일을 올린 순서대로 읽는다. */
     List<UploadFile> findByMemberMemberIdOrderByUploadFileIdAsc(Long memberId);
 
+    /** 바깥에 알려 준 파일 ID 로 찾는다. */
+    Optional<UploadFile> findByFileKey(String fileKey);
+
+    /** 바깥에 알려 준 파일 ID 로, 정한 종류일 때만 찾는다. */
+    Optional<UploadFile> findByFileKeyAndKindIn(String fileKey, Collection<UploadKind> kinds);
+
     /**
      * 가게에 지금 연결된 점주가 올린 파일을 올린 순서대로 읽는다.
      *
@@ -42,22 +48,28 @@ public interface UploadFileRepository extends JpaRepository<UploadFile, Long> {
     List<UploadFile> findOfStore(@Param("storeId") Long storeId, @Param("kinds") Collection<UploadKind> kinds);
 
     /**
-     * 파일 한 개를, 올린 점주가 지금 어느 가게에든 연결돼 있을 때만 읽는다.
+     * 점주에게 보여 줘도 되는 파일 한 개를 읽는다 — 그 파일을 올린 점주와 보는 점주가 <b>지금 같은 가게에 연결돼</b> 있을 때만.
      *
-     * <p>공개 조회에 쓴다. 종류를 함께 거는 이유: 사업자등록증은 점주가 승인됐어도 공개하지 않는다.
+     * <p>종류를 함께 거는 이유: 사업자등록증은 같은 가게 점주에게도 보여 주지 않는다. 승인 전·거절된 신청의 파일과
+     * 연결이 끊긴 점주의 파일은 연결이 없어서 걸리지 않는다.
      *
-     * @param fileId 파일 ID
-     * @param kinds  읽어도 되는 종류
-     * @return 파일. 없거나, 종류가 다르거나, 올린 점주가 가게에 연결돼 있지 않으면 빈 값
+     * @param fileKey  파일 ID
+     * @param viewerId 보는 점주의 회원 ID
+     * @param kinds    보여 줘도 되는 종류
+     * @return 파일. 조건에 맞지 않으면 빈 값
      */
     @Query("""
             select f from UploadFile f
-            where f.uploadFileId = :fileId
+            where f.fileKey = :fileKey
               and f.kind in :kinds
               and exists (
-                  select 1 from StoreOwner so
-                  where so.member = f.member
-                    and so.unlinkedAt is null)
+                  select 1 from StoreOwner uploaderLink, StoreOwner viewerLink
+                  where uploaderLink.member = f.member
+                    and uploaderLink.unlinkedAt is null
+                    and viewerLink.store = uploaderLink.store
+                    and viewerLink.member.memberId = :viewerId
+                    and viewerLink.unlinkedAt is null)
             """)
-    Optional<UploadFile> findLinkedById(@Param("fileId") Long fileId, @Param("kinds") Collection<UploadKind> kinds);
+    Optional<UploadFile> findVisibleToOwner(@Param("fileKey") String fileKey, @Param("viewerId") Long viewerId,
+                                            @Param("kinds") Collection<UploadKind> kinds);
 }

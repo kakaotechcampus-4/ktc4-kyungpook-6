@@ -22,6 +22,9 @@ import java.time.LocalDateTime;
  *
  * <p>판매 여부는 점주가 고른다(품절·잠시 중단). 가입 신청에서 옮겨 적은 메뉴는 판매 중으로 시작한다.
  *
+ * <p>사진은 가입 신청 때 메뉴마다 올린 것을 승인할 때 옮겨 적는다({@code photoFileId}). 가게 관리에서 이름·판매 여부를
+ * 고쳐도 그대로 남고, 가게 관리에서 새로 만든 메뉴는 사진이 없다.
+ *
  * <p>지워도 행을 남기고 지운 시각만 적는다(삭제 표시). 나중의 주문이 옛 메뉴를 가리켜야 하기 때문이다.
  * 지운 메뉴는 가게 상세에 나오지 않고, 다시 살릴 수 없다 — 같은 이름으로 새로 만든다.
  *
@@ -56,25 +59,31 @@ public class StoreMenu extends BaseTimeEntity {
     @Column(name = "on_sale", nullable = false)
     private boolean onSale;
 
+    /** 메뉴 사진의 파일 ID({@code upload_file.file_key}). 사진이 없으면 비어 있다 */
+    @Column(name = "photo_file_id", length = 36)
+    private String photoFileId;
+
     /** 지운 시각. 지우지 않았으면 비어 있다 */
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
-    private StoreMenu(Store store, String name, boolean onSale) {
+    private StoreMenu(Store store, String name, boolean onSale, String photoFileId) {
         this.store = store;
         this.name = name;
         this.onSale = onSale;
+        this.photoFileId = photoFileId;
     }
 
     /**
-     * 판매 중인 메뉴를 만든다.
+     * 판매 중인 메뉴를 만든다. 승인할 때 가입 신청서의 메뉴를 옮겨 적는 데 쓴다.
      *
-     * @param store 가게
-     * @param name  메뉴 이름
+     * @param store       가게
+     * @param name        메뉴 이름
+     * @param photoFileId 메뉴 사진의 파일 ID. 없으면 null
      * @return 저장 전 메뉴
      */
-    public static StoreMenu onSale(Store store, String name) {
-        return new StoreMenu(store, name, true);
+    public static StoreMenu onSale(Store store, String name, String photoFileId) {
+        return new StoreMenu(store, name, true, photoFileId);
     }
 
     /**
@@ -86,7 +95,7 @@ public class StoreMenu extends BaseTimeEntity {
      * @return 저장 전 메뉴
      */
     public static StoreMenu of(Store store, String name, boolean onSale) {
-        return new StoreMenu(store, name, onSale);
+        return new StoreMenu(store, name, onSale, null);
     }
 
     /**

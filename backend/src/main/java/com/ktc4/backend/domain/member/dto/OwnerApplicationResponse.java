@@ -49,7 +49,7 @@ public record OwnerApplicationResponse(
                         .map(hour -> new BusinessHourResponse(hour.day(), hour.open(), hour.close()))
                         .toList(),
                 info.getMenus().stream()
-                        .map(menu -> new SignupMenuResponse(menu.name()))
+                        .map(menu -> new SignupMenuResponse(menu.name(), menu.photoFileId()))
                         .toList(),
                 member.getStatus(),
                 member.getCreatedAt(),

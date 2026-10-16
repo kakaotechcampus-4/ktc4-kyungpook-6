@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -43,7 +44,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class FileAdminControllerTest {
 
     private static final String LIST_URL = "/api/admin/owners/3/files";
-    private static final String FILE_URL = "/api/admin/files/12";
+    private static final String FILE_ID = "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f";
+    private static final String FILE_URL = "/api/admin/files/" + FILE_ID;
     private static final byte[] CONTENT = "%PDF-1.7\n%test".getBytes(StandardCharsets.US_ASCII);
 
     @Autowired
@@ -60,8 +62,8 @@ class FileAdminControllerTest {
     }
 
     private void givenFile(UploadKind kind, FileType type) {
-        when(uploadFileService.load(12L))
-                .thenReturn(new StoredFile(12L, kind, type, CONTENT.length, new ByteArrayResource(CONTENT)));
+        when(uploadFileService.load(FILE_ID))
+                .thenReturn(new StoredFile(FILE_ID, kind, type, CONTENT.length, new ByteArrayResource(CONTENT)));
     }
 
     @Nested
@@ -110,15 +112,15 @@ class FileAdminControllerTest {
         @DisplayName("관리자에게 파일 ID·종류·형식·크기를 준다 — 저장한 이름이나 경로는 담지 않는다")
         void listsAttachments() throws Exception {
             when(uploadFileService.getAttachments(3L)).thenReturn(List.of(
-                    new AttachmentResponse(11L, UploadKind.STORE_IMAGE, FileType.JPEG, 100L,
+                    new AttachmentResponse("3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f", UploadKind.STORE_IMAGE, FileType.JPEG, 100L,
                             LocalDateTime.of(2026, 10, 14, 9, 0)),
-                    new AttachmentResponse(12L, UploadKind.BIZ_CERT, FileType.PDF, 200L,
+                    new AttachmentResponse(FILE_ID, UploadKind.BIZ_CERT, FileType.PDF, 200L,
                             LocalDateTime.of(2026, 10, 14, 9, 0))));
 
             mockMvc.perform(get(LIST_URL).header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(2))
-                    .andExpect(jsonPath("$[0].fileId").value(11))
+                    .andExpect(jsonPath("$[0].fileId").value("3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f"))
                     .andExpect(jsonPath("$[0].kind").value("STORE_IMAGE"))
                     .andExpect(jsonPath("$[0].fileType").value("JPEG"))
                     .andExpect(jsonPath("$[0].sizeBytes").value(100))
@@ -160,11 +162,34 @@ class FileAdminControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_PDF))
                     .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
-                            "attachment; filename=\"biz-cert-12.pdf\""))
+                            "attachment; filename=\"biz-cert-" + FILE_ID + ".pdf\""))
                     .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                     .andExpect(header().string("Content-Security-Policy", "default-src 'none'; sandbox"))
                     .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, CONTENT.length))
                     .andExpect(content().bytes(CONTENT));
+        }
+
+        @Test
+        @DisplayName("사진으로 낸 사업자등록증도 내려받기로 준다 — 형식이 아니라 종류로 정한다")
+        void bizCertPhotoIsAttachment() throws Exception {
+            givenFile(UploadKind.BIZ_CERT, FileType.JPEG);
+
+            mockMvc.perform(get(FILE_URL).header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentType(MediaType.IMAGE_JPEG))
+                    .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"biz-cert-" + FILE_ID + ".jpg\""));
+        }
+
+        @Test
+        @DisplayName("파일 ID 모양이 아니면 서비스에 닿지 않고 404 — 예전 숫자 번호, 대문자 UUID")
+        void rejectsMalformedFileId() throws Exception {
+            for (String id : List.of("12", FILE_ID.toUpperCase(Locale.ROOT), FILE_ID + "0")) {
+                mockMvc.perform(get("/api/admin/files/" + id).header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
+                        .andExpect(status().isNotFound());
+            }
+
+            verifyNoInteractions(uploadFileService);
         }
 
         @Test
@@ -175,14 +200,14 @@ class FileAdminControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.IMAGE_JPEG))
                     .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
-                            "inline; filename=\"store-image-12.jpg\""))
+                            "inline; filename=\"store-image-" + FILE_ID + ".jpg\""))
                     .andExpect(header().string("X-Content-Type-Options", "nosniff"));
 
             givenFile(UploadKind.MENU_IMAGE, FileType.PNG);
             mockMvc.perform(get(FILE_URL).header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
                     .andExpect(content().contentType(MediaType.IMAGE_PNG))
                     .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
-                            "inline; filename=\"menu-image-12.png\""));
+                            "inline; filename=\"menu-image-" + FILE_ID + ".png\""));
         }
 
         @Test
@@ -198,7 +223,7 @@ class FileAdminControllerTest {
         @Test
         @DisplayName("없는 파일이면 404 file-not-found — 에러 응답은 가이드의 모양이다")
         void missingFile() throws Exception {
-            when(uploadFileService.load(12L)).thenThrow(new CustomException(ErrorCode.FILE_NOT_FOUND));
+            when(uploadFileService.load(FILE_ID)).thenThrow(new CustomException(ErrorCode.FILE_NOT_FOUND));
 
             mockMvc.perform(get(FILE_URL).header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
                     .andExpect(status().isNotFound())

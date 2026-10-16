@@ -6,14 +6,10 @@ import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.auth.service.AuthService;
-import com.ktc4.backend.domain.file.dto.SignupFiles;
-import com.ktc4.backend.domain.file.service.UploadFileValidator;
 import com.ktc4.backend.global.error.ApiProblemDetail;
 import com.ktc4.backend.global.security.AuthMember;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Encoding;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -22,18 +18,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.util.List;
 
 @Tag(name = "인증", description = "관리자·점주 로그인과 점주 가입 신청 API")
 @RestController
@@ -91,52 +82,39 @@ public class AuthController {
                     형식 오류는 `errors` 에 몇 번째 줄의 어느 칸인지(예: `businessHours[0].close`) 담깁니다.
                     영업시간끼리 겹치면(같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간) `errors` 에 `businessHours` 칸으로 담깁니다.
 
-                    **요청은 `multipart/form-data` 입니다.** 칸은 네 가지입니다.
+                    요청 본문은 JSON(`application/json`)입니다. 사진·사업자등록증 파일은 이 요청에 싣지 않습니다.
+                    파일 업로드 API(`POST /api/files`)로 먼저 올리고, 받은 `fileId` 를 싣습니다.
 
-                    | 칸 | 내용 | 필수 | 제한 |
-                    |---|---|---|---|
-                    | `data` | 위의 글자 정보 전부. JSON 이고 **칸의 Content-Type 을 `application/json` 으로** 보냅니다 | 필수 | |
-                    | `storeImage` | 가게 대표 사진 | 필수 | 1장, 5MB, JPEG·PNG |
-                    | `menuImages` | 메뉴 사진. 같은 이름으로 여러 번 싣습니다 | 선택 | 2장까지, 장당 5MB, JPEG·PNG |
-                    | `bizCert` | 사업자등록증 | 필수 | 1개, 10MB, PDF |
+                    | 칸 | 업로드할 때 kind | |
+                    |---|---|---|
+                    | `bizCertFileId` | `BIZ_CERT` | 선택 (**곧 필수** — 앱이 업로드를 붙이면 바꿉니다) |
+                    | `storeImageFileId` | `STORE_IMAGE` | 선택 |
+                    | `menus[].photoFileId` | `MENU_IMAGE` | 선택 (메뉴마다 한 장) |
 
-                    - 파일 형식은 파일 이름이 아니라 실제 내용으로 확인합니다.
-                    - WebP·HEIC(아이폰 기본 형식)는 받지 않습니다. 앱에서 JPEG 로 바꿔 올려 주세요.
-                    - 사진은 저장할 때 **찍은 위치(GPS)·기기·시각 같은 부가 정보를 지웁니다.** 사진의 방향만 남깁니다.
-                      화질은 그대로입니다(다시 압축하지 않습니다). 구조가 깨진 사진은 `unsupported-file-type` 으로 거절합니다.
-                    - `data` 칸에 Content-Type 을 붙이지 않으면 415 입니다. 브라우저에서는
-                      `new Blob([JSON.stringify(data)], { type: "application/json" })` 로 싣습니다.
-                    - 글자 정보의 형식 오류가 파일 오류보다 먼저 나갑니다.
-
-                    파일은 가입 신청과 함께 저장되고, 관리자가 신청을 검토할 때 봅니다
-                    (`GET /api/admin/owners/{memberId}/files`). 보낸 파일 이름은 저장하지 않습니다.
-                    사업자등록증은 관리자만 볼 수 있습니다. 대표 사진과 메뉴 사진은 관리자가 가입을 승인하면
-                    그 가게의 사진으로 누구나 볼 수 있게 됩니다(`GET /api/stores/{storeId}/images`).
+                    파일 ID 가 없거나(지어낸 값, 올린 지 세 시간이 지나 지워진 파일), 이미 다른 신청에 쓰였거나,
+                    칸에 맞지 않는 종류이거나, 한 신청 안에서 두 칸에 같은 ID 를 넣으면 400 `invalid-file-reference` 입니다.
+                    이때 계정도 만들어지지 않습니다. 어느 경우인지는 알려 주지 않으니, 파일을 다시 올려 새 ID 로 보내세요.
 
                     같은 곳(IPv4 는 주소 하나, IPv6 는 /64 대역)에서 10분에 10번 넘게 보내거나(성공·실패를 가리지 않고 셉니다)
-                    하루에 5건 넘게 가입에 성공하면 429 `too-many-requests` 입니다.
+                    하루에 5건 넘게 가입에 성공하면 429 `too-many-requests` 입니다. 본문이 너무 커서(64KB 초과) 거절된 요청도 셉니다.
                     `Retry-After` 헤더의 초만큼 기다린 뒤 다시 보내세요.
                     """)
     @SecurityRequirements
-    @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
-            mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
-            encoding = @Encoding(name = "data", contentType = MediaType.APPLICATION_JSON_VALUE)))
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "신청 완료 — 상태는 PENDING(승인 대기). 가입 상태 확인용 토큰을 함께 줍니다"),
             @ApiResponse(responseCode = "400",
                     description = "입력값이 비었거나 형식이 틀리거나 영업시간이 겹치는 경우(errors 에 필드 표시), "
                             + "사업자등록번호가 10자리가 아닌 경우(invalid-biz-no), 휴대폰 번호 형식이 아닌 경우(invalid-phone), "
-                            + "필수 칸(data·storeImage·bizCert)이 빠진 경우(invalid-request), "
-                            + "빈 파일(empty-file), 받지 않는 파일 형식(unsupported-file-type), 메뉴 사진이 2장을 넘는 경우(too-many-files)",
+                            + "실은 파일 ID 를 쓸 수 없는 경우(invalid-file-reference)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "이미 가입된 이메일",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "413", description = "파일 하나가 종류별 크기를 넘거나 요청 전체가 26MB 를 넘는 경우(file-too-large)",
+            @ApiResponse(responseCode = "413", description = "본문(JSON)이 64KB 를 넘는 경우(request-too-large). 본문을 읽지 않고 거절합니다",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
-            @ApiResponse(responseCode = "415", description = "multipart/form-data 가 아니거나 data 칸이 application/json 이 아닌 경우",
+            @ApiResponse(responseCode = "415", description = "본문이 JSON(application/json)이 아닌 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "429", description = "같은 IP 에서 너무 자주 보낸 경우(too-many-requests). Retry-After 헤더 참고",
@@ -146,18 +124,10 @@ public class AuthController {
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class)))
     })
-    @PostMapping(value = "/owners/signup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping("/owners/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public OwnerSignupResponse signupOwner(
-            @Parameter(description = "글자 정보 (JSON)") @Valid @RequestPart("data") OwnerSignupRequest request,
-            @Parameter(description = "가게 대표 사진") @RequestPart("storeImage") MultipartFile storeImage,
-            @Parameter(description = "메뉴 사진 (0~2장)")
-            @RequestPart(value = "menuImages", required = false) List<MultipartFile> menuImages,
-            @Parameter(description = "사업자등록증 (PDF)") @RequestPart("bizCert") MultipartFile bizCert) {
-        // 글자 정보(@Valid)를 먼저 보고 파일을 본다. 파일 확인을 여기서 하는 이유: 받을 수 없는 파일이면
-        // DB 를 읽기도 전에 거절한다. 저장하는 쪽도 형식을 다시 가리므로 이 확인이 빠져도 잘못된 형식으로 저장되지는 않는다.
-        UploadFileValidator.validateSignupFiles(storeImage, menuImages, bizCert);
-        return authService.signupOwner(request, new SignupFiles(storeImage, menuImages, bizCert));
+    public OwnerSignupResponse signupOwner(@Valid @RequestBody OwnerSignupRequest request) {
+        return authService.signupOwner(request);
     }
 
     @Operation(summary = "내 정보 조회", description = """

@@ -30,7 +30,7 @@ class OwnerApplicationResponseTest {
                 .businessHours(List.of(
                         new SignupBusinessHour(BusinessDay.SUN, "22:00", "03:00"),
                         new SignupBusinessHour(BusinessDay.MON, "11:00", "24:00")))
-                .menus(List.of(new SignupMenu("다슬기국"), new SignupMenu("가락국수")))
+                .menus(List.of(new SignupMenu("다슬기국", null), new SignupMenu("가락국수", null)))
                 .build());
 
         OwnerApplicationResponse response = OwnerApplicationResponse.from(member);
@@ -40,7 +40,7 @@ class OwnerApplicationResponseTest {
         assertThat(response.businessHours()).containsExactly(
                 new BusinessHourResponse(BusinessDay.SUN, "22:00", "03:00"),
                 new BusinessHourResponse(BusinessDay.MON, "11:00", "24:00"));
-        assertThat(response.menus()).containsExactly(new SignupMenuResponse("다슬기국"), new SignupMenuResponse("가락국수"));
+        assertThat(response.menus()).containsExactly(new SignupMenuResponse("다슬기국", null), new SignupMenuResponse("가락국수", null));
     }
 
     @Test

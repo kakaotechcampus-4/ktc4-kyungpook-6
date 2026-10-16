@@ -31,8 +31,9 @@ import java.util.regex.Pattern;
  *       ({@code AuthService.MAX_PENDING_APPLICATIONS})을 막는다. 시도 횟수만으로는 몇 시간이면 그 상한이 찬다.</li>
  * </ul>
  *
- * <p>필터에서 막는 이유: 가입 신청은 사진·사업자등록증이 실린 큰 요청이다. 컨트롤러까지 가면 서버가 본문을 다 받은 뒤라,
- * 그 전에 — 본문을 읽기 전에 — 거절해야 한다. 이 필터 앞에서 본문을 읽는 필터가 없어야 한다(CSRF 필터는 꺼져 있다).
+ * <p>본문 크기에도 상한을 둔다({@code signup.max-body-bytes}). 넘으면 413 {@code request-too-large} 다.
+ *
+ * <p>필터에서 막는 이유: 컨트롤러까지 가면 서버가 본문을 다 받은 뒤라, 그 전에 — 본문을 읽기 전에 — 거절해야 한다. 이 필터 앞에서 본문을 읽는 필터가 없어야 한다(CSRF 필터는 꺼져 있다).
  *
  * <p>보낸 쪽은 IP 로 가린다. IP 는 횟수를 세는 동안 메모리에만 있고, 로그에는 끝자리를 가려 남긴다.
  * 어느 IP 로 볼지는 {@link #clientIp}, 어디까지를 한 곳으로 볼지는 {@link #bucketKey} 참고.
@@ -59,6 +60,9 @@ class SignupRateLimitFilter extends OncePerRequestFilter {
     private final SignupRateLimiter signupLimiter;
     private final int trustedProxies;
     private final ProblemResponseWriter problemWriter;
+    // 가입 신청 본문의 상한(바이트). 본문은 JSON 이라 다 읽은 뒤에야 칸별 검증(메뉴 개수·글자 수)이 돈다 —
+    // 상한이 없으면 수십 MB 짜리 JSON 도 메모리에 다 올라간 뒤에 거절된다.
+    private final long maxBodyBytes;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -82,7 +86,20 @@ class SignupRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        chain.doFilter(request, response);
+        // 크기는 횟수를 센 뒤에 본다 — 너무 큰 요청도 한 번의 시도로 센다. 세지 않으면 413 을 끝없이 되풀이할 수 있고
+        // (그때마다 로그가 한 줄씩 남는다), "성공·실패를 가리지 않고 센다"는 안내와도 어긋난다.
+        // 길이를 알린 요청은 읽기 전에 거절한다. 알리지 않은 요청(나눠 보내기)은 읽으면서 상한에서 멈춘다.
+        long declaredLength = request.getContentLengthLong();
+        if (declaredLength > maxBodyBytes) {
+            log.info("가입 신청 거절 - 본문이 너무 큼, ip={}, bytes={}", maskIp(ip), declaredLength);
+            problemWriter.write(response, ErrorCode.REQUEST_TOO_LARGE);
+            return;
+        }
+        HttpServletRequest limitedRequest = declaredLength < 0
+                ? new BodySizeLimitedRequest(request, maxBodyBytes)
+                : request;
+
+        chain.doFilter(limitedRequest, response);
 
         if (response.getStatus() == HttpServletResponse.SC_CREATED) {
             signupLimiter.acquire(key);

@@ -61,7 +61,7 @@ class OwnerInfoStoreInfoColumnTest extends PostgresContainerTest {
     }
 
     @Test
-    @DisplayName("영업시간 21줄·메뉴 50개가 순서·값 그대로 왕복한다 — 요소가 레코드로 읽히는지까지")
+    @DisplayName("영업시간 21줄·메뉴 50개(사진 ID 포함)가 순서·값 그대로 왕복한다 — 요소가 레코드로 읽히는지까지")
     void roundTripsFullLists() {
         List<SignupBusinessHour> hours = new ArrayList<>();
         for (BusinessDay day : BusinessDay.values()) {
@@ -69,7 +69,8 @@ class OwnerInfoStoreInfoColumnTest extends PostgresContainerTest {
             hours.add(new SignupBusinessHour(day, "10:00", "14:00"));
             hours.add(new SignupBusinessHour(day, "21:00", "24:00"));
         }
-        List<SignupMenu> menus = IntStream.rangeClosed(1, 50).mapToObj(i -> new SignupMenu("메뉴" + (51 - i))).toList();
+        List<SignupMenu> menus = IntStream.rangeClosed(1, 50).mapToObj(i -> new SignupMenu("메뉴" + (51 - i),
+                        i % 2 == 0 ? null : String.format("00000000-0000-4000-8000-%012d", i))).toList();
 
         Long memberId = persistOwner(ownerInfo()
                 .storeAddress("가상특별시 예시구 샘플로 1").storePhone("053-000-0001")
@@ -94,7 +95,10 @@ class OwnerInfoStoreInfoColumnTest extends PostgresContainerTest {
                         List.of(new SignupBusinessHour(BusinessDay.MON, "11:00", "21:00")), List.of()),
                 Arguments.of("메뉴에 모르는 칸", "[]",
                         "[{\"name\":\"김치찌개\",\"price\":8000},{\"name\":\"라면\"}]",
-                        List.of(), List.of(new SignupMenu("김치찌개"), new SignupMenu("라면"))));
+                        List.of(), List.of(new SignupMenu("김치찌개", null), new SignupMenu("라면", null))),
+                Arguments.of("메뉴 사진 칸", "[]",
+                        "[{\"name\":\"김치찌개\",\"photoFileId\":\"9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\"}]",
+                        List.of(), List.of(new SignupMenu("김치찌개", "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"))));
     }
 
     @ParameterizedTest(name = "{0}")

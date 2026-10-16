@@ -135,7 +135,8 @@ class SecurityConfigTest {
                                     + "\"phone\":\"010-0000-0000\",\"storeAddress\":\"대구광역시 북구 대학로 80\","
                                     + "\"storePhone\":\"053-123-4567\","
                                     + "\"businessHours\":[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}],"
-                                    + "\"menus\":[{\"name\":\"김치찌개\"}]}"))
+                                    + "\"menus\":[{\"name\":\"김치찌개\"}],"
+                                    + "\"bizCertFileId\":\"7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f\"}"))
                     .andExpect(status().isCreated());
         }
 

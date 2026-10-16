@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.file.controller;
 
+import com.ktc4.backend.domain.file.FileIdFormat;
 import com.ktc4.backend.domain.file.dto.AttachmentResponse;
 import com.ktc4.backend.domain.file.service.UploadFileService;
 import com.ktc4.backend.global.error.ApiProblemDetail;
@@ -77,9 +78,9 @@ public class FileAdminController {
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class)))
     })
-    @GetMapping("/files/{fileId}")
+    @GetMapping("/files/{fileId:" + FileIdFormat.PATH_REGEX + "}")
     public ResponseEntity<Resource> getFile(
-            @Parameter(description = "파일 ID", example = "12") @PathVariable Long fileId) {
+            @Parameter(description = "파일 ID", example = "3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f") @PathVariable String fileId) {
         // 사업자등록증이 브라우저나 중간 서버에 남지 않게 한다
         return FileResponses.of(uploadFileService.load(fileId), CacheControl.noStore());
     }

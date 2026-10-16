@@ -18,12 +18,11 @@ spring:
 
   servlet:
     multipart:
-      # 점주 가입 신청이 사진·사업자등록증을 함께 받는다. 로그인 없이 부르는 API 라 상한을 반드시 둔다.
+      # 파일 업로드(POST /api/files)는 로그인 없이 부르는 API 라 상한을 반드시 둔다. 한 요청에 파일 하나다.
       # 파일 하나: 가장 큰 종류(사업자등록증 10MB)에 맞춘다. 종류별 상한(사진 5MB)은 UploadKind 가 다시 본다.
       max-file-size: 10MB
-      # 요청 전체: 대표 사진 5 + 메뉴 사진 2장 × 5 + 사업자등록증 10 = 25MB, 글자 정보 몫으로 1MB 더.
-      # 메뉴 사진 장수(UploadFileValidator.MAX_MENU_IMAGES)를 바꾸면 이 값도 함께 바꾼다.
-      max-request-size: 26MB
+      # 요청 전체: 파일 하나 10MB 에 kind 칸과 multipart 경계 몫으로 1MB 더.
+      max-request-size: 11MB
 
   jpa:
     hibernate:
@@ -57,6 +56,17 @@ upload:
   # 배포 환경은 컨테이너를 새로 만들어도 파일이 남도록 볼륨에 둔다(docker-compose.yml 의 backend-uploads).
   # 로컬 기본값은 실행한 자리의 uploads/ 다 — .gitignore 에 있어 커밋되지 않는다.
   dir: ${UPLOAD_DIR:./uploads}
+  # 올리고 이 시간 안에 가입 신청에 싣지 않은 파일은 지운다(PendingUploadCleanupScheduler). 지우는 일은 15분마다 돈다.
+  # 짧게 두는 이유: 쌓인 파일 상한(2000건)이 차면 지워질 때까지 모두의 업로드가 막힌다. 그 시간이 이 값 + 정리 주기다.
+  pending-ttl-hours: ${UPLOAD_PENDING_TTL_HOURS:3}
+  cleanup-interval-ms: ${UPLOAD_CLEANUP_INTERVAL_MS:900000}
+  # 같은 곳에서 파일을 올리는 횟수 제한. 넘으면 429 (UploadRateLimitFilter). 메뉴가 많으면 가입 한 건에 수십 장이라
+  # 가입 신청보다 넉넉히 둔다. 보낸 쪽을 가리는 프록시 수는 signup.rate-limit.trusted-proxies 를 함께 쓴다.
+  rate-limit:
+    max-attempts: ${UPLOAD_RATE_LIMIT_MAX_ATTEMPTS:60}
+    window-minutes: ${UPLOAD_RATE_LIMIT_WINDOW_MINUTES:10}
+    # 같은 곳에서 하루에 올릴 수 있는 파일 수(성공한 것만). 10분 한도만 있으면 한 곳에서 몇 시간 만에 쌓인 파일 상한을 채운다
+    max-uploads-per-day: ${UPLOAD_RATE_LIMIT_MAX_UPLOADS_PER_DAY:150}
 
 signup:
   # 점주 가입 신청을 같은 IP 에서 되풀이하는 횟수 제한. 넘으면 429 (SignupRateLimitFilter).
@@ -74,6 +84,9 @@ signup:
     # 기본값은 0(프록시 없이 직접 받음 — 헤더를 보지 않는다)이다. 틀렸을 때 조용히 뚫리는 쪽이 아니라 바로 드러나는 쪽이다.
     # 프록시 뒤에 있는 서버만 그 대수를 넣는다(개발 서버는 docker-compose.dev.yml 에서 1).
     trusted-proxies: ${SIGNUP_TRUSTED_PROXIES:0}
+  # 가입 신청 본문(JSON)의 상한(바이트). 넘으면 413 (SignupRateLimitFilter). 본문은 다 읽은 뒤에야 칸별 검증이 돌아서,
+  # 상한이 없으면 큰 JSON 이 메모리에 다 올라간 뒤에 거절된다. 메뉴 50개·영업시간 21줄을 꽉 채워도 20KB 안쪽이다.
+  max-body-bytes: ${SIGNUP_MAX_BODY_BYTES:65536}
 
 external:
   # 외부 API 장애 시 무한 대기 방지 (기본값은 무제한 대기)

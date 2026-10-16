@@ -134,7 +134,7 @@ class OwnerApprovalStoreFillCommitTest extends PostgresContainerTest {
                 .businessHours(List.of(
                         new SignupBusinessHour(BusinessDay.MON, "11:00", "15:00"),
                         new SignupBusinessHour(BusinessDay.TUE, "11:00", "15:00")))
-                .menus(menuNames.stream().map(SignupMenu::new).toList())
+                .menus(menuNames.stream().map(name -> new SignupMenu(name, null)).toList())
                 .build()));
     }
 

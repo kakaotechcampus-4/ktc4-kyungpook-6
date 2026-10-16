@@ -6,11 +6,8 @@ import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.List;
 
 import static com.ktc4.backend.support.SignupMultipart.file;
 import static com.ktc4.backend.support.SignupMultipart.jpeg;
@@ -49,11 +46,15 @@ class UploadFileValidatorTest {
     }
 
     @Test
-    @DisplayName("사업자등록증은 PDF 만 받는다 — 사진을 올리면 UNSUPPORTED_FILE_TYPE")
-    void bizCertAcceptsOnlyPdf() {
+    @DisplayName("사업자등록증은 PDF·JPEG·PNG 를 받는다 — 휴대폰으로 찍은 사진도 된다. WebP 는 받지 않는다")
+    void bizCertAcceptsPdfAndPhotos() {
         assertThatCode(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, pdf("bizCert")))
                 .doesNotThrowAnyException();
-        assertThat(errorCodeOf(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, jpeg("bizCert"))))
+        assertThatCode(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, jpeg("bizCert")))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, png("bizCert")))
+                .doesNotThrowAnyException();
+        assertThat(errorCodeOf(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, webp("bizCert"))))
                 .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
     }
 
@@ -130,39 +131,14 @@ class UploadFileValidatorTest {
     }
 
     @Test
-    @DisplayName("가입 신청은 대표 사진·사업자등록증만 있어도 되고, 메뉴 사진은 2장까지 받는다")
-    void signupFiles() {
-        assertThatCode(() -> UploadFileValidator.validateSignupFiles(jpeg("storeImage"), null, pdf("bizCert")))
+    @DisplayName("사진으로 낸 사업자등록증은 사진 상한(5MB)을 따른다 — 사진은 부가 정보를 지우느라 메모리에 올리기 때문이다")
+    void bizCertPhotoFollowsImageLimit() {
+        assertThatCode(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, jpegOfSize("bizCert", 5 * MB)))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> UploadFileValidator.validateSignupFiles(jpeg("storeImage"), List.of(), pdf("bizCert")))
+        assertThat(errorCodeOf(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, jpegOfSize("bizCert", 5 * MB + 1))))
+                .isEqualTo(ErrorCode.FILE_TOO_LARGE);
+        // PDF 는 그대로 10MB 까지 — 사진 상한은 형식을 가린 뒤에 건다
+        assertThatCode(() -> UploadFileValidator.validate(UploadKind.BIZ_CERT, pdfOfSize("bizCert", 5 * MB + 1)))
                 .doesNotThrowAnyException();
-        List<MultipartFile> max = Collections.<MultipartFile>nCopies(
-                UploadFileValidator.MAX_MENU_IMAGES, png("menuImages"));
-        assertThatCode(() -> UploadFileValidator.validateSignupFiles(jpeg("storeImage"), max, pdf("bizCert")))
-                .doesNotThrowAnyException();
-    }
-
-    @Test
-    @DisplayName("메뉴 사진이 3장이면 TOO_MANY_FILES — 2장까지만 받는다")
-    void tooManyMenuImages() {
-        assertThat(UploadFileValidator.MAX_MENU_IMAGES).isEqualTo(2);
-        List<MultipartFile> three = Collections.<MultipartFile>nCopies(3, png("menuImages"));
-
-        assertThat(errorCodeOf(() -> UploadFileValidator.validateSignupFiles(jpeg("storeImage"), three, pdf("bizCert"))))
-                .isEqualTo(ErrorCode.TOO_MANY_FILES);
-    }
-
-    @Test
-    @DisplayName("가입 신청의 파일 중 하나라도 틀리면 거절한다 — 대표 사진, 메뉴 사진, 사업자등록증 각각")
-    void signupRejectsAnyBadFile() {
-        assertThat(errorCodeOf(() -> UploadFileValidator.validateSignupFiles(pdf("storeImage"), null, pdf("bizCert"))))
-                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
-        assertThat(errorCodeOf(() -> UploadFileValidator.validateSignupFiles(
-                jpeg("storeImage"), List.of(png("menuImages"), pdf("menuImages")), pdf("bizCert"))))
-                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
-        assertThat(errorCodeOf(() -> UploadFileValidator.validateSignupFiles(jpeg("storeImage"), null, png("bizCert"))))
-                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
-        assertThat(errorCodeOf(() -> UploadFileValidator.validateSignupFiles(jpeg("storeImage"), null, null)))
-                .isEqualTo(ErrorCode.EMPTY_FILE);
     }
 }

@@ -52,21 +52,21 @@ class MenuRequestTest {
     @DisplayName("평범한 메뉴 이름은 통과한다 — 겹친 부호는 두 개까지")
     void acceptsOrdinaryNames(String name) {
         assertThat(invalidFields(new MenuRequest(null, name, true))).isEmpty();
-        assertThat(invalidFields(new SignupMenuRequest(name))).isEmpty();
+        assertThat(invalidFields(new SignupMenuRequest(name, null))).isEmpty();
     }
 
     @Test
     @DisplayName("메뉴 이름은 50자까지 받는다")
     void acceptsNameAtMaxLength() {
         assertThat(invalidFields(new MenuRequest(null, NAME_AT_MAX, true))).isEmpty();
-        assertThat(invalidFields(new SignupMenuRequest(NAME_AT_MAX))).isEmpty();
+        assertThat(invalidFields(new SignupMenuRequest(NAME_AT_MAX, null))).isEmpty();
     }
 
     @Test
     @DisplayName("메뉴 이름이 51자면 거절한다")
     void rejectsTooLongName() {
         assertThat(invalidFields(new MenuRequest(null, NAME_AT_MAX + "가", true))).containsExactly("name");
-        assertThat(invalidFields(new SignupMenuRequest(NAME_AT_MAX + "가"))).containsExactly("name");
+        assertThat(invalidFields(new SignupMenuRequest(NAME_AT_MAX + "가", null))).containsExactly("name");
     }
 
     // 빈 값, 공백만, 전각 공백만(@NotBlank 는 통과하지만 글자가 없다), 기호만, 줄바꿈, 한글 채움 문자, 폭 없는 공백, 겹친 부호
@@ -75,7 +75,7 @@ class MenuRequestTest {
     @DisplayName("비었거나, 글자가 없거나, 보이지 않는 글자가 섞인 이름은 거절한다")
     void rejectsBlankOrInvisibleNames(String name) {
         assertThat(invalidFields(new MenuRequest(null, name, true))).containsExactly("name");
-        assertThat(invalidFields(new SignupMenuRequest(name))).containsExactly("name");
+        assertThat(invalidFields(new SignupMenuRequest(name, null))).containsExactly("name");
     }
 
     @Test

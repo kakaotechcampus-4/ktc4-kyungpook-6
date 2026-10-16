@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.dto.MenuSeed;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.entity.Store;
@@ -52,20 +53,20 @@ public class StoreOperatingInfoService {
      * @param store       잠긴 가게
      * @param phone       가게 전화번호. 비어 있으면 채우지 않는다
      * @param hours       영업시간. 비어 있으면 채우지 않는다. 형식은 요청 검증을 통과한 값이어야 한다
-     * @param menuNames   메뉴 이름. 비어 있으면 채우지 않는다. 처음에는 모두 판매 중이다
+     * @param menus       메뉴 이름과 사진. 비어 있으면 채우지 않는다. 처음에는 모두 판매 중이다
      * @param change      누가 승인·연결했는지 ({@link StoreChange#signupFill})
      * @throws IllegalStateException 영업시간 형식이 틀리면 — 입구에서 검증한 값만 오므로 생기면 버그다.
      *                               조용히 건너뛰지 않고 호출한 트랜잭션(승인)을 통째로 되돌린다
      */
     @Transactional
-    public void fillIfEmpty(Store store, String phone, List<BusinessHourRequest> hours, List<String> menuNames,
+    public void fillIfEmpty(Store store, String phone, List<BusinessHourRequest> hours, List<MenuSeed> menus,
                             StoreChange change) {
         StoreSnapshot before = storeChangeHistoryService.snapshot(store);
         // 항목마다 "채울지"를 따로 정한다. 관리자 승인 화면이 생겨 관리자가 항목별로 고르게 되면,
         // 아래 세 메서드의 "비어 있을 때만" 조건을 관리자가 고른 값으로 바꾸는 자리다.
         String phoneResult = fillPhone(store, phone);
         String hoursResult = fillHours(store, hours);
-        String menusResult = fillMenus(store, menuNames);
+        String menusResult = fillMenus(store, menus);
         // 옮겨 적지 않은 항목도 남긴다 — "승인했는데 가게에 영업시간이 없다"는 문의가 오면 이 줄로 이유를 찾는다
         log.info("가게 빈 칸 채우기 - storeId={}, 가게 전화={}, 영업시간={}, 메뉴={}",
                 store.getStoreId(), phoneResult, hoursResult, menusResult);
@@ -92,16 +93,18 @@ public class StoreOperatingInfoService {
         return FILLED + "(" + hours.size() + "줄)";
     }
 
-    private String fillMenus(Store store, List<String> menuNames) {
-        if (menuNames.isEmpty()) {
+    private String fillMenus(Store store, List<MenuSeed> menus) {
+        if (menus.isEmpty()) {
             return NOTHING_TO_FILL;
         }
         // 지운 메뉴는 세지 않는다 — 지운 메뉴만 남은 가게는 메뉴가 없는 가게다
         if (menuRepository.existsByStoreStoreIdAndDeletedAtIsNull(store.getStoreId())) {
             return KEPT_EXISTING;
         }
-        menuRepository.saveAll(menuNames.stream().map(name -> StoreMenu.onSale(store, name)).toList());
-        return FILLED + "(" + menuNames.size() + "개)";
+        menuRepository.saveAll(menus.stream()
+                .map(menu -> StoreMenu.onSale(store, menu.name(), menu.photoFileId()))
+                .toList());
+        return FILLED + "(" + menus.size() + "개)";
     }
 
     // 요청 검증을 통과한 영업시간을 분 단위 엔티티로 바꾼다. 가게 관리 저장(StoreManagementService)도 같이 쓴다.

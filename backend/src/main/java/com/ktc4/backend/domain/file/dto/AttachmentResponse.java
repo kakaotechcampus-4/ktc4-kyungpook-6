@@ -13,7 +13,9 @@ import java.time.LocalDateTime;
  * <p>저장한 이름과 디스크 경로는 내보내지 않는다 — 파일은 {@code fileId} 로만 찾는다.
  */
 public record AttachmentResponse(
-        @Schema(description = "파일 ID — `GET /api/admin/files/{fileId}` 로 연다", example = "12") Long fileId,
+        @Schema(description = "파일 ID — `GET /api/admin/files/{fileId}` 로 연다",
+                example = "3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f")
+        String fileId,
         @Schema(description = "종류 (STORE_IMAGE: 가게 대표 사진, MENU_IMAGE: 메뉴 사진, BIZ_CERT: 사업자등록증)",
                 example = "STORE_IMAGE")
         UploadKind kind,
@@ -22,7 +24,7 @@ public record AttachmentResponse(
         @Schema(description = "올린 시각") LocalDateTime uploadedAt
 ) {
     public static AttachmentResponse from(UploadFile file) {
-        return new AttachmentResponse(file.getUploadFileId(), file.getKind(), file.getFileType(),
+        return new AttachmentResponse(file.getFileKey(), file.getKind(), file.getFileType(),
                 file.getSizeBytes(), file.getCreatedAt());
     }
 }

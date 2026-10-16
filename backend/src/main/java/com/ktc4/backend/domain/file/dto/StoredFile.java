@@ -13,5 +13,5 @@ import org.springframework.core.io.Resource;
  * @param sizeBytes 크기
  * @param content   파일 내용
  */
-public record StoredFile(Long fileId, UploadKind kind, FileType fileType, long sizeBytes, Resource content) {
+public record StoredFile(String fileId, UploadKind kind, FileType fileType, long sizeBytes, Resource content) {
 }
