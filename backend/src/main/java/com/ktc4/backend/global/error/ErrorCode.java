@@ -28,6 +28,10 @@ public enum ErrorCode {
     BIZNO_API_ERROR(HttpStatus.BAD_GATEWAY, "비즈노 API 호출에 실패했습니다"),
     NTS_API_ERROR(HttpStatus.BAD_GATEWAY, "국세청 API 호출에 실패했습니다"),
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 가게를 찾을 수 없습니다"),
+    // 가게 삭제를 거절하는 세 경우. 셋 다 "실제 활동이 남은 가게는 지우지 않는다" 는 같은 이유다.
+    STORE_HAS_OWNER(HttpStatus.CONFLICT, "점주가 연결된 가게입니다"),
+    STORE_UNDER_INVESTIGATION(HttpStatus.CONFLICT, "조사가 진행 중인 가게입니다"),
+    STORE_HAS_CHECK_IN(HttpStatus.CONFLICT, "방문 기록이 있는 가게입니다"),
     INVALID_QR_TOKEN(HttpStatus.BAD_REQUEST, "유효하지 않은 QR 입니다"),
 
     // 인증·권한. 앞의 둘(UNAUTHORIZED, FORBIDDEN)은 대개 컨트롤러에 닿기 전 보안 필터가 직접 응답한다.

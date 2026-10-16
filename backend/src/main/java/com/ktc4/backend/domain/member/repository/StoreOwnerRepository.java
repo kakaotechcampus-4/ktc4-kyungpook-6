@@ -98,6 +98,23 @@ public interface StoreOwnerRepository extends JpaRepository<StoreOwner, Long> {
             """)
     List<LinkedStoreDetail> findLinkedStoreDetailsByMemberId(@Param("memberId") Long memberId);
 
+    /**
+     * 그 가게에 아직 끊기지 않은 점주 연결이 있는지 — 가게를 지워도 되는지 판단하는 데 쓴다.
+     *
+     * <p>연결된 채로 가게를 지우면 점주가 쓰던 가게가 말없이 사라진다. 그래서 하나라도 있으면
+     * 삭제를 거절하고({@code STORE_HAS_OWNER}) 연결을 먼저 끊게 한다
+     * ({@code DELETE /api/admin/owners/{memberId}/stores/{storeId}}).
+     *
+     * @param storeId 가게 ID
+     * @return 끊기지 않은 연결이 있으면 true
+     */
+    @Query("""
+            select count(so) > 0
+            from StoreOwner so
+            where so.store.storeId = :storeId and so.unlinkedAt is null
+            """)
+    boolean existsLinkedByStoreId(@Param("storeId") Long storeId);
+
     /** 관리자 화면이 보는 연결된 가게 한 곳. */
     interface LinkedStoreDetail {
         Long getStoreId();
