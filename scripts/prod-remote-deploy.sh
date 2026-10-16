@@ -15,7 +15,12 @@ set -euo pipefail
 REGION=ap-northeast-2
 PARAM_SA=/ktc4/prod/GCP_SA_KEY          # SecureString — 서비스 계정 JSON
 PARAM_PROJECT=/ktc4/prod/GCP_PROJECT_ID # String — 비밀이 아니라 보이는 편이 낫습니다
-KEY_DIR="$HOME/.ktc4"                   # 레포 밖에 둡니다. git reset 과 무관하게 남습니다
+
+# 🚨 `$HOME` 을 쓰지 않습니다. SSM 은 이 스크립트를 **root 로, HOME 이 설정되지 않은 셸에서**
+#    돌립니다(2026-10-16 실측: whoami=root · HOME 없음 · `~` 확장 안 됨). `set -u` 와 겹쳐
+#    `$HOME/...` 한 줄에서 스크립트가 죽고 배포 전체가 실패합니다.
+#    레포 밖이면서 배포 사용자 홈인 이 경로로 고정하고, 필요하면 환경변수로 바꿉니다.
+KEY_DIR="${KTC4_KEY_DIR:-/home/ubuntu/.ktc4}"
 KEY_FILE="$KEY_DIR/vertex.json"
 
 # 서버에 aws CLI 가 없을 수 있습니다. 그때는 컨테이너로 부르는데 `--network host` 가 필요합니다.
