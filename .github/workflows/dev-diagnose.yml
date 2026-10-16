@@ -64,16 +64,10 @@ jobs:
 
       - name: 백엔드에서 AI 로 가는 길이 뚫려 있나
         run: |
-          echo "== backend → ai =="
-          docker exec ktc4-backend sh -c 'command -v curl >/dev/null && curl -s -o /dev/null -w "%{http_code} %{time_total}초\n" --max-time 5 "${AI_BASE_URL:-http://ai:8000}/health" || echo "컨테이너에 curl 이 없습니다"' 2>&1 | sed 's/^/  /'
-          echo "== ai → backend =="
-          docker exec ktc4-ai sh -c 'python3 -c "
-import os,urllib.request
-u=os.environ.get(\"BACKEND_BASE_URL\",\"http://backend:8080\")+\"/ping\"
-try:
-    with urllib.request.urlopen(u, timeout=5) as r: print(u, r.status)
-except Exception as e: print(u, \"실패:\", e)
-"' 2>&1 | sed 's/^/  /'
+          echo "== backend -> ai =="
+          docker exec ktc4-backend sh -c 'command -v curl >/dev/null && curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" --max-time 5 "${AI_BASE_URL:-http://ai:8000}/health" || echo "no curl in container"' 2>&1 | sed 's/^/  /'
+          echo "== ai -> backend =="
+          docker exec ktc4-ai python3 -c 'import os,urllib.request; u=os.environ.get("BACKEND_BASE_URL","http://backend:8080")+"/ping"; print(u, urllib.request.urlopen(u, timeout=5).status)' 2>&1 | sed 's/^/  /'
 
       - name: 컨테이너 로그
         env:
