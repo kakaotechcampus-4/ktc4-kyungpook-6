@@ -46,6 +46,13 @@ jobs:
 
           echo "instance-id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
 
+      # 보내는 명령은 네 줄로 두고, 실제 배포 로직은 scripts/prod-remote-deploy.sh 에 둔다.
+      # 두 가지 이유다.
+      #  ① **비밀값을 여기 실을 수 없다.** send-command 의 파라미터는 SSM 콘솔의 Command history 와
+      #     CloudTrail, 그리고 이 Actions 로그에 그대로 남는다. 그래서 dev(deploy-dev.yml)처럼
+      #     워크플로 `env:` 로 키를 넘기는 수법을 prod 에는 쓸 수 없다. 서버가 파라미터 스토어에서
+      #     직접 받아 가고, 명령에는 **이름만** 남는다.
+      #  ② JSON 배열에 긴 셸을 밀어 넣으면 아무도 리뷰할 수 없다.
       - name: SSM으로 배포 명령 전송
         id: send-command
         env:
@@ -56,7 +63,7 @@ jobs:
             --instance-ids "${{ steps.ec2.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ github.sha }} to prod" \
-            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin '"${REF}"'","git reset --hard '"${SHA}"'","./scripts/deploy.sh prod up -d --build --remove-orphans","docker image prune -f"]}' \
+            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin '"${REF}"'","git reset --hard '"${SHA}"'","./scripts/prod-remote-deploy.sh","docker image prune -f"]}' \
             --query "Command.CommandId" \
             --output text)
 
