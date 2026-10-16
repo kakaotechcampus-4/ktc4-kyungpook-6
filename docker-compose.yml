@@ -31,6 +31,12 @@ services:
       AI_BASE_URL: http://ai:8000
       # AI 가 X-API-KEY 로 확인하는 키. 비우면 검사가 꺼진다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # 로그인·외부 조회에 쓰는 값. 비면 그 기능만 꺼진다(관리자 계정은 만들어지지 않는다).
+      JWT_SECRET: ${JWT_SECRET:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      BIZNO_API_KEY: ${BIZNO_API_KEY:-}
+      NTS_SERVICE_KEY: ${NTS_SERVICE_KEY:-}
       # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
       UPLOAD_DIR: /app/uploads
     volumes:

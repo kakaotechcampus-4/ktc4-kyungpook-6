@@ -1,18 +1,6 @@
 # prod 오버라이드. base 위에 병합합니다 — scripts/deploy.sh prod up -d --build
 #
-# 값은 SSM 파라미터 스토어 /ktc4/prod/ 에 둡니다. 서버 .env 는 고치지 않습니다.
-# 자세한 것은 docs/배포환경에서_작업하는_방법.md.
+# 값은 서버 .env 로 관리합니다(EC2 에 직접 접속해 수정하는 정책).
+# base 와 차이가 없어 비어 있습니다. prod 전용 설정이 필요해지면 여기에 추가하세요.
 
-services:
-  backend:
-    # 아래 값들은 base 에 없어서, 이 블록이 없으면 서버 .env 에 넣어도 컨테이너에 안 들어갑니다.
-    # 비어도 배포를 멈추지 않습니다 — 무엇이 꺼지는지는 prod-remote-deploy.sh 가 로그에 찍습니다.
-    environment:
-      JWT_SECRET: ${JWT_SECRET:-}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      BIZNO_API_KEY: ${BIZNO_API_KEY:-}
-      NTS_SERVICE_KEY: ${NTS_SERVICE_KEY:-}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
-      # SIGNUP_TRUSTED_PROXIES 는 넣지 않습니다 — 프록시 없는 서버에 넣으면 헤더 위조로
-      # 가입 횟수 제한을 피할 수 있습니다. 프록시를 붙이면 그때 단계 수만큼 넣습니다.
+services: {}
