@@ -15,6 +15,7 @@ import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.service.InvestigationTargetSelector;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.service.TaskService;
 import com.ktc4.backend.domain.verification.service.VerificationService;
@@ -44,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Job 을 어떻게 만드는지(대상 수, 실행기에 넘길 값, 0곳 처리, 개수 상한)만 본다.
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
-@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class,
+@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
         InvestigationTargetSelector.class, VerificationService.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("조사 시작 (JobService.create)")

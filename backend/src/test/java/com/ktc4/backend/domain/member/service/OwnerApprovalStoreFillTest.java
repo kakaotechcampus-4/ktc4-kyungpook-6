@@ -11,6 +11,7 @@ import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.repository.StoreBusinessHourRepository;
 import com.ktc4.backend.domain.store.repository.StoreMenuRepository;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.support.PostgresContainerTest;
@@ -36,7 +37,7 @@ import static org.assertj.core.api.Assertions.tuple;
  *
  * <p>규칙: 이 점주에게 살아 있는 다른 가게가 없을 때만, 항목마다 비어 있으면 채운다. 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import({OwnerApprovalService.class, StoreService.class, StoreOperatingInfoService.class})
+@Import({OwnerApprovalService.class, StoreService.class, StoreChangeHistoryService.class, StoreOperatingInfoService.class})
 @DisplayName("점주 승인·연결 때 가게 빈 칸 채우기")
 class OwnerApprovalStoreFillTest extends PostgresContainerTest {
 

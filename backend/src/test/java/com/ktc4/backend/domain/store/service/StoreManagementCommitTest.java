@@ -67,7 +67,7 @@ import static org.assertj.core.api.Assertions.tuple;
  * 잠금 대기도 만들 수 없다. 그래서 이 클래스만 테스트 트랜잭션을 끄고({@code NOT_SUPPORTED}) 서비스가 스스로 연
  * 트랜잭션을 본다. 롤백이 없으므로 만든 행만 직접 지운다. 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class})
+@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class, StoreChangeHistoryService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DisplayName("가게 운영 정보 저장 커밋")
 class StoreManagementCommitTest extends PostgresContainerTest {
@@ -157,6 +157,7 @@ class StoreManagementCommitTest extends PostgresContainerTest {
         executor.awaitTermination(FIRST_HOLD_LIMIT.toSeconds(), TimeUnit.SECONDS);
         // 한 줄이 실패해도 나머지를 끝까지 지운다 — 중간에 멈추면 남은 행이 다른 테스트의 정리를 외래 키로 막는다
         for (Long storeId : storeIds) {
+            deleteQuietly("delete from store_change_history where store_id = ?", storeId);
             deleteQuietly("delete from store_menu where store_id = ?", storeId);
             deleteQuietly("delete from store_business_hour where store_id = ?", storeId);
             deleteQuietly("delete from store_owner where store_id = ?", storeId);

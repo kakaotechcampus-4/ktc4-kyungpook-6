@@ -17,6 +17,7 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.InvestigationTargetSelector;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
@@ -45,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 조사 결과 저장 — Task·Signal 이 실제 DB 에 어떤 값으로 남는지와, 진행 수가 함께 오르는지.
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
-@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class,
+@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
         InvestigationTargetSelector.class, VerificationService.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("조사 결과 저장 (TaskService)")

@@ -9,6 +9,7 @@ import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.InvestigationTargetSelector;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.domain.task.dto.TaskResultResponse;
@@ -52,7 +53,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 같은 트랜잭션 안에서는 이미 바뀐 값이 보여, 그 실수를 이 확인이 잡는다.
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
-@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class,
+@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
         InvestigationTargetSelector.class, VerificationService.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("수정안 반영·확인 (VerificationService)")

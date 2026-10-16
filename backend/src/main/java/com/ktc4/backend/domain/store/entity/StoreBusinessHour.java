@@ -29,6 +29,9 @@ import org.hibernate.annotations.Check;
  * 먼저 내보내면 같은 줄이 잠깐 둘이 되어 충돌한다. 줄끼리 겹치지 않는지는 요청 검증이 막는다.
  *
  * <p>요일은 이름으로 저장해 DB 에서 정렬하면 알파벳순(FRI, MON, …)이 된다 — 요일 순서는 자바에서 맞춘다.
+ *
+ * <p>영업시간을 넣거나 지우는 서비스는 가게를 잠근 뒤 바꾸기 전·후를 변경 기록에 남긴다
+ * ({@code StoreChangeHistoryService}).
  */
 @Entity
 @Table(

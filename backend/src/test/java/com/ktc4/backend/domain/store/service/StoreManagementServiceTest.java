@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.tuple;
  * 어떤 {@code menuId} 를 거절하는지. 저장이 실제로 커밋되는지·되돌아가는지는 {@link StoreManagementCommitTest} 가 본다.
  * 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class})
+@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class, StoreChangeHistoryService.class})
 @DisplayName("StoreManagementService")
 class StoreManagementServiceTest extends PostgresContainerTest {
 
