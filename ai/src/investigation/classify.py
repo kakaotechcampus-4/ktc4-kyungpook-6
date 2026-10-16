@@ -11,15 +11,14 @@
       없음          → 변화없음
 
 **Signal 은 잡힌 변화 하나다.** 백엔드 `Signal` 이 "이상 징후 하나 + 근거 문장·URL 한 쌍" 구조라,
-DB 와 다른 값이 잡힌 항목마다 한 행을 만든다. 근거는 그 값을 가리킨 관측 중 대표 하나이고, 그 값을
-가리킨 **서로 다른 출처(도메인) 수**를 근거 문구 끝에 "(출처 N곳)" 으로 적는다. 출처끼리 엇갈리면 그것도
-문구 끝에 표시한다. DB 값을 확인한 근거·비교할 수 없는 근거는 이상 징후가 아니라 변화 Signal 로 만들지 않는다.
-변화가 없으면 조사를 마친 뒤 항목마다 확인 근거(`SIGNAL_NONE`)를 붙인다(`with_confirmations`). 저장할 수 없는 값(카카오, `Observation.storable`)만 가리키는 변화는 수정안에
-값을 담지 않고 Signal(근거·링크)만 남긴다.
+DB 와 다른 값이 잡힌 항목마다 한 행을 만든다. 링크는 그 값을 가리킨 관측 중 대표 하나이고, 근거 문구는
+`_change_text` 가 정한 틀로 "DB 값 → 출처(웹 N곳·카카오맵) 찾은 값" 을 적는다. 출처끼리 엇갈리면 같은 성격끼리 묶어
+"(웹 2곳은 DB 와 같음)" 처럼 덧붙인다. DB 값을 확인한 근거·비교할 수 없는 근거는 변화 Signal 로 만들지 않는다.
+저장할 수 없는 값(지도, `Observation.storable`)만 가리키는 변화는 수정안에 값을 담지 않고 Signal(근거·링크)만 남긴다.
 
 **신호에 등급을 두지 않는다.** 가게 정보는 어차피 담당자가 승인해야 바뀌므로, 근거가 약하다고
-AI 가 걸러 낼 이유가 없다. 변화 Signal 은 전부 `SIGNAL_HIGH` 이고 `SIGNAL_LOW`·`SIGNAL_NONE` 은
-쓰지 않는다(백엔드 enum 을 줄일지는 백엔드와 정한다).
+AI 가 걸러 낼 이유가 없다. 변화 Signal 은 전부 `SIGNAL_HIGH` 이고 `SIGNAL_LOW` 는 쓰지 않는다.
+변화가 없으면 조사를 마친 뒤 항목마다 확인 근거를 `SIGNAL_NONE` 으로 붙인다(`with_confirmations`).
 
 **추가확인은 돌려주지 않는다.** 팀 합의로 추가확인은 "변화없는 매장 중 직접 확인한 지 90일
 이상 지난 매장"이다 — 근거의 강약이 아니라 시간 기준이고, `Store.lastCheckedAt` 을 가진
@@ -192,7 +191,7 @@ def _is_change(change_field: ChangeField, current: str | None, key: str) -> bool
     그중 1건은 폐업 가게). CLOSED·SUSPENDED 는 그대로 센다.
 
     변화로 세지 않을 뿐 **엇갈림 판단에는 남긴다** — 폐업 1곳·영업 2곳이면 폐업 제안에
-    "다른 값을 가리키는 출처도 있음"이 붙어야 한다.
+    "(웹 2곳은 다른 값)" 이 붙어야 한다.
     """
     return not (change_field is ChangeField.STATUS and current in (None, "UNKNOWN") and key == "OPEN")
 
@@ -289,19 +288,12 @@ def _judge_field(
         return None
 
     best = max(differing.values(), key=lambda g: (len(domains(g)), newest(g)))
-    # 다른 값을 가리키는 출처가 있거나, 지금 값이 맞다는 출처(상태를 모를 때의 OPEN 포함)가 있으면 엇갈린 것이다.
-    conflicted = len(groups) > 1
 
     storable = [o for o in best if o.storable]
     shown = _representative(storable or best)
-    # 백엔드 Signal 에는 출처 수 칸이 없어 문구에 적는다 — 담당자가 근거의 무게를 가늠하는 값이다.
-    if storable:
-        text = f"{_FIELD_LABELS[change_field]}: {shown.evidence} (출처 {len(domains(best))}곳)"
-    else:
-        # 저장할 수 없는 값(카카오)뿐이면 값을 담지 않는다 — 담당자가 링크를 열어 확인한다.
-        text = f"{_FIELD_LABELS[change_field]}: {shown.evidence} — DB 값과 다름, 링크에서 확인 (출처 {len(domains(best))}곳)"
-    if conflicted:
-        text += " (다른 값을 가리키는 출처도 있음)"
+    others = [g for g in groups.values() if g is not best]
+    text = _change_text(change_field, current, best, shown if storable else None, others,
+                        agrees=[g for k, g in groups.items() if _same_as_current(change_field, current_key, k)])
     if found_on_map and _contradicts_map(target, change_field, shown.value):
         text += _MAP_DISAGREES
     return Signal(
@@ -312,6 +304,72 @@ def _judge_field(
         evidence_url=shown.sources[0].url,
         source_count=len(domains(best)),
     )
+
+
+#: 영업 상태 값을 담당자가 읽는 말로.
+_STATUS_WORDS = {"OPEN": "영업 중", "SUSPENDED": "휴업", "CLOSED": "폐업", "UNKNOWN": "확인 안 됨"}
+#: 이사 감지(`map_lookup.moved_store`)가 붙이는 출처 이름.
+_MOVED_SOURCE = "카카오맵(같은 전화번호의 가게)"
+
+
+def _has_batchim(word: str) -> bool:
+    last = word.rstrip()[-1:] or "가"
+    return "가" <= last <= "힣" and (ord(last) - 0xAC00) % 28 != 0
+
+
+def _source_names(group: list[Observation]) -> str:
+    """근거를 낸 출처를 "웹 3곳·카카오맵" 꼴로. 웹은 도메인 수, 지도는 이름(값은 약관상 적지 않는다)."""
+    web = {d for o in group if o.storable for d in o.domains}
+    maps = sorted({o.evidence.split("에 등록된 값")[0] for o in group if not o.storable and "에 등록된 값" in o.evidence})
+    return "·".join(([f"웹 {len(web)}곳"] if web else []) + maps)
+
+
+def _value_word(change_field: ChangeField, value: str | None) -> str:
+    if not value:
+        return "비어 있음"
+    if change_field is ChangeField.STATUS:
+        return f'"{_STATUS_WORDS.get(value, value)}"'
+    return f'"{value}"'
+
+
+def _change_text(
+    change_field: ChangeField,
+    current: str | None,
+    best: list[Observation],
+    shown: Observation | None,
+    others: list[list[Observation]],
+    *,
+    agrees: list[list[Observation]],
+) -> str:
+    """변화 근거 문구 — 틀은 전부 코드가 정한다. 웹검색 모델이 쓴 근거 문장은 넣지 않는다.
+
+    모델 문장을 그대로 붙였더니 영어 주소가 섞이고("46, Sanginseo-ro…") 실행마다 달라졌고, 정작 찾은 값이
+    문장 속에 묻혔다. 그래서 "DB 값 → 찾은 값" 을 앞에 두고 출처는 이름과 수로만 적는다. 원문은 링크에 있다.
+
+        웹에서 값을 찾음   주소: DB "상인서로 48" → 웹 3곳 "대구 달서구 상인서로 46" (최근 글 2026-09-12)
+        지도에서만 다름     가게명: 카카오맵과 다름 — 링크에서 확인          (지도 값은 약관상 적지 않는다)
+        이사               주소: 같은 전화번호의 가게가 다른 주소에 있음(카카오맵) — 링크에서 확인
+        엇갈림             … (웹 2곳은 DB 와 같음) · (카카오맵은 다른 값)
+    """
+    label = _FIELD_LABELS[change_field]
+    sources = _source_names(best)
+    if shown is not None:
+        text = f"{label}: DB {_value_word(change_field, current)} → {sources} {_value_word(change_field, shown.value)}"
+        dated = max((o.observed_at for o in best if o.storable and o.observed_at), default="")
+        if dated:
+            text += f" (최근 글 {dated})"
+    elif any(o.evidence.startswith(_MOVED_SOURCE) for o in best):
+        text = f"{label}: 같은 전화번호의 가게가 다른 주소에 있음(카카오맵) — 링크에서 확인"
+    else:
+        text = f"{label}: {sources}{'과' if _has_batchim(sources) else '와'} 다름 — 링크에서 확인"
+    # 같은 성격끼리 묶어 한 번만 적는다 — 다른 값이 여러 갈래여도 "(웹 3곳은 다른 값)" 하나(영화반점: 괄호가 반복됐다).
+    agreeing = [o for g in agrees for o in g]
+    differing = [o for g in others if g not in agrees for o in g]
+    for group, what in ((agreeing, "DB 와 같음"), (differing, "다른 값")):
+        names = _source_names(group)
+        if names:
+            text += f" ({names}{'은' if _has_batchim(names) else '는'} {what})"
+    return text
 
 
 def _representative(group: list[Observation]) -> Observation:
