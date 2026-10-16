@@ -1,0 +1,80 @@
+name: Diagnose Dev Environment
+
+# 개발 서버 안을 **읽기만** 해서 Actions 로그로 보여 준다.
+#
+# 왜 필요한가 — `docs/배포환경에서_작업하는_방법.md` 에 적힌 대로, 컨테이너 로그는 그 기계에
+# 들어갈 수 있는 사람만 본다. 밖에서 디버깅할 수단이 HTTP 응답과 DB 상태뿐이라, 조사가 왜
+# 실패하는지 같은 물음에서 매번 막힌다(2026-10-16: 배포본 조사가 49ms 만에 FAILED 인데
+# 503 인지 연결 실패인지 밖에서 가릴 수 없었다).
+#
+# 🚨 **값을 찍지 않는다.** 비밀값은 길이만 보여 준다 — Actions 로그는 저장소를 볼 수 있는
+#    사람이면 누구나 읽는다. 주소처럼 비밀이 아닌 값만 그대로 찍는다.
+# 🚨 **고치지 않는다.** 읽기 전용이다. 컨테이너를 다시 띄우거나 파일을 바꾸지 않는다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      log_lines:
+        description: 컨테이너 로그를 몇 줄 볼지
+        required: false
+        default: "40"
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 🚨 배포와 같은 이유로 지우지 않는다 — 서버 `.env` 가 러너 작업 폴더에 있다.
+          clean: false
+
+      - name: 컨테이너 상태
+        run: docker compose -f docker-compose.yml -f docker-compose.dev.yml ps || docker ps
+
+      - name: 컨테이너가 실제로 받은 값 (유무와 길이만)
+        run: |
+          show() {
+            local container="$1" key="$2"
+            local value
+            value=$(docker exec "$container" printenv "$key" 2>/dev/null || true)
+            if [ -z "$value" ]; then
+              echo "  $key : 없음/빈값"
+            else
+              echo "  $key : 있음 (${#value}자)"
+            fi
+          }
+          # 주소는 비밀이 아니라 그대로 본다 — 어디를 부르고 있는지가 문제의 핵심일 때가 많다.
+          show_plain() {
+            local container="$1" key="$2"
+            echo "  $key = [$(docker exec "$container" printenv "$key" 2>/dev/null || true)]"
+          }
+
+          echo "== backend =="
+          for k in JWT_SECRET ADMIN_EMAIL INTERNAL_API_KEY NTS_SERVICE_KEY BIZNO_API_KEY; do show ktc4-backend "$k"; done
+          for k in AI_BASE_URL CORS_ALLOWED_ORIGINS SIGNUP_TRUSTED_PROXIES; do show_plain ktc4-backend "$k"; done
+
+          echo "== ai =="
+          for k in KAKAO_REST_API_KEY NAVER_CLIENT_ID AGENT_API_KEY; do show ktc4-ai "$k"; done
+          for k in GOOGLE_CLOUD_PROJECT GOOGLE_APPLICATION_CREDENTIALS INVESTIGATOR BACKEND_BASE_URL \
+                   NAVER_LOCAL_ENABLED KAKAO_COMPARE_ENABLED AGENT_ENABLED; do show_plain ktc4-ai "$k"; done
+
+          echo "== ai 컨테이너 안의 자격증명 파일 =="
+          docker exec ktc4-ai ls -l /run/secrets/vertex.json 2>&1 | sed 's/^/  /' || echo "  없음"
+
+      - name: 백엔드에서 AI 로 가는 길이 뚫려 있나
+        run: |
+          echo "== backend -> ai =="
+          docker exec ktc4-backend sh -c 'command -v curl >/dev/null && curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" --max-time 5 "${AI_BASE_URL:-http://ai:8000}/health" || echo "no curl in container"' 2>&1 | sed 's/^/  /'
+          echo "== ai -> backend =="
+          docker exec ktc4-ai python3 -c 'import os,urllib.request; u=os.environ.get("BACKEND_BASE_URL","http://backend:8080")+"/ping"; print(u, urllib.request.urlopen(u, timeout=5).status)' 2>&1 | sed 's/^/  /'
+
+      - name: 컨테이너 로그
+        env:
+          N: ${{ inputs.log_lines || '40' }}
+        run: |
+          echo "===== ai ====="
+          docker logs --tail "$N" ktc4-ai 2>&1 || true
+          echo
+          echo "===== backend (경고·오류만) ====="
+          docker logs --tail 400 ktc4-backend 2>&1 | grep -iE "error|exception|warn|조사|investig" | tail -n "$N" || true

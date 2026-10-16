@@ -111,10 +111,11 @@ class OwnerSignupFlowIntegrationTest {
 
     @AfterEach
     void cleanUp() {
-        // 외래 키 순서대로 지운다 — 연결, 파일 기록(회원을 가리킴), 가게의 영업시간·메뉴(승인 때 옮겨 적힌 것), 회원, 가게
+        // 외래 키 순서대로 지운다 — 연결, 파일 기록(회원을 가리킴), 가게의 변경 기록·영업시간·메뉴(승인 때 옮겨 적힌 것), 회원, 가게
         storeOwnerRepository.deleteAll();
         uploadFileRepository.deleteAll();
         for (Long storeId : createdStoreIds) {
+            jdbcTemplate.update("delete from store_change_history where store_id = ?", storeId);
             jdbcTemplate.update("delete from store_business_hour where store_id = ?", storeId);
             jdbcTemplate.update("delete from store_menu where store_id = ?", storeId);
         }

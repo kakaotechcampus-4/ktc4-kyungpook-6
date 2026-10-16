@@ -5,6 +5,7 @@ import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.entity.StoreOwner;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -30,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 // 가게 관리 테스트들과 같은 구성으로 둬 스프링 컨텍스트를 함께 쓴다 — 구성마다 컨텍스트(와 DB 연결 풀)가 따로 떠서
 // 테스트용 Postgres 의 연결 수 상한에 걸린다
-@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class})
+@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class, StoreChangeHistoryService.class})
 @DisplayName("StoreAccessService")
 class StoreAccessServiceTest extends PostgresContainerTest {
 

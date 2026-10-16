@@ -80,3 +80,7 @@ target/
 
 # 디스코드 멘션 매핑 — 실제 값은 시크릿 DISCORD_MEMBERS 에 있다 (example 만 커밋)
 .github/discord-members.json
+
+# Vertex 서비스 계정 키 — 저장소에 두지 않습니다(호스트 경로를 VERTEX_KEY_PATH 로 가리킵니다)
+vertex*.json
+*-sa.json

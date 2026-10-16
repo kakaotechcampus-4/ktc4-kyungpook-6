@@ -75,7 +75,9 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     /**
      * Task 한 건을 행 잠금({@code SELECT … FOR UPDATE})으로 읽는다. 같은 Task 를 먼저 잠근 트랜잭션이 끝날 때까지 기다린다.
      *
-     * <p>가게는 join fetch 하지 않는다 — 함께 읽으면 가게 행까지 잠가, 같은 가게의 다른 조사 결과·가게 수정까지 기다리게 된다.
+     * <p>가게는 join fetch 하지 않는다 — 함께 읽으면 가게 행까지 잠가, 가게를 바꾸지 않는 확인 완료도 같은 가게의 다른
+     * 조사 결과·가게 수정을 기다리게 된다. 수정안 반영은 조사 결과 → 가게 순서로 잠그는데, 가게는
+     * {@code StoreService#updateStore} 가 처음 읽으며 잠근다(여기서 가게를 먼저 읽어 두면 그 뒤 잠금 조회가 낡은 값을 준다).
      *
      * @param taskId Task ID
      * @return 잠근 Task. 없으면 비어 있다

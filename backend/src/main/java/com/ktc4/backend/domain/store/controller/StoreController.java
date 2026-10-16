@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.controller;
 
 import com.ktc4.backend.domain.store.dto.OperatingInfoRequest;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
@@ -101,6 +102,7 @@ public class StoreController {
             summary = "가게 정보 수정",
             description = """
                     담당자가 가게 기본 정보를 직접 고칩니다. 담아 보낸 필드만 바뀌고, 빠뜨린 필드는 기존 값을 유지합니다.
+                    바뀐 항목은 누가 무엇에서 무엇으로 바꿨는지 변경 기록에 남습니다.
 
                     확인일 갱신은 이 API가 아니라 `POST /api/stores/{storeId}/confirm` 입니다.
                     """)
@@ -119,9 +121,10 @@ public class StoreController {
     public StoreResponse updateStore(
             @Parameter(description = "수정할 가게 ID", example = "1")
             @PathVariable Long storeId,
-            @Valid @RequestBody StoreUpdateRequest request) {
+            @Valid @RequestBody StoreUpdateRequest request,
+            @AuthenticationPrincipal AuthMember admin) {
 
-        return storeService.updateStore(storeId, request);
+        return storeService.updateStore(storeId, request, StoreChange.storeEdit(admin.memberId()));
     }
 
     @Operation(

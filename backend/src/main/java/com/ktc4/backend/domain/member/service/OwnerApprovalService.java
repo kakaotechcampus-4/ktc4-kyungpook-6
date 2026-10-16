@@ -14,6 +14,7 @@ import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
@@ -151,7 +152,7 @@ public class OwnerApprovalService {
             throw new CustomException(ErrorCode.OWNER_ALREADY_REVIEWED);
         }
         Store store = storeService.findStoreForUpdate(storeId);
-        fillStoreIfFirstStore(member, store);
+        fillStoreIfFirstStore(member, store, adminId);
 
         LocalDateTime approvedAt = LocalDateTime.now();
         member.approve(approvedAt);
@@ -245,7 +246,7 @@ public class OwnerApprovalService {
             throw new CustomException(ErrorCode.STORE_ALREADY_LINKED);
         }
         // 연결을 만들거나 되살리기 전에 부른다 — 그 뒤면 방금 만든 연결이 "다른 가게"로 세어진다
-        fillStoreIfFirstStore(member, store);
+        fillStoreIfFirstStore(member, store, adminId);
         if (existing.isPresent()) {
             existing.get().relink(admin, linkedAt);
         } else {
@@ -287,8 +288,8 @@ public class OwnerApprovalService {
     // 신청서는 가게 하나를 설명한 기록이라(주소도 하나다) 그 점주의 "그 가게" 하나에만 들어가야 한다. 승인할 때는
     // 연결이 아직 없으니 늘 옮겨 적고, 따로 연결할 때는 잘못 고른 가게를 끊은 뒤 맞는 가게에 잇는 경우만 옮겨 적는다.
     // 연결을 만들거나 되살리기 전에 불러야 한다 — 그 뒤면 방금 만든 연결이 "다른 가게"로 세어진다.
-    // member 와 store 는 둘 다 잠근 것이어야 한다.
-    private void fillStoreIfFirstStore(Member member, Store store) {
+    // member 와 store 는 둘 다 잠근 것이어야 한다. 옮겨 적은 항목은 승인·연결한 관리자 ID 로 가게 변경 기록에 남는다.
+    private void fillStoreIfFirstStore(Member member, Store store, Long adminId) {
         boolean hasOtherStore = storeOwnerRepository.findLinkedStoresByMemberId(member.getMemberId()).stream()
                 .anyMatch(linked -> !linked.getStoreId().equals(store.getStoreId()));
         if (hasOtherStore) {
@@ -301,7 +302,8 @@ public class OwnerApprovalService {
                 application.getBusinessHours().stream()
                         .map(hour -> new BusinessHourRequest(hour.day(), hour.open(), hour.close()))
                         .toList(),
-                application.getMenus().stream().map(SignupMenu::name).toList());
+                application.getMenus().stream().map(SignupMenu::name).toList(),
+                StoreChange.signupFill(adminId));
     }
 
     // 관리자 계정 ID 를 넣어도 "없음"으로 답한다 — 이 API 들로 관리자 계정의 존재를 알아낼 수 없게.

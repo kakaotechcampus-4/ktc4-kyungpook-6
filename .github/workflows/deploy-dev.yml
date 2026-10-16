@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - develop
+  # 손으로도 돌린다. 이게 없으면 develop 에 push 될 때만 돌아서, 배포 설정을 고쳐도
+  # 머지하기 전에는 시험해 볼 방법이 없다. 시크릿만 넣고 다시 돌리는 것도 이걸로 한다.
+  workflow_dispatch:
 
 concurrency:
   group: deploy-local
@@ -24,8 +27,47 @@ jobs:
           #    이 옵션이 필요 없어집니다. 그때 함께 지우세요.
           clean: false
 
+      # Vertex 는 API 키가 아니라 서비스 계정 JSON(ADC)으로 인증한다. 그 파일을 저장소에 둘 수 없고
+      # 서버 .env 는 SSH 가 막혀 손댈 수 없으므로, GitHub Secrets 에서 내려받아 서버 홈에 둔다.
+      # 레포 밖(~/.ktc4)에 두는 이유: 체크아웃의 clean 정책과 무관하게 남고, 실수로 커밋될 수 없다.
+      - name: Vertex 서비스 계정 키 준비
+        env:
+          SA: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -z "${SA:-}" ]; then
+            echo "::warning::GCP_SA_KEY 가 없습니다 — AI 조사는 503 으로 돕니다(화면은 정상)"
+            exit 0
+          fi
+          mkdir -p "$HOME/.ktc4" && chmod 700 "$HOME/.ktc4"
+          printf '%s' "$SA" > "$HOME/.ktc4/vertex.json"
+          chmod 600 "$HOME/.ktc4/vertex.json"
+          python3 -c "import json;d=json.load(open('$HOME/.ktc4/vertex.json'));print('서비스 계정:', d['client_email'])"
+
       - name: Rebuild and restart containers
-        run: ./scripts/deploy.sh dev up -d --build --remove-orphans
+        env:
+          # compose 는 셸 환경변수를 --env-file 보다 먼저 읽는다. 그래서 서버 .env 를 고치지 않고
+          # 여기서 넘긴다. 값이 없으면 compose 기본값(빈 값·false)으로 떨어져 지금과 같이 돈다.
+          # 브라우저가 읽는 공개 주소. 서버 .env 의 BACKEND_BASE_URL(= AI 가 백엔드를 부르는 내부
+          # 주소)이 프론트 번들에 박히던 것을 끊는다. 2026-10-16 에 dev 번들에 실제로
+          # http://localhost:8015 가 박혀 있어 화면에서 로그인이 되지 않았다.
+          # 비밀이 아니라 변수로 둔다 — 값이 보이는 편이 어디를 보고 있는지 알기 쉽다.
+          PUBLIC_BACKEND_URL: ${{ vars.PUBLIC_BACKEND_URL }}
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          # 스위치는 비밀이 아니라 저장소 변수로 둔다 — 값이 보이는 편이 켜졌는지 알기 쉽다.
+          NAVER_LOCAL_ENABLED: ${{ vars.AI_NAVER_LOCAL_ENABLED || 'false' }}
+          KAKAO_COMPARE_ENABLED: ${{ vars.AI_KAKAO_COMPARE_ENABLED || 'false' }}
+          AGENT_ENABLED: ${{ vars.AI_AGENT_ENABLED || 'false' }}
+          AGENT_MODEL: ${{ vars.AI_AGENT_MODEL || '' }}
+        run: |
+          # 키 파일이 있을 때만 가리킨다. 없으면 compose 기본값(/dev/null)이 들어가 503 이 된다.
+          if [ -f "$HOME/.ktc4/vertex.json" ]; then
+            export VERTEX_KEY_PATH="$HOME/.ktc4/vertex.json"
+          fi
+          ./scripts/deploy.sh dev up -d --build --remove-orphans
 
       - name: Remove dangling images
         run: docker image prune -f

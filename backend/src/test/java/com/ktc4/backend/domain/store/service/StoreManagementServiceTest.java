@@ -15,11 +15,14 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.StoreChangeField;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.AuthMember;
 import com.ktc4.backend.support.PostgresContainerTest;
+import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -30,10 +33,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static com.ktc4.backend.support.StoreChangeHistoryRow.json;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -43,7 +48,7 @@ import static org.assertj.core.api.Assertions.tuple;
  * 어떤 {@code menuId} 를 거절하는지. 저장이 실제로 커밋되는지·되돌아가는지는 {@link StoreManagementCommitTest} 가 본다.
  * 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class})
+@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class, StoreChangeHistoryService.class})
 @DisplayName("StoreManagementService")
 class StoreManagementServiceTest extends PostgresContainerTest {
 
@@ -55,6 +60,9 @@ class StoreManagementServiceTest extends PostgresContainerTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private Member admin;
     private Store store;
@@ -252,5 +260,117 @@ class StoreManagementServiceTest extends PostgresContainerTest {
 
         assertThat(saved.phone()).isEqualTo("053-123-4567");
         assertThat(saved.menus()).extracting(MenuResponse::name, MenuResponse::onSale).containsExactly(tuple("라면", true));
+    }
+    @Nested
+    @DisplayName("변경 기록 — 바뀐 항목만, 누가·바뀌기 전·후")
+    class ChangeHistory {
+
+        private StoreMenu kimbap;
+        private StoreMenu ramen;
+
+        @BeforeEach
+        void setUpOperatingInfo() {
+            entityManager.persistAndFlush(StoreBusinessHour.of(store, BusinessDay.MON, 660, 1260));
+            entityManager.persistAndFlush(StoreBusinessHour.of(store, BusinessDay.TUE, 660, 1260));
+            kimbap = persistMenu(store, "김밥", true);
+            ramen = persistMenu(store, "라면", true);
+        }
+
+        private List<StoreChangeHistoryRow> histories() {
+            entityManager.flush();
+            return StoreChangeHistoryRow.of(jdbcTemplate, store.getStoreId());
+        }
+
+        // 지금 가게 상태와 똑같은 요청 — 여기서 한 칸씩 바꿔 본다
+        private OperatingInfoRequest unchanged(List<BusinessHourRequest> hours, List<MenuRequest> menus) {
+            return new OperatingInfoRequest("053-000-0001", hours, menus);
+        }
+
+        private List<BusinessHourRequest> currentHours() {
+            return List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00"),
+                    new BusinessHourRequest(BusinessDay.TUE, "11:00", "21:00"));
+        }
+
+        private List<MenuRequest> currentMenus() {
+            return List.of(new MenuRequest(kimbap.getMenuId(), "김밥", true), new MenuRequest(ramen.getMenuId(), "라면", true));
+        }
+
+        @Test
+        @DisplayName("전화·영업시간·메뉴를 바꾸면 세 줄 — 가게 관리 저장 경로·점주 ID·같은 시각, 바뀌기 전·후 목록")
+        void recordsThreeChangedFields() {
+            storeManagementService.save(store.getStoreId(), new OperatingInfoRequest("053-123-4567",
+                    List.of(new BusinessHourRequest(BusinessDay.SUN, "10:00", "14:00")),
+                    List.of(new MenuRequest(kimbap.getMenuId(), "참치김밥", false), new MenuRequest(null, "떡볶이", true))),
+                    owner);
+
+            List<StoreChangeHistoryRow> rows = histories();
+            assertThat(rows).extracting(StoreChangeHistoryRow::field)
+                    .containsExactly(StoreChangeField.PHONE, StoreChangeField.BUSINESS_HOURS, StoreChangeField.MENUS);
+            assertThat(rows).extracting(StoreChangeHistoryRow::source).containsOnly(StoreChangeSource.OPERATING_INFO_SAVE);
+            assertThat(rows).extracting(StoreChangeHistoryRow::changedBy).containsOnly(owner.memberId());
+            assertThat(rows).extracting(StoreChangeHistoryRow::changedAt).containsOnly(rows.get(0).changedAt());
+
+            assertThat(rows.get(0).before()).isEqualTo(json("\"053-000-0001\""));
+            assertThat(rows.get(0).after()).isEqualTo(json("\"053-123-4567\""));
+            assertThat(rows.get(1).before()).isEqualTo(json("[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"},"
+                    + "{\"day\":\"TUE\",\"open\":\"11:00\",\"close\":\"21:00\"}]"));
+            assertThat(rows.get(1).after()).isEqualTo(json("[{\"day\":\"SUN\",\"open\":\"10:00\",\"close\":\"14:00\"}]"));
+            // 라면은 지워져 뒤 목록에서 빠지고, 새 메뉴는 새 ID 로 들어간다
+            Long newMenuId = jdbcTemplate.queryForObject(
+                    "select menu_id from store_menu where store_id = ? and name = '떡볶이'", Long.class, store.getStoreId());
+            assertThat(rows.get(2).before()).isEqualTo(json("[{\"menuId\":" + kimbap.getMenuId() + ",\"name\":\"김밥\",\"onSale\":true},"
+                    + "{\"menuId\":" + ramen.getMenuId() + ",\"name\":\"라면\",\"onSale\":true}]"));
+            assertThat(rows.get(2).after()).isEqualTo(json("[{\"menuId\":" + kimbap.getMenuId() + ",\"name\":\"참치김밥\",\"onSale\":false},"
+                    + "{\"menuId\":" + newMenuId + ",\"name\":\"떡볶이\",\"onSale\":true}]"));
+        }
+
+        @Test
+        @DisplayName("지금과 같은 내용을 다시 저장하면 아무것도 남기지 않는다 — 영업시간·메뉴를 다른 순서로 보내도")
+        void sameContentLeavesNoRecord() {
+            storeManagementService.save(store.getStoreId(), unchanged(currentHours().reversed(), currentMenus().reversed()),
+                    owner);
+
+            assertThat(histories()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("메뉴 이름만 바꿔도 메뉴 한 줄이 남고 전·후가 다르다 — 저장이 메뉴 엔티티를 제자리에서 고쳐도 \"전\"은 그대로다")
+        void renamingMenuRecordsDifferentBeforeAndAfter() {
+            storeManagementService.save(store.getStoreId(), unchanged(currentHours(),
+                    List.of(new MenuRequest(kimbap.getMenuId(), "참치김밥", true), new MenuRequest(ramen.getMenuId(), "라면", true))),
+                    owner);
+
+            assertThat(histories()).singleElement().satisfies(row -> {
+                assertThat(row.field()).isEqualTo(StoreChangeField.MENUS);
+                assertThat(row.before().get(0).get("name").asText()).isEqualTo("김밥");
+                assertThat(row.after().get(0).get("name").asText()).isEqualTo("참치김밥");
+            });
+        }
+
+        @Test
+        @DisplayName("판매 여부만 바꿔도 메뉴 한 줄")
+        void togglingOnSaleRecordsMenus() {
+            storeManagementService.save(store.getStoreId(), unchanged(currentHours(),
+                    List.of(new MenuRequest(kimbap.getMenuId(), "김밥", false), new MenuRequest(ramen.getMenuId(), "라면", true))),
+                    owner);
+
+            assertThat(histories()).singleElement().satisfies(row -> {
+                assertThat(row.field()).isEqualTo(StoreChangeField.MENUS);
+                assertThat(row.before().get(0).get("onSale").asBoolean()).isTrue();
+                assertThat(row.after().get(0).get("onSale").asBoolean()).isFalse();
+            });
+        }
+
+        @Test
+        @DisplayName("관리자가 저장하면 바꾼 사람은 그 관리자다")
+        void adminSaveRecordsAdmin() {
+            storeManagementService.save(store.getStoreId(), new OperatingInfoRequest("053-123-4567", currentHours(),
+                    currentMenus()), adminMember);
+
+            assertThat(histories()).singleElement().satisfies(row -> {
+                assertThat(row.field()).isEqualTo(StoreChangeField.PHONE);
+                assertThat(row.changedBy()).isEqualTo(admin.getMemberId());
+            });
+        }
     }
 }

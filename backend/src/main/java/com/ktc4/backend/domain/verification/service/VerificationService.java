@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.verification.service;
 
 import com.ktc4.backend.domain.signal.enums.ChangeField;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.StoreService;
@@ -67,11 +68,14 @@ public class VerificationService {
     public TaskResultResponse apply(Long taskId, Long adminId) {
         Task task = lockUnreviewed(taskId);
         StoreUpdateRequest request = toUpdateRequest(task);
+        // 가게는 ID 만 꺼낸다 — 지연 로딩 프록시라 가게를 읽지 않는다. 가게는 updateStore 가 처음 읽으며 잠근다
         Long storeId = task.getStore().getStoreId();
+        // 가게 변경 기록과 확인 기록을 같은 시각으로 남긴다 — 나중에 두 기록을 이을 수 있게
+        LocalDateTime now = LocalDateTime.now();
 
-        storeService.updateStore(storeId, request);
+        storeService.updateStore(storeId, request, StoreChange.taskApply(adminId, taskId, now));
         Map<String, Object> applied = new LinkedHashMap<>(task.getProposedChanges());
-        return saveVerification(task, actionFor(applied), applied, adminId);
+        return saveVerification(task, actionFor(applied), applied, adminId, now);
     }
 
     /**
@@ -85,7 +89,7 @@ public class VerificationService {
      */
     public TaskResultResponse confirm(Long taskId, Long adminId) {
         Task task = lockUnreviewed(taskId);
-        return saveVerification(task, VerificationAction.NO_ACTION, null, adminId);
+        return saveVerification(task, VerificationAction.NO_ACTION, null, adminId, LocalDateTime.now());
     }
 
     /**
@@ -116,8 +120,7 @@ public class VerificationService {
 
     // 확인 기록과 가게 확인일은 같은 시각으로 남긴다 — 화면이 둘을 나란히 보여 준다
     private TaskResultResponse saveVerification(Task task, VerificationAction action,
-                                                Map<String, Object> appliedChanges, Long adminId) {
-        LocalDateTime now = LocalDateTime.now();
+                                                Map<String, Object> appliedChanges, Long adminId, LocalDateTime now) {
         storeService.confirmStore(task.getStore().getStoreId(), now);
         Verification verification = verificationRepository.save(Verification.builder()
                 .store(task.getStore())
