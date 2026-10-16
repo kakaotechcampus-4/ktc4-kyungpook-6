@@ -40,7 +40,13 @@ jobs:
           fi
           mkdir -p "$HOME/.ktc4" && chmod 700 "$HOME/.ktc4"
           printf '%s' "$SA" > "$HOME/.ktc4/vertex.json"
-          chmod 600 "$HOME/.ktc4/vertex.json"
+          # 644 인 이유: ai 컨테이너는 이 파일을 **직접 마운트**해서 읽는데, 그 안에서는
+          # `adduser --system app`(ai/Dockerfile:27)이 만든 시스템 사용자로 돈다. 러너 사용자가
+          # 600 으로 써 두면 컨테이너가 못 읽어 조사가
+          #   [Errno 13] Permission denied: '/run/secrets/vertex.json'
+          # 로 실패한다(2026-10-16 에 실제로 그랬다). 호스트 쪽 보호는 위 디렉터리의 700 이 한다 —
+          # 다른 사용자는 $HOME/.ktc4 로 들어오지 못한다.
+          chmod 644 "$HOME/.ktc4/vertex.json"
           python3 -c "import json;d=json.load(open('$HOME/.ktc4/vertex.json'));print('서비스 계정:', d['client_email'])"
 
       - name: Rebuild and restart containers
