@@ -83,8 +83,7 @@ class WebInvestigator:
         # 에이전트는 지도 대조를 마친 가게만 이어서 조사한다. 지도 대조가 꺼져 있으면 "지도를 봤고 전부 못 찾았다"는
         # 거짓 전제로 시작하게 되므로 기존 웹검색으로 간다.
         if self._agent is not None and self._map_lookup is not None:
-            finding = self._agent.continue_from(target, maps, place=place)
-            return with_confirmations(target, self._agent.last_observations, finding)
+            return self._agent.continue_from(target, maps, place=place)
         result = self._research(target)
         observations = maps + result.observations
         finding = classify(target, ResearchResult(observations, queries=result.queries), place)

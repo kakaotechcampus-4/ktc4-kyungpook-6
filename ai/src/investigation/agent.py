@@ -36,7 +36,7 @@ from dataclasses import dataclass, field as dc_field
 
 import httpx
 
-from src.investigation.classify import classify, relation_to_db
+from src.investigation.classify import classify, relation_to_db, with_confirmations
 from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, StoreFinding
 from src.investigation.web import RATE_LIMIT_WAITS_SECONDS, MapObserver, PlaceChecker, _is_rate_limited
 from src.investigation.web_research import (
@@ -231,6 +231,8 @@ class AgentInvestigator:
         self._sleep = sleep
         self._clock = clock
         self._time_budget = time_budget if time_budget is not None else time_budget_from_env()
+        #: 평가용 기록(`eval/mismatch_bench.py`). 서버는 조사기를 하나만 두고 요청을 동시에 돌리므로, 응답에 쓰는 값은
+        #: 여기서 읽지 않고 반환값으로 받는다.
         self.last_trace = Trace()
         self.last_observations: list[Observation] = []
 
@@ -376,7 +378,7 @@ class AgentInvestigator:
         # 웹검색이 전부 실패해 아무것도 못 잡았으면 "변화없음"이 아니라 실패다 — 서버가 failure 로 바꾼다.
         if search_errors and len(search_errors) == trace.web_searches and not finding.signals:
             raise search_errors[-1]
-        return finding
+        return with_confirmations(target, observations, finding)
 
     def _run_openai(self, prompt: str, tools: dict, trace: Trace) -> None:
         items: list[dict] = [{"role": "user", "content": prompt}]

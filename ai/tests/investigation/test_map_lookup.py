@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from src.backend_client.models import StoreStatus
-from src.investigation.classify import classify, coverage
+from src.investigation.classify import classify, coverage, with_confirmations
 from src.investigation.map_lookup import KakaoLocalLookup, MapLookup, NaverLocalLookup, moved_store, same_store
 from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, PlaceStatus, SignalType, TaskClassification
 from src.investigation.web import WebInvestigator
@@ -319,8 +319,9 @@ class StubAgent:
     def continue_from(self, target, maps, *, place=None):
         self.calls.append(maps)
         self.place = place
-        self.last_observations = list(maps)
-        return classify(target, ResearchResult(maps), place)
+        # 진짜 에이전트처럼 확인 근거까지 붙여 돌려준다. 인스턴스 기록은 다른 요청이 덮어쓸 수 있어 일부러 엉뚱한 값을 둔다.
+        self.last_observations = []
+        return with_confirmations(target, list(maps), classify(target, ResearchResult(maps), place))
 
 
 class TestHybrid:
@@ -350,6 +351,19 @@ class TestHybrid:
         WebInvestigator(research, map_lookup=Maps([map_obs(ChangeField.PHONE, "053-567-3080")]), agent=agent).investigate(TARGET)
 
         assert len(agent.calls) == 1 and research.calls == 0
+
+    def test_에이전트의_인스턴스_기록이_아니라_돌려준_결과를_쓴다(self):
+        """서버는 에이전트를 하나만 두고 요청을 동시에 돌린다 — 기록은 다른 가게 조사가 덮어쓸 수 있다."""
+
+        class OtherStoreWroteLast(StubAgent):
+            def continue_from(self, target, maps, *, place=None):
+                self.last_observations = [map_obs(ChangeField.ADDRESS, "대구 중구 다른길 1")]  # 다른 가게의 관측
+                return classify(target, ResearchResult([]), place)
+
+        found = WebInvestigator(Research(), map_lookup=Maps([map_obs(ChangeField.NAME, "빠레뜨치킨")]),
+                                agent=OtherStoreWroteLast()).investigate(TARGET)
+
+        assert found.signals == []
 
     def test_에이전트가_없으면_카카오에만_다른_값도_지도로_끝낸다(self):
         research = Research()
