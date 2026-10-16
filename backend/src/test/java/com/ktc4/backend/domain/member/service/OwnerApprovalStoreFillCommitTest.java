@@ -10,9 +10,11 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.support.PostgresContainerTest;
+import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -48,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 만들 수 없다. 그래서 이 클래스만 테스트 트랜잭션을 끄고({@code NOT_SUPPORTED}) 서비스가 스스로 연 트랜잭션을 본다.
  * 롤백이 없으므로 만든 행만 직접 지운다. 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import({OwnerApprovalService.class, StoreService.class, StoreOperatingInfoService.class})
+@Import({OwnerApprovalService.class, StoreService.class, StoreChangeHistoryService.class, StoreOperatingInfoService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DisplayName("점주 승인 가게 채우기 커밋")
 class OwnerApprovalStoreFillCommitTest extends PostgresContainerTest {
@@ -88,6 +90,7 @@ class OwnerApprovalStoreFillCommitTest extends PostgresContainerTest {
         executor.shutdownNow();
         executor.awaitTermination(WAIT_LIMIT.toSeconds(), TimeUnit.SECONDS);
         for (Long storeId : storeIds) {
+            jdbcTemplate.update("delete from store_change_history where store_id = ?", storeId);
             jdbcTemplate.update("delete from store_owner where store_id = ?", storeId);
             jdbcTemplate.update("delete from store_menu where store_id = ?", storeId);
             jdbcTemplate.update("delete from store_business_hour where store_id = ?", storeId);
@@ -277,6 +280,22 @@ class OwnerApprovalStoreFillCommitTest extends PostgresContainerTest {
         assertThat(countRows("store_business_hour", storeId)).isZero();
         assertThat(countRows("store_menu", storeId)).isZero();
         assertThat(storePhone(storeId)).isNull();
+    }
+
+    @Test
+    @DisplayName("승인을 감싼 트랜잭션이 되돌려지면 옮겨 적은 값도 변경 기록도 남지 않는다 — 기록은 같은 트랜잭션에 들어간다")
+    void outerRollbackLeavesNoHistory() {
+        Long storeId = saveStore();
+        Long ownerId = saveApplicant("053-000-0001", List.of("다슬기국"));
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            ownerApprovalService.approve(ownerId, storeId, adminId);
+            status.setRollbackOnly();
+        });
+
+        assertThat(memberStatus(ownerId)).isEqualTo(MemberStatus.PENDING.name());
+        assertThat(storePhone(storeId)).isNull();
+        assertThat(StoreChangeHistoryRow.of(jdbcTemplate, storeId)).isEmpty();
     }
 
     @Test

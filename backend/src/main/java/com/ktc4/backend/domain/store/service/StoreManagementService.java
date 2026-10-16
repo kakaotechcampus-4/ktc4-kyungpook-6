@@ -5,7 +5,9 @@ import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
 import com.ktc4.backend.domain.store.dto.MenuRequest;
 import com.ktc4.backend.domain.store.dto.MenuResponse;
 import com.ktc4.backend.domain.store.dto.OperatingInfoRequest;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
+import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
@@ -52,6 +54,7 @@ public class StoreManagementService {
     private final StoreService storeService;
     private final StoreBusinessHourRepository businessHourRepository;
     private final StoreMenuRepository menuRepository;
+    private final StoreChangeHistoryService storeChangeHistoryService;
 
     /**
      * 가게 상세를 읽는다 — 상호명·주소·가게 전화·영업시간·메뉴.
@@ -82,6 +85,8 @@ public class StoreManagementService {
      * 표시한다. 보낸 {@code menuId} 가 이 가게의 지우지 않은 메뉴가 아니면(남의 가게·없는 것·지운 것) 아무것도 쓰기
      * 전에 거절한다. 이 경우는 대개 화면이 오래된 것(다른 점주가 먼저 저장)이라 앱은 다시 불러오면 된다.
      *
+     * <p>바뀐 항목(가게 전화·영업시간·메뉴)은 누가 무엇에서 무엇으로 바꿨는지 변경 기록에 남는다.
+     *
      * <p>가게를 잠그고 쓴다. 같은 가게를 동시에 저장하면 차례로 처리되고 나중 저장이 이긴다.
      * 회원은 잠그지 않는다 — 점주 승인·연결 끊기는 회원 → 가게 순서로 잠그므로, 가게를 잠근 뒤 회원을 잠그면 서로를
      * 기다리며 멈춘다.
@@ -107,6 +112,8 @@ public class StoreManagementService {
                 .stream()
                 .collect(Collectors.toMap(StoreMenu::getMenuId, Function.identity()));
         requireOwnMenus(storeId, request.menus(), liveMenus);
+        // 쓰기 전에 찍는다 — 스냅숏은 찍는 순간 문자열로 굳어, 아래에서 메뉴 엔티티를 제자리에서 고쳐도 바뀌지 않는다
+        StoreSnapshot before = storeChangeHistoryService.snapshot(store);
 
         // 여기부터 쓴다. 위의 검사를 모두 통과했다
         store.changePhone(request.phone().strip());
@@ -114,6 +121,8 @@ public class StoreManagementService {
         reconcileMenus(store, request.menus(), liveMenus);
         log.info("가게 운영 정보 저장 - storeId={}, memberId={}, 영업시간={}줄, 메뉴={}개",
                 storeId, authMember.memberId(), request.businessHours().size(), request.menus().size());
+        storeChangeHistoryService.recordChanges(store, before, storeChangeHistoryService.snapshot(store),
+                StoreChange.operatingInfoSave(authMember.memberId()));
         return toDetail(store);
     }
 

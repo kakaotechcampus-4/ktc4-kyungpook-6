@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.controller;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
 import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
 import com.ktc4.backend.domain.store.dto.MenuRequest;
@@ -14,12 +15,14 @@ import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import com.ktc4.backend.global.security.AuthMember;
 import com.ktc4.backend.global.security.SecurityConfig;
 import com.ktc4.backend.support.BusinessHourFixtures;
 import org.junit.jupiter.api.DisplayName;
@@ -30,10 +33,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -47,11 +52,13 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -72,6 +79,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class StoreControllerTest {
 
     private static final String STORE_PATH = "/api/stores/1";
+    private static final long ADMIN_ID = 7L;
 
     @Autowired
     private MockMvc mockMvc;
@@ -81,6 +89,13 @@ class StoreControllerTest {
 
     @MockitoBean
     private StoreManagementService storeManagementService;
+
+    // 가게 수정은 로그인한 관리자를 변경 기록의 "누가"로 넘긴다 — 클래스의 @WithMockUser 는 AuthMember 가 아니라서
+    // 수정 요청에는 실제 로그인 정보를 싣는다
+    private static RequestPostProcessor adminLogin() {
+        AuthMember admin = new AuthMember(ADMIN_ID, MemberRole.ADMIN);
+        return authentication(UsernamePasswordAuthenticationToken.authenticated(admin, null, admin.authorities()));
+    }
 
     /**
      * 서비스가 반환했다고 가정하는 표본 응답. 이 계층은 서비스를 Mock 으로 대체하므로,
@@ -103,7 +118,7 @@ class StoreControllerTest {
         @Test
         @DisplayName("가게명이 200자를 넘으면 400을 반환한다")
         void rejectsTooLongName() throws Exception {
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"" + "가".repeat(201) + "\"}"))
                     .andExpect(status().isBadRequest());
@@ -112,9 +127,9 @@ class StoreControllerTest {
         @Test
         @DisplayName("가게명이 정확히 200자면 통과한다 — 경계 바로 안쪽")
         void acceptsNameAtMaxLength() throws Exception {
-            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+            when(storeService.updateStore(eq(1L), any(), any())).thenReturn(sampleResponse());
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"" + "가".repeat(200) + "\"}"))
                     .andExpect(status().isOk())
@@ -124,9 +139,9 @@ class StoreControllerTest {
         @Test
         @DisplayName("가게명이 한 글자여도 통과한다 — 최소 경계")
         void acceptsSingleCharacterName() throws Exception {
-            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+            when(storeService.updateStore(eq(1L), any(), any())).thenReturn(sampleResponse());
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"곰\"}"))
                     .andExpect(status().isOk())
@@ -136,7 +151,7 @@ class StoreControllerTest {
         @Test
         @DisplayName("가게명이 빈 문자열이면 400을 반환한다 — 이름은 지울 수 없는 값이다")
         void rejectsBlankName() throws Exception {
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"\"}"))
                     .andExpect(status().isBadRequest());
@@ -145,7 +160,7 @@ class StoreControllerTest {
         @Test
         @DisplayName("가게명이 공백뿐이면 400을 반환한다 — @Size 만으로는 통과하던 구멍")
         void rejectsWhitespaceOnlyName() throws Exception {
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"   \"}"))
                     .andExpect(status().isBadRequest());
@@ -154,7 +169,7 @@ class StoreControllerTest {
         @Test
         @DisplayName("도로명 주소가 500자를 넘으면 400을 반환한다")
         void rejectsTooLongAddress() throws Exception {
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"addressRoad\":\"" + "가".repeat(501) + "\"}"))
                     .andExpect(status().isBadRequest());
@@ -163,9 +178,9 @@ class StoreControllerTest {
         @Test
         @DisplayName("도로명 주소가 정확히 500자면 통과한다 — 경계 바로 안쪽")
         void acceptsAddressAtMaxLength() throws Exception {
-            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+            when(storeService.updateStore(eq(1L), any(), any())).thenReturn(sampleResponse());
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"addressRoad\":\"" + "가".repeat(500) + "\"}"))
                     .andExpect(status().isOk())
@@ -175,7 +190,7 @@ class StoreControllerTest {
         @Test
         @DisplayName("도로명 주소가 공백뿐이면 400을 반환한다")
         void rejectsWhitespaceOnlyAddress() throws Exception {
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"addressRoad\":\"  \"}"))
                     .andExpect(status().isBadRequest());
@@ -184,7 +199,7 @@ class StoreControllerTest {
         @Test
         @DisplayName("전화번호가 20자를 넘으면 400을 반환한다")
         void rejectsTooLongPhone() throws Exception {
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"phone\":\"012345678901234567890\"}"))
                     .andExpect(status().isBadRequest());
@@ -193,9 +208,9 @@ class StoreControllerTest {
         @Test
         @DisplayName("전화번호가 정확히 20자면 통과한다 — 경계 바로 안쪽")
         void acceptsPhoneAtMaxLength() throws Exception {
-            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+            when(storeService.updateStore(eq(1L), any(), any())).thenReturn(sampleResponse());
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"phone\":\"01234567890123456789\"}"))
                     .andExpect(status().isOk())
@@ -205,9 +220,9 @@ class StoreControllerTest {
         @Test
         @DisplayName("전화번호는 빈 문자열로 지울 수 있다 — 이름·주소와 다르다")
         void acceptsEmptyPhone() throws Exception {
-            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+            when(storeService.updateStore(eq(1L), any(), any())).thenReturn(sampleResponse());
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"phone\":\"\"}"))
                     .andExpect(status().isOk())
@@ -217,7 +232,7 @@ class StoreControllerTest {
         @Test
         @DisplayName("status 에 StoreStatus 에 없는 값이 오면 400을 반환한다")
         void rejectsUnknownStatusValue() throws Exception {
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"status\":\"영업중\"}"))
                     .andExpect(status().isBadRequest());
@@ -226,9 +241,9 @@ class StoreControllerTest {
         @Test
         @DisplayName("모든 필드가 선택이므로 빈 본문도 검증을 통과한다")
         void acceptsEmptyBody() throws Exception {
-            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+            when(storeService.updateStore(eq(1L), any(), any())).thenReturn(sampleResponse());
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isOk())
@@ -260,9 +275,9 @@ class StoreControllerTest {
         @Test
         @DisplayName("PATCH /api/stores/{storeId} 는 요청 본문을 그대로 서비스에 넘기고, 서비스가 반환한 가게 정보를 그대로 내려준다")
         void updateStoreReturnsServiceResult() throws Exception {
-            when(storeService.updateStore(eq(1L), any())).thenReturn(sampleResponse());
+            when(storeService.updateStore(eq(1L), any(), any())).thenReturn(sampleResponse());
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"name\":\"맛나 치킨\",\"status\":\"OPEN\"}"))
                     .andExpect(status().isOk())
@@ -272,8 +287,11 @@ class StoreControllerTest {
 
             // 응답값만 확인하면 컨트롤러가 요청 본문을 누락·훼손해 넘겨도 못 잡는다 —
             // 실제로 파싱된 요청이 서비스까지 그대로 전달됐는지 인자 자체를 확인한다.
+            // 누가 바꿨는지는 로그인한 관리자에서 꺼내 넘긴다 — 엉뚱한 값을 넘기면 변경 기록의 "누가"가 틀린다
             verify(storeService).updateStore(eq(1L),
-                    eq(new StoreUpdateRequest("맛나 치킨", null, null, StoreStatus.OPEN)));
+                    eq(new StoreUpdateRequest("맛나 치킨", null, null, StoreStatus.OPEN)),
+                    argThat(change -> change.source() == StoreChangeSource.STORE_EDIT
+                            && change.changedBy() == ADMIN_ID && change.taskId() == null));
         }
 
         @Test
@@ -290,10 +308,10 @@ class StoreControllerTest {
         @Test
         @DisplayName("PATCH 대상 가게가 없으면 STORE_NOT_FOUND 로 404를 반환한다")
         void updateStoreReturns404WhenNotFound() throws Exception {
-            when(storeService.updateStore(anyLong(), any()))
+            when(storeService.updateStore(anyLong(), any(), any()))
                     .thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
 
-            mockMvc.perform(patch(STORE_PATH)
+            mockMvc.perform(patch(STORE_PATH).with(adminLogin())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isNotFound())

@@ -15,6 +15,7 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.StoreChangeField;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.repository.StoreBusinessHourRepository;
 import com.ktc4.backend.domain.store.repository.StoreMenuRepository;
@@ -23,6 +24,7 @@ import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.AuthMember;
 import com.ktc4.backend.support.PostgresContainerTest;
+import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -67,7 +69,7 @@ import static org.assertj.core.api.Assertions.tuple;
  * 잠금 대기도 만들 수 없다. 그래서 이 클래스만 테스트 트랜잭션을 끄고({@code NOT_SUPPORTED}) 서비스가 스스로 연
  * 트랜잭션을 본다. 롤백이 없으므로 만든 행만 직접 지운다. 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class})
+@Import({StoreManagementService.class, StoreAccessService.class, StoreService.class, StoreChangeHistoryService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DisplayName("가게 운영 정보 저장 커밋")
 class StoreManagementCommitTest extends PostgresContainerTest {
@@ -157,6 +159,7 @@ class StoreManagementCommitTest extends PostgresContainerTest {
         executor.awaitTermination(FIRST_HOLD_LIMIT.toSeconds(), TimeUnit.SECONDS);
         // 한 줄이 실패해도 나머지를 끝까지 지운다 — 중간에 멈추면 남은 행이 다른 테스트의 정리를 외래 키로 막는다
         for (Long storeId : storeIds) {
+            deleteQuietly("delete from store_change_history where store_id = ?", storeId);
             deleteQuietly("delete from store_menu where store_id = ?", storeId);
             deleteQuietly("delete from store_business_hour where store_id = ?", storeId);
             deleteQuietly("delete from store_owner where store_id = ?", storeId);
@@ -314,6 +317,32 @@ class StoreManagementCommitTest extends PostgresContainerTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         assertNothingChanged(hourIdsBefore);
+    }
+
+    @Test
+    @DisplayName("저장을 감싼 트랜잭션이 되돌려지면 가게도 변경 기록도 남지 않는다 — 기록은 같은 트랜잭션에 들어간다")
+    void outerRollbackLeavesNoHistory() {
+        List<Long> hourIdsBefore = hourIdsOf(store);
+        // 위의 "쓰는 도중 실패"는 기록을 넣기 전에 실패한다 — 기록까지 넣은 뒤 되돌려야 같은 트랜잭션인지 드러난다
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            storeManagementService.save(store.getStoreId(), request("053-777-0000",
+                    List.of(hour(BusinessDay.SUN, "10:00", "14:00")), List.of(new MenuRequest(null, "라면", true))), owner);
+            status.setRollbackOnly();
+        });
+
+        assertNothingChanged(hourIdsBefore);
+        assertThat(StoreChangeHistoryRow.of(jdbcTemplate, store.getStoreId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("커밋된 저장은 바뀐 항목마다 변경 기록을 남긴다")
+    void committedSaveLeavesHistory() {
+        storeManagementService.save(store.getStoreId(), request("053-777-0000",
+                List.of(hour(BusinessDay.SUN, "10:00", "14:00")), List.of(new MenuRequest(null, "라면", true))), owner);
+
+        assertThat(StoreChangeHistoryRow.of(jdbcTemplate, store.getStoreId()))
+                .extracting(StoreChangeHistoryRow::field)
+                .containsExactly(StoreChangeField.PHONE, StoreChangeField.BUSINESS_HOURS, StoreChangeField.MENUS);
     }
 
     @Test

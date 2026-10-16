@@ -2,6 +2,8 @@ package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
 import com.ktc4.backend.domain.store.dto.MenuSeed;
+import com.ktc4.backend.domain.store.dto.StoreChange;
+import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
@@ -35,6 +37,7 @@ public class StoreOperatingInfoService {
 
     private final StoreBusinessHourRepository businessHourRepository;
     private final StoreMenuRepository menuRepository;
+    private final StoreChangeHistoryService storeChangeHistoryService;
 
     /**
      * 가게의 빈 운영 정보만 채운다. 가게 전화·영업시간·메뉴를 항목마다 따로 본다 — 이미 값이 있는 항목은 건드리지 않는다.
@@ -45,15 +48,20 @@ public class StoreOperatingInfoService {
      * <p>호출자는 {@link StoreService#findStoreForUpdate} 로 잠근 가게를 넘겨야 한다. 잠그지 않으면 두 승인이 동시에
      * "비어 있다"고 보고 두 번 넣는다.
      *
+     * <p>채운 항목은 변경 기록에 남는다(바꾸기 전은 비어 있음).
+     *
      * @param store       잠긴 가게
      * @param phone       가게 전화번호. 비어 있으면 채우지 않는다
      * @param hours       영업시간. 비어 있으면 채우지 않는다. 형식은 요청 검증을 통과한 값이어야 한다
      * @param menus       메뉴 이름과 사진. 비어 있으면 채우지 않는다. 처음에는 모두 판매 중이다
+     * @param change      누가 승인·연결했는지 ({@link StoreChange#signupFill})
      * @throws IllegalStateException 영업시간 형식이 틀리면 — 입구에서 검증한 값만 오므로 생기면 버그다.
      *                               조용히 건너뛰지 않고 호출한 트랜잭션(승인)을 통째로 되돌린다
      */
     @Transactional
-    public void fillIfEmpty(Store store, String phone, List<BusinessHourRequest> hours, List<MenuSeed> menus) {
+    public void fillIfEmpty(Store store, String phone, List<BusinessHourRequest> hours, List<MenuSeed> menus,
+                            StoreChange change) {
+        StoreSnapshot before = storeChangeHistoryService.snapshot(store);
         // 항목마다 "채울지"를 따로 정한다. 관리자 승인 화면이 생겨 관리자가 항목별로 고르게 되면,
         // 아래 세 메서드의 "비어 있을 때만" 조건을 관리자가 고른 값으로 바꾸는 자리다.
         String phoneResult = fillPhone(store, phone);
@@ -62,6 +70,7 @@ public class StoreOperatingInfoService {
         // 옮겨 적지 않은 항목도 남긴다 — "승인했는데 가게에 영업시간이 없다"는 문의가 오면 이 줄로 이유를 찾는다
         log.info("가게 빈 칸 채우기 - storeId={}, 가게 전화={}, 영업시간={}, 메뉴={}",
                 store.getStoreId(), phoneResult, hoursResult, menusResult);
+        storeChangeHistoryService.recordChanges(store, before, storeChangeHistoryService.snapshot(store), change);
     }
 
     private static String fillPhone(Store store, String phone) {
@@ -99,6 +108,7 @@ public class StoreOperatingInfoService {
     }
 
     // 요청 검증을 통과한 영업시간을 분 단위 엔티티로 바꾼다. 가게 관리 저장(StoreManagementService)도 같이 쓴다.
+    // 이것으로 가게 영업시간을 바꾸는 곳은 가게를 잠근 뒤 바꾸기 전·후를 변경 기록에 남긴다(StoreChangeHistoryService).
     static List<StoreBusinessHour> toBusinessHours(Store store, List<BusinessHourRequest> hours) {
         return hours.stream()
                 .map(hour -> StoreBusinessHour.of(store, hour.day(),

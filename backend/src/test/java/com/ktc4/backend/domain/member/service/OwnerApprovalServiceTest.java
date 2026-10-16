@@ -19,8 +19,10 @@ import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStor
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
 import com.ktc4.backend.domain.store.dto.MenuSeed;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
@@ -50,6 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -845,6 +848,12 @@ class OwnerApprovalServiceTest {
         };
     }
 
+    // 옮겨 적기 기록에 승인·연결한 관리자가 들어가는지 — 시각은 호출할 때 정해지므로 경로·사람·조사 ID 만 본다
+    private static StoreChange signupFillBy(long adminId) {
+        return argThat(change -> change.source() == StoreChangeSource.SIGNUP_FILL
+                && change.changedBy() == adminId && change.taskId() == null);
+    }
+
     @Test
     @DisplayName("승인하면 잠근 가게와 신청서의 가게 전화·영업시간(HH:mm 그대로)·메뉴 이름·사진을 적힌 순서대로 넘긴다")
     void approveHandsApplicationToStore() {
@@ -855,10 +864,11 @@ class OwnerApprovalServiceTest {
 
         ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID);
 
-        verify(storeOperatingInfoService).fillIfEmpty(store, "053-000-0001",
-                List.of(new BusinessHourRequest(BusinessDay.FRI, "21:00", "02:00"),
-                        new BusinessHourRequest(BusinessDay.MON, "11:00", "24:00")),
-                List.of(new MenuSeed("다슬기국", PHOTO_FILE_ID), new MenuSeed("가락국수", null)));
+        verify(storeOperatingInfoService).fillIfEmpty(eq(store), eq("053-000-0001"),
+                eq(List.of(new BusinessHourRequest(BusinessDay.FRI, "21:00", "02:00"),
+                        new BusinessHourRequest(BusinessDay.MON, "11:00", "24:00"))),
+                eq(List.of(new MenuSeed("다슬기국", PHOTO_FILE_ID), new MenuSeed("가락국수", null))),
+                signupFillBy(ADMIN_ID));
         verify(storeService, never()).findStore(any());
     }
 
@@ -874,7 +884,7 @@ class OwnerApprovalServiceTest {
 
         ownerApprovalService.linkStore(3L, STORE_ID, ADMIN_ID);
 
-        verify(storeOperatingInfoService, never()).fillIfEmpty(any(), any(), any(), any());
+        verify(storeOperatingInfoService, never()).fillIfEmpty(any(), any(), any(), any(), any());
         verify(storeOwnerRepository).save(any());
     }
 
@@ -890,6 +900,6 @@ class OwnerApprovalServiceTest {
 
         ownerApprovalService.linkStore(3L, STORE_ID, ADMIN_ID);
 
-        verify(storeOperatingInfoService).fillIfEmpty(eq(store), any(), any(), any());
+        verify(storeOperatingInfoService).fillIfEmpty(eq(store), any(), any(), any(), signupFillBy(ADMIN_ID));
     }
 }

@@ -7,8 +7,11 @@ import com.ktc4.backend.domain.job.service.JobQueryService;
 import com.ktc4.backend.domain.job.service.JobService;
 import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.StoreChangeField;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.InvestigationTargetSelector;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.domain.task.dto.TaskResultResponse;
@@ -23,6 +26,7 @@ import com.ktc4.backend.domain.verification.repository.VerificationRepository;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.support.PostgresContainerTest;
+import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -35,6 +39,7 @@ import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -42,8 +47,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import static com.ktc4.backend.support.StoreChangeHistoryRow.json;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * 조사 결과 카드의 "즉시 수정 반영하기" / "자체 확인 완료" — 실제 DB 에서 가게 값·확인일·확인 기록이 어떻게 남는지.
@@ -52,7 +59,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 같은 트랜잭션 안에서는 이미 바뀐 값이 보여, 그 실수를 이 확인이 잡는다.
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
-@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class,
+@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
         InvestigationTargetSelector.class, VerificationService.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("수정안 반영·확인 (VerificationService)")
@@ -71,6 +78,9 @@ class VerificationServiceTest extends PostgresContainerTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private Job job;
     private Store store;
@@ -107,6 +117,11 @@ class VerificationServiceTest extends PostgresContainerTest {
         entityManager.flush();
         entityManager.clear();
         return verificationRepository.findByTask_TaskIdIn(List.of(task.getTaskId()));
+    }
+
+    private List<StoreChangeHistoryRow> histories() {
+        entityManager.flush();
+        return StoreChangeHistoryRow.of(jdbcTemplate, store.getStoreId());
     }
 
     private static void assertErrorCode(Runnable call, ErrorCode expected) {
@@ -303,12 +318,34 @@ class VerificationServiceTest extends PostgresContainerTest {
             assertThat(unchanged.getName()).isEqualTo("맛나 치킨");
             assertThat(unchanged.getLastCheckedAt()).isEqualTo(LocalDateTime.of(2026, 1, 1, 9, 0));
             assertThat(verificationsOf(task)).isEmpty();
+            assertThat(histories()).isEmpty();
         }
 
         @Test
         @DisplayName("없는 조사 결과는 TASK_NOT_FOUND")
         void notFound() {
             assertErrorCode(() -> verificationService.apply(999_999L, ADMIN_ID), ErrorCode.TASK_NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("바뀐 칸마다 변경 기록 — 조사 수정안 반영 경로·관리자·조사 결과 ID, 시각은 확인 기록과 같다")
+        void recordsChangesWithTaskAndVerificationTime() {
+            Task task = task(TaskClassification.PRIORITY_CHECK,
+                    Map.of("status", "SUSPENDED", "phone", "053-222-2222", "name", "맛나 치킨"));
+
+            verificationService.apply(task.getTaskId(), ADMIN_ID);
+
+            List<StoreChangeHistoryRow> rows = histories();
+            // 이름은 수정안에 있어도 지금과 같아 남지 않는다
+            assertThat(rows).extracting(StoreChangeHistoryRow::field, StoreChangeHistoryRow::before, StoreChangeHistoryRow::after)
+                    .containsExactly(
+                            tuple(StoreChangeField.PHONE, json("\"053-111-1111\""), json("\"053-222-2222\"")),
+                            tuple(StoreChangeField.STATUS, json("\"OPEN\""), json("\"SUSPENDED\"")));
+            assertThat(rows).extracting(StoreChangeHistoryRow::source).containsOnly(StoreChangeSource.TASK_APPLY);
+            assertThat(rows).extracting(StoreChangeHistoryRow::changedBy).containsOnly(ADMIN_ID);
+            assertThat(rows).extracting(StoreChangeHistoryRow::taskId).containsOnly(task.getTaskId());
+            assertThat(rows).extracting(StoreChangeHistoryRow::changedAt)
+                    .containsOnly(verificationsOf(task).get(0).getVerifiedAt());
         }
     }
 
@@ -361,6 +398,8 @@ class VerificationServiceTest extends PostgresContainerTest {
             assertThat(verification.getAppliedChanges()).isNull();
             assertThat(store.getLastCheckedAt()).isEqualTo(verification.getVerifiedAt());
             assertThat(result.verification().action()).isEqualTo(VerificationAction.NO_ACTION);
+            // 확인 시각만 바뀌므로 가게 변경 기록은 없다
+            assertThat(histories()).isEmpty();
         }
 
         @Test
