@@ -40,7 +40,12 @@ jobs:
 
       - name: 지금 걸려 있는 CHECK 제약
         run: |
-          docker exec ktc4-postgres psql -U "${POSTGRES_USER:-ktc4}" -d "${POSTGRES_DB:-ktc4}" -c "
+          # 접속 정보는 **서버 .env** 에서 읽는다. 저장소 변수에 적어 두면 두 곳이 어긋난다.
+          # (2026-10-16: 변수가 비어 기본값 ktc4 로 붙었다가 role 이 없다고 거절당했다.)
+          PGU=$(grep -E "^POSTGRES_USER=" .env | tail -1 | cut -d= -f2-)
+          PGD=$(grep -E "^POSTGRES_DB=" .env | tail -1 | cut -d= -f2-)
+          echo "사용자 ${#PGU}자 · DB ${PGD:-?}"
+          docker exec ktc4-postgres psql -U "${PGU:-ktc4}" -d "${PGD:-ktc4}" -c "
             select rel.relname as table_name, con.conname as constraint_name,
                    pg_get_constraintdef(con.oid) as definition
             from pg_constraint con
@@ -48,24 +53,20 @@ jobs:
             join pg_namespace ns on ns.oid = rel.relnamespace
             where con.contype = 'c' and ns.nspname = 'public'
             order by rel.relname, con.conname;"
-        env:
-          # 서버 .env 의 값을 쓴다. psql 은 컨테이너 안에서 돌아 비밀번호가 필요 없다(trust/소켓).
-          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
-          POSTGRES_DB: ${{ vars.POSTGRES_DB }}
 
       - name: 제약 지우기 (입력이 있을 때만)
         if: ${{ inputs.table != '' && inputs.constraint != '' }}
         env:
           TABLE: ${{ inputs.table }}
           CONSTRAINT_NAME: ${{ inputs.constraint }}
-          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
-          POSTGRES_DB: ${{ vars.POSTGRES_DB }}
         run: |
+          PGU=$(grep -E "^POSTGRES_USER=" .env | tail -1 | cut -d= -f2-)
+          PGD=$(grep -E "^POSTGRES_DB=" .env | tail -1 | cut -d= -f2-)
           echo "지웁니다: $TABLE / $CONSTRAINT_NAME"
-          docker exec ktc4-postgres psql -U "${POSTGRES_USER:-ktc4}" -d "${POSTGRES_DB:-ktc4}" \
+          docker exec ktc4-postgres psql -U "${PGU:-ktc4}" -d "${PGD:-ktc4}" \
             -c "alter table \"$TABLE\" drop constraint if exists \"$CONSTRAINT_NAME\";"
           echo "== 지운 뒤 =="
-          docker exec ktc4-postgres psql -U "${POSTGRES_USER:-ktc4}" -d "${POSTGRES_DB:-ktc4}" -c "
+          docker exec ktc4-postgres psql -U "${PGU:-ktc4}" -d "${PGD:-ktc4}" -c "
             select con.conname, pg_get_constraintdef(con.oid)
             from pg_constraint con
             join pg_class rel on rel.oid = con.conrelid
