@@ -1,29 +1,6 @@
-# prod 환경 오버라이드 파일입니다.
-# docker-compose.yml(base) 위에 병합해서 사용합니다 — 직접 쓰지 말고 scripts/deploy.sh 를 사용하세요.
-#   예) scripts/deploy.sh prod up -d --build
+# prod 오버라이드. base 위에 병합합니다 — scripts/deploy.sh prod up -d --build
 #
-# 값은 **SSM 파라미터 스토어**의 `/ktc4/prod/` 아래에 둡니다. 서버 `.env` 를 손으로 고치지
-# 않습니다 — scripts/prod-remote-deploy.sh 가 배포 때 읽어 환경변수로 넘기고, compose 는 셸
-# 환경변수를 env 파일보다 먼저 읽습니다. 자세한 것은 docs/배포환경에서_작업하는_방법.md.
+# 값은 서버 .env 로 관리합니다(EC2 에 직접 접속해 수정하는 정책).
+# base 와 차이가 없어 비어 있습니다. prod 전용 설정이 필요해지면 여기에 추가하세요.
 
-services:
-  backend:
-    environment:
-      # 🚨 아래 값들은 base(docker-compose.yml)에 **없습니다.** 그래서 이 블록이 비어 있던 동안
-      #    운영 백엔드는 서버 .env 에 값을 넣어도 받을 수 없었습니다(2026-10-16 실측:
-      #    관리자 계정이 아예 만들어지지 않은 상태로 돌고 있었습니다).
-      #    dev 는 docker-compose.dev.yml 이 넘겨 주고 있었습니다.
-      #
-      # `:-` 로 빈 값을 허용하는 이유: 값이 없다고 배포를 멈추면 화면까지 같이 내려갑니다.
-      # 대신 무엇이 비어서 무엇이 꺼지는지 prod-remote-deploy.sh 가 로그에 크게 찍습니다.
-      JWT_SECRET: ${JWT_SECRET:-}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      BIZNO_API_KEY: ${BIZNO_API_KEY:-}
-      NTS_SERVICE_KEY: ${NTS_SERVICE_KEY:-}
-      # 공개 주소의 화면이 API 를 부를 수 있어야 합니다. base 기본값은 localhost 뿐입니다.
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
-      # ⚠️ SIGNUP_TRUSTED_PROXIES 는 **넣지 않습니다.** 가입 횟수 제한이 X-Forwarded-For 를
-      #    신뢰하게 만드는 값이라, 프록시가 없는 서버에 넣으면 보낸 쪽이 헤더를 위조해 제한을
-      #    피할 수 있습니다. 운영은 nginx 없이 3000·8080 을 직접 엽니다(80·443 닫힘).
-      #    프록시를 붙이면 그때 단계 수만큼 넣습니다.
+services: {}
