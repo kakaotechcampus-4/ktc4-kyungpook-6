@@ -18,6 +18,7 @@ import com.ktc4.backend.domain.member.dto.LinkedStoreDetailResponse;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStore;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.dto.MenuSeed;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -815,6 +816,8 @@ class OwnerApprovalServiceTest {
 
     // ── 신청서의 가게 정보를 가게로 넘기기 (실제로 채우는 동작은 OwnerApprovalStoreFillTest 가 DB 로 본다) ──────────
 
+    private static final String PHOTO_FILE_ID = "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+
     private static Member pendingOwnerWithStoreInfo(long id) {
         Member owner = Member.ownerApplicant("owner@example.com", "hash", OwnerInfo.builder()
                 .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone("01000000000")
@@ -822,7 +825,7 @@ class OwnerApprovalServiceTest {
                 .businessHours(List.of(
                         new SignupBusinessHour(BusinessDay.FRI, "21:00", "02:00"),
                         new SignupBusinessHour(BusinessDay.MON, "11:00", "24:00")))
-                .menus(List.of(new SignupMenu("다슬기국"), new SignupMenu("가락국수")))
+                .menus(List.of(new SignupMenu("다슬기국", PHOTO_FILE_ID), new SignupMenu("가락국수", null)))
                 .build());
         ReflectionTestUtils.setField(owner, "memberId", id);
         return owner;
@@ -843,7 +846,7 @@ class OwnerApprovalServiceTest {
     }
 
     @Test
-    @DisplayName("승인하면 잠근 가게와 신청서의 가게 전화·영업시간(HH:mm 그대로)·메뉴 이름을 적힌 순서대로 넘긴다")
+    @DisplayName("승인하면 잠근 가게와 신청서의 가게 전화·영업시간(HH:mm 그대로)·메뉴 이름·사진을 적힌 순서대로 넘긴다")
     void approveHandsApplicationToStore() {
         Store store = store(STORE_ID, "예시분식", null);
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(pendingOwnerWithStoreInfo(3L)));
@@ -855,7 +858,7 @@ class OwnerApprovalServiceTest {
         verify(storeOperatingInfoService).fillIfEmpty(store, "053-000-0001",
                 List.of(new BusinessHourRequest(BusinessDay.FRI, "21:00", "02:00"),
                         new BusinessHourRequest(BusinessDay.MON, "11:00", "24:00")),
-                List.of("다슬기국", "가락국수"));
+                List.of(new MenuSeed("다슬기국", PHOTO_FILE_ID), new MenuSeed("가락국수", null)));
         verify(storeService, never()).findStore(any());
     }
 

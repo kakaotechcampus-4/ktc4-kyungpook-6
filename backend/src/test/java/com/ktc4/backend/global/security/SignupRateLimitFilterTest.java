@@ -66,7 +66,8 @@ class SignupRateLimitFilterTest {
                     + "\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\",\"phone\":\"010-0000-0000\","
                     + "\"storeAddress\":\"가상특별시 예시구 샘플로 123\",\"storePhone\":\"053-000-0000\","
                     + "\"businessHours\":[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}],"
-                    + "\"menus\":[{\"name\":\"김치찌개\"}]}";
+                    + "\"menus\":[{\"name\":\"김치찌개\"}],"
+                    + "\"bizCertFileId\":\"7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f\"}";
     // 우리 프록시의 주소 — 프록시 뒤에서는 모든 요청의 접속 주소가 이 값이다
     private static final String PROXY = "192.0.2.1";
 

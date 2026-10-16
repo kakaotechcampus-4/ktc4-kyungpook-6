@@ -6,6 +6,8 @@ import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
 import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
+import com.ktc4.backend.domain.file.dto.SignupFileIds;
+import com.ktc4.backend.domain.file.service.UploadFileService;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.entity.SignupBusinessHour;
@@ -47,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -62,12 +65,18 @@ class AuthServiceTest {
     private static final Instant NOW = Instant.parse("2026-09-28T03:00:00Z");
     private static final String EMAIL = "owner@example.com";
     private static final String PASSWORD = "correct-password";
+    private static final String BIZ_CERT_FILE_ID = "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f";
+    private static final String STORE_IMAGE_FILE_ID = "3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f";
+    private static final String MENU_PHOTO_FILE_ID = "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 
     @Mock
     private MemberRepository memberRepository;
 
     @Mock
     private StoreOwnerRepository storeOwnerRepository;
+
+    @Mock
+    private UploadFileService uploadFileService;
 
     private JwtProvider jwtProvider;
     private AuthService authService;
@@ -76,7 +85,7 @@ class AuthServiceTest {
     void setUp() {
         jwtProvider = new JwtProvider("test-only-jwt-secret-at-least-32-bytes-long",
                 Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC));
-        authService = new AuthService(memberRepository, storeOwnerRepository, ENCODER, jwtProvider);
+        authService = new AuthService(memberRepository, storeOwnerRepository, ENCODER, jwtProvider, uploadFileService);
     }
 
     // 점주 가입 기능이 아직 없어 관리자로 만든 뒤 역할·상태를 바꿔 쓴다.
@@ -237,11 +246,12 @@ class AuthServiceTest {
     private static OwnerSignupRequest signup(String email, String password, String bizNo, String phone) {
         return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ", phone,
                 "대구광역시 북구 대학로 80", "053-123-4567",
-                List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")), List.of(new SignupMenuRequest("김치찌개")));
+                List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")), List.of(new SignupMenuRequest("김치찌개", null)),
+                null, BIZ_CERT_FILE_ID);
     }
 
     @Test
-    @DisplayName("가게 주소·가게 전화·영업시간·메뉴를 신청서에 담는다 — 글자 칸은 앞뒤 공백을 지우고, 영업시간은 HH:mm 그대로, 순서 유지")
+    @DisplayName("가게 주소·가게 전화·영업시간·메뉴(사진 ID 포함)를 신청서에 담는다 — 글자 칸은 앞뒤 공백을 지우고, 영업시간은 HH:mm 그대로, 순서 유지")
     void storesStoreInfoOnApplication() {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -249,7 +259,8 @@ class AuthServiceTest {
                 "010-0000-0000", "  대구광역시 북구 대학로 80 ", " 053-123-4567 ",
                 List.of(new BusinessHourRequest(BusinessDay.SUN, "21:00", "02:00"),
                         new BusinessHourRequest(BusinessDay.MON, "00:00", "24:00")),
-                List.of(new SignupMenuRequest(" 다슬기국 "), new SignupMenuRequest("가락국수")));
+                List.of(new SignupMenuRequest(" 다슬기국 ", MENU_PHOTO_FILE_ID), new SignupMenuRequest("가락국수", null)),
+                STORE_IMAGE_FILE_ID, BIZ_CERT_FILE_ID);
 
         authService.signupOwner(request);
 
@@ -261,7 +272,7 @@ class AuthServiceTest {
         assertThat(info.getBusinessHours()).containsExactly(
                 new SignupBusinessHour(BusinessDay.SUN, "21:00", "02:00"),
                 new SignupBusinessHour(BusinessDay.MON, "00:00", "24:00"));
-        assertThat(info.getMenus()).containsExactly(new SignupMenu("다슬기국"), new SignupMenu("가락국수"));
+        assertThat(info.getMenus()).containsExactly(new SignupMenu("다슬기국", MENU_PHOTO_FILE_ID), new SignupMenu("가락국수", null));
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\"")
@@ -351,6 +362,49 @@ class AuthServiceTest {
         assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
                 .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
         verify(memberRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(uploadFileService);
+    }
+
+    // ── 가입 신청에 실린 파일 ID ─────────────────────────────────────
+
+    @Test
+    @DisplayName("저장한 신청자에게 실린 파일 ID 를 넘긴다 — 대표 사진·사업자등록증·사진 있는 메뉴만")
+    void claimsSignupFilesForSavedApplicant() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        OwnerSignupRequest request = new OwnerSignupRequest(EMAIL, PASSWORD, "1234567890", "예시분식", "홍길동",
+                "010-0000-0000", "대구광역시 북구 대학로 80", "053-123-4567",
+                List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")),
+                List.of(new SignupMenuRequest("다슬기국", MENU_PHOTO_FILE_ID), new SignupMenuRequest("가락국수", null)),
+                STORE_IMAGE_FILE_ID, BIZ_CERT_FILE_ID);
+
+        authService.signupOwner(request);
+
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(saved.capture());
+        verify(uploadFileService).claimSignupFiles(saved.getValue(),
+                new SignupFileIds(STORE_IMAGE_FILE_ID, BIZ_CERT_FILE_ID, List.of(MENU_PHOTO_FILE_ID)));
+    }
+
+    @Test
+    @DisplayName("실은 파일을 쓸 수 없으면 그 에러가 그대로 나간다 — 같은 트랜잭션이라 계정도 남지 않는다")
+    void propagatesInvalidFileReference() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new CustomException(ErrorCode.INVALID_FILE_REFERENCE))
+                .when(uploadFileService).claimSignupFiles(any(), any());
+
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890"))))
+                .isEqualTo(ErrorCode.INVALID_FILE_REFERENCE);
+    }
+
+    @Test
+    @DisplayName("신청자를 저장하기 전에 거절되면 파일은 건드리지 않는다 — 고쳐서 다시 신청할 때 같은 파일 ID 를 쓸 수 있게")
+    void doesNotClaimFilesWhenRejectedBeforeSave() {
+        assertThat(errorCodeOf(() -> authService.signupOwner(signup(EMAIL, PASSWORD, "123-45-678"))))
+                .isEqualTo(ErrorCode.INVALID_BIZ_NO);
+
+        verifyNoInteractions(uploadFileService);
     }
 
     @Test

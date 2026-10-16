@@ -172,8 +172,8 @@ class StoreManagementServiceTest extends PostgresContainerTest {
             entityManager.clear();
 
             assertThat(storeManagementService.getDetail(store.getStoreId(), owner).menus()).containsExactly(
-                    new MenuResponse(first.getMenuId(), "하 마지막 이름", true),
-                    new MenuResponse(last.getMenuId(), "가 첫 이름", false));
+                    new MenuResponse(first.getMenuId(), "하 마지막 이름", true, null),
+                    new MenuResponse(last.getMenuId(), "가 첫 이름", false, null));
         }
 
         @Test
@@ -252,5 +252,23 @@ class StoreManagementServiceTest extends PostgresContainerTest {
 
         assertThat(saved.phone()).isEqualTo("053-123-4567");
         assertThat(saved.menus()).extracting(MenuResponse::name, MenuResponse::onSale).containsExactly(tuple("라면", true));
+    }
+
+    @Test
+    @DisplayName("가입 때 올린 메뉴 사진은 상세에 실리고, 가게 관리에서 이름·판매 여부를 고쳐도 남는다. 새로 만든 메뉴는 사진이 없다")
+    void keepsMenuPhotoAcrossEdits() {
+        String photoFileId = "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+        StoreMenu applied = entityManager.persistAndFlush(StoreMenu.onSale(store, "다슬기국", photoFileId));
+        entityManager.clear();
+
+        assertThat(storeManagementService.getDetail(store.getStoreId(), owner).menus())
+                .extracting(MenuResponse::photoFileId).containsExactly(photoFileId);
+
+        StoreDetailResponse saved = storeManagementService.save(store.getStoreId(), request(List.of(
+                new MenuRequest(applied.getMenuId(), "다슬기국 특", false),
+                new MenuRequest(null, "라면", true))), owner);
+
+        assertThat(saved.menus()).extracting(MenuResponse::name, MenuResponse::photoFileId)
+                .containsExactly(tuple("다슬기국 특", photoFileId), tuple("라면", null));
     }
 }

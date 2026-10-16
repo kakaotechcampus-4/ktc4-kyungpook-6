@@ -109,7 +109,7 @@ class StoreOperatingInfoTablesTest extends PostgresContainerTest {
     @DisplayName("메뉴는 넣은 순서(menuId 순)대로 읽히고, 처음에는 판매 중이다 — 이름 순이 아니다")
     void menusKeepInsertionOrder() {
         menuRepository.saveAll(List.of(
-                StoreMenu.onSale(store, "나물비빔밥"), StoreMenu.onSale(store, "가락국수"), StoreMenu.onSale(store, "다슬기국")));
+                StoreMenu.onSale(store, "나물비빔밥", null), StoreMenu.onSale(store, "가락국수", null), StoreMenu.onSale(store, "다슬기국", null)));
         entityManager.flush();
         entityManager.clear();
 
@@ -124,7 +124,7 @@ class StoreOperatingInfoTablesTest extends PostgresContainerTest {
     @Test
     @DisplayName("메뉴의 지운 시각이 그대로 왕복하고, 지운 메뉴는 '메뉴가 있나' 에서 세지 않는다")
     void roundTripsDeletedAt() {
-        StoreMenu menu = StoreMenu.onSale(store, "옛 메뉴");
+        StoreMenu menu = StoreMenu.onSale(store, "옛 메뉴", null);
         menu.markDeleted(LocalDateTime.of(2026, 1, 1, 9, 0, 1));
         Long id = entityManager.persistAndFlush(menu).getMenuId();
         entityManager.clear();
@@ -141,7 +141,7 @@ class StoreOperatingInfoTablesTest extends PostgresContainerTest {
                 .addressRoad("가상특별시 예시구 샘플로 456").addressNormalized("가상특별시예시구샘플로456")
                 .status(StoreStatus.OPEN).build());
         entityManager.persistAndFlush(StoreBusinessHour.of(other, BusinessDay.MON, 600, 1200));
-        entityManager.persistAndFlush(StoreMenu.onSale(other, "김치찌개"));
+        entityManager.persistAndFlush(StoreMenu.onSale(other, "김치찌개", null));
         entityManager.clear();
 
         assertThat(businessHourRepository.existsByStoreStoreId(store.getStoreId())).isFalse();

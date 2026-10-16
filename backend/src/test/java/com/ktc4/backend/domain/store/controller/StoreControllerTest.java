@@ -439,7 +439,7 @@ class StoreControllerTest {
             return new StoreDetailResponse(1L, "예시분식", "가상특별시 예시구 샘플로 123", "053-123-4567",
                     List.of(new BusinessHourResponse(BusinessDay.MON, "11:00", "24:00"),
                             new BusinessHourResponse(BusinessDay.FRI, "21:00", "02:00")),
-                    List.of(new MenuResponse(3L, "김치찌개", true), new MenuResponse(7L, "라면", false)));
+                    List.of(new MenuResponse(3L, "김치찌개", true, null), new MenuResponse(7L, "라면", false, null)));
         }
 
         // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다

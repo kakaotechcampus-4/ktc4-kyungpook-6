@@ -44,8 +44,9 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
             new SignupBusinessHour(BusinessDay.MON, "11:00", "15:00"),
             new SignupBusinessHour(BusinessDay.MON, "17:00", "24:00"),
             new SignupBusinessHour(BusinessDay.FRI, "21:30", "02:00"));
+    private static final String MENU_PHOTO_ID = "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
     private static final List<SignupMenu> APPLIED_MENUS = List.of(
-            new SignupMenu("나물비빔밥"), new SignupMenu("가락국수"), new SignupMenu("다슬기국"));
+            new SignupMenu("나물비빔밥", MENU_PHOTO_ID), new SignupMenu("가락국수", null), new SignupMenu("다슬기국", null));
     private static final String APPLIED_STORE_PHONE = "053-000-0001";
 
     @Autowired
@@ -139,6 +140,8 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
                         tuple(BusinessDay.FRI, 1290, 120));
         assertThat(menusOf(store)).extracting(StoreMenu::getName).containsExactly("나물비빔밥", "가락국수", "다슬기국");
         assertThat(menusOf(store)).allMatch(StoreMenu::isOnSale);
+        // 메뉴 사진은 메뉴마다 따라간다 — 사진 없이 적은 메뉴는 비어 있다
+        assertThat(menusOf(store)).extracting(StoreMenu::getPhotoFileId).containsExactly(MENU_PHOTO_ID, null, null);
     }
 
     private void assertNothingFilled(Store store) {
@@ -190,7 +193,7 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
         @DisplayName("메뉴만 있으면 메뉴는 그대로 두고 전화·영업시간만 옮겨 적는다")
         void keepsExistingMenus() {
             Store store = persistStore(null);
-            entityManager.persistAndFlush(StoreMenu.onSale(store, "김치찌개"));
+            entityManager.persistAndFlush(StoreMenu.onSale(store, "김치찌개", null));
 
             approve(persistApplicant(), store);
 
@@ -203,8 +206,8 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
         @DisplayName("지우지 않은 메뉴가 하나라도 있으면 메뉴는 그대로 둔다 — 지운 메뉴가 섞여 있어도")
         void liveMenuAmongDeletedKeepsMenus() {
             Store store = persistStore(null);
-            entityManager.persistAndFlush(StoreMenu.onSale(store, "김치찌개"));
-            StoreMenu deleted = StoreMenu.onSale(store, "옛 메뉴");
+            entityManager.persistAndFlush(StoreMenu.onSale(store, "김치찌개", null));
+            StoreMenu deleted = StoreMenu.onSale(store, "옛 메뉴", null);
             deleted.markDeleted(LocalDateTime.of(2026, 1, 1, 9, 0));
             entityManager.persistAndFlush(deleted);
 
@@ -217,7 +220,7 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
         @DisplayName("지운 메뉴만 있는 가게는 메뉴가 없는 가게로 보고 옮겨 적는다")
         void deletedOnlyMenusCountAsEmpty() {
             Store store = persistStore(null);
-            StoreMenu deleted = StoreMenu.onSale(store, "옛 메뉴");
+            StoreMenu deleted = StoreMenu.onSale(store, "옛 메뉴", null);
             deleted.markDeleted(LocalDateTime.of(2026, 1, 1, 9, 0));
             entityManager.persistAndFlush(deleted);
 

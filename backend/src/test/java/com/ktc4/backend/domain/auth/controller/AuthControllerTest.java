@@ -3,7 +3,9 @@ package com.ktc4.backend.domain.auth.controller;
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
 import com.ktc4.backend.domain.auth.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
+import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.domain.member.enums.MemberRole;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -49,6 +52,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -197,6 +201,10 @@ class AuthControllerTest {
 
     private static final String HOUR = "{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}";
     private static final String MENU = "{\"name\":\"김치찌개\"}";
+    // 파일 업로드 API 가 돌려준 값이라 치는 가짜 ID. 가입 요청에는 사업자등록증 ID 가 반드시 있다
+    private static final String BIZ_CERT_FILE_ID = "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f";
+    private static final String STORE_IMAGE_FILE_ID = "3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f";
+    private static final String MENU_PHOTO_FILE_ID = "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
     private static final String OVERLAP_MESSAGE =
             "영업시간이 겹치는 줄이 있습니다 — 같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간이 겹치지 않게 적어 주세요";
     private static final String STORE_INFO = storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), list(MENU, 1));
@@ -205,7 +213,7 @@ class AuthControllerTest {
         return "[" + String.join(",", Collections.nCopies(count, item)) + "]";
     }
 
-    // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다
+    // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다. 사업자등록증 파일 ID 는 늘 싣는다
     private static String storeInfo(String storeAddress, String storePhone, String businessHours, String menus) {
         StringBuilder sb = new StringBuilder();
         if (storeAddress != null) {
@@ -220,6 +228,7 @@ class AuthControllerTest {
         if (menus != null) {
             sb.append(",\"menus\":").append(menus);
         }
+        sb.append(",\"bizCertFileId\":\"").append(BIZ_CERT_FILE_ID).append('"');
         return sb.toString();
     }
 
@@ -364,15 +373,84 @@ class AuthControllerTest {
             signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동");
 
     @Test
-    @DisplayName("가입 신청은 JSON 본문으로 받는다 — 사진·사업자등록증 없이도 가입된다")
-    void signupAcceptsJsonWithoutFiles() throws Exception {
+    @DisplayName("가입 신청은 JSON 본문으로 받는다 — 파일은 ID 만 싣고, 대표 사진·메뉴 사진은 없어도 된다")
+    void signupAcceptsJsonWithFileIds() throws Exception {
         when(authService.signupOwner(any())).thenReturn(new OwnerSignupResponse(
                 3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
                 "issued-status-token", "Bearer", java.time.Instant.parse("2026-10-23T00:00:00Z")));
 
         mockMvc.perform(signupRequest(VALID_SIGNUP)).andExpect(status().isCreated());
 
-        verify(authService).signupOwner(any());
+        ArgumentCaptor<OwnerSignupRequest> sent = ArgumentCaptor.forClass(OwnerSignupRequest.class);
+        verify(authService).signupOwner(sent.capture());
+        assertThat(sent.getValue().bizCertFileId()).isEqualTo(BIZ_CERT_FILE_ID);
+        assertThat(sent.getValue().storeImageFileId()).isNull();
+        assertThat(sent.getValue().menus().get(0).photoFileId()).isNull();
+    }
+
+    @Test
+    @DisplayName("대표 사진·메뉴 사진의 파일 ID 도 그대로 넘긴다")
+    void signupPassesPhotoFileIds() throws Exception {
+        String menus = "[{\"name\":\"김치찌개\",\"photoFileId\":\"" + MENU_PHOTO_FILE_ID + "\"},{\"name\":\"라면\"}]";
+        String body = accountPart("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", PHONE)
+                + storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), menus)
+                + ",\"storeImageFileId\":\"" + STORE_IMAGE_FILE_ID + "\"}";
+
+        mockMvc.perform(signupRequest(body)).andExpect(status().isCreated());
+
+        ArgumentCaptor<OwnerSignupRequest> sent = ArgumentCaptor.forClass(OwnerSignupRequest.class);
+        verify(authService).signupOwner(sent.capture());
+        assertThat(sent.getValue().storeImageFileId()).isEqualTo(STORE_IMAGE_FILE_ID);
+        assertThat(sent.getValue().menus()).extracting(SignupMenuRequest::photoFileId)
+                .containsExactly(MENU_PHOTO_FILE_ID, null);
+    }
+
+    @Test
+    @DisplayName("사업자등록증 파일 ID 가 없거나 비었으면 400 이고 errors 에 bizCertFileId 가 실린다")
+    void signupRequiresBizCertFileId() throws Exception {
+        String withoutBizCert = VALID_SIGNUP.replace(",\"bizCertFileId\":\"" + BIZ_CERT_FILE_ID + "\"", "");
+        assertThat(withoutBizCert).doesNotContain("bizCertFileId");
+
+        mockMvc.perform(signupRequest(withoutBizCert))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("bizCertFileId"));
+        mockMvc.perform(signupRequest(VALID_SIGNUP.replace(BIZ_CERT_FILE_ID, "")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", hasItem("bizCertFileId")));
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @ParameterizedTest(name = "[{index}] \"{0}\"")
+    @ValueSource(strings = {"12", "7B1D0E4F-2C3A-4D5B-8E6F-9A0B1C2D3E4F", "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f0",
+            "../7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f"})
+    @DisplayName("파일 ID 모양(소문자 UUID)이 아니면 칸마다 400 이고 서비스에 닿지 않는다")
+    void rejectsMalformedFileIds(String bad) throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP.replace(BIZ_CERT_FILE_ID, bad)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("bizCertFileId"));
+        String withStoreImage = VALID_SIGNUP.substring(0, VALID_SIGNUP.length() - 1)
+                + ",\"storeImageFileId\":\"" + bad + "\"}";
+        mockMvc.perform(signupRequest(withStoreImage))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeImageFileId"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1),
+                        "[{\"name\":\"김치찌개\",\"photoFileId\":\"" + bad + "\"}]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("menus[0].photoFileId"));
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("실은 파일 ID 를 쓸 수 없으면 400 invalid-file-reference — 어느 칸이 왜인지는 알려 주지 않는다")
+    void mapsInvalidFileReference() throws Exception {
+        when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_FILE_REFERENCE));
+
+        mockMvc.perform(signupRequest(VALID_SIGNUP))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_FILE_REFERENCE.getType().toString()))
+                .andExpect(jsonPath("$.detail").doesNotExist())
+                .andExpect(jsonPath("$.errors").doesNotExist());
     }
 
     @Test

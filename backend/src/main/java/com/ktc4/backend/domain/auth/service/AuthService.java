@@ -6,6 +6,9 @@ import com.ktc4.backend.domain.auth.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
+import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
+import com.ktc4.backend.domain.file.dto.SignupFileIds;
+import com.ktc4.backend.domain.file.service.UploadFileService;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
 import com.ktc4.backend.domain.member.entity.SignupBusinessHour;
@@ -45,16 +48,19 @@ public class AuthService {
     private final StoreOwnerRepository storeOwnerRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final UploadFileService uploadFileService;
 
     // 없는 이메일일 때도 비밀번호 비교를 한 번 해서, 응답 시간 차이로 가입 여부를 알아내지 못하게 한다.
     private final String dummyPasswordHash;
 
     public AuthService(MemberRepository memberRepository, StoreOwnerRepository storeOwnerRepository,
-                       PasswordEncoder passwordEncoder, JwtProvider jwtProvider) {
+                       PasswordEncoder passwordEncoder, JwtProvider jwtProvider,
+                       UploadFileService uploadFileService) {
         this.memberRepository = memberRepository;
         this.storeOwnerRepository = storeOwnerRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
+        this.uploadFileService = uploadFileService;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-timing");
     }
 
@@ -100,13 +106,17 @@ public class AuthService {
      *
      * <p>가게 주소·가게 전화·영업시간·메뉴는 신청서에 신청 당시 그대로 담고, 관리자가 승인할 때 가게에 옮겨 적는다.
      *
+     * <p>실은 파일 ID 의 파일(먼저 업로드 API 로 올린 것)을 이 신청이 가져간다. 계정과 같은 트랜잭션이라
+     * 파일을 쓸 수 없으면 계정도 만들어지지 않는다.
+     *
      * @param request 이메일·비밀번호·사업자 정보·휴대폰 번호·가게 정보
      * @return 만들어진 계정(승인 대기)과 가입 상태 확인용 토큰
      * @throws CustomException 비밀번호가 72바이트를 넘으면 {@code PASSWORD_TOO_LONG},
      *                         사업자등록번호가 10자리가 아니면 {@code INVALID_BIZ_NO},
      *                         휴대폰 번호 형식이 아니면 {@code INVALID_PHONE},
      *                         이미 가입된 이메일이면 {@code DUPLICATE_EMAIL},
-     *                         승인 대기 신청이 너무 많이 쌓였으면 {@code SIGNUP_TEMPORARILY_CLOSED}
+     *                         승인 대기 신청이 너무 많이 쌓였으면 {@code SIGNUP_TEMPORARILY_CLOSED},
+     *                         실은 파일 ID 가 없거나 이미 쓰였거나 자리에 맞지 않으면 {@code INVALID_FILE_REFERENCE}
      */
     @Transactional
     public OwnerSignupResponse signupOwner(OwnerSignupRequest request) {
@@ -148,6 +158,8 @@ public class AuthService {
             }
             throw e;
         }
+        uploadFileService.claimSignupFiles(saved, new SignupFileIds(request.storeImageFileId(), request.bizCertFileId(),
+                request.menus().stream().map(SignupMenuRequest::photoFileId).toList()));
         return OwnerSignupResponse.of(saved, jwtProvider.issueSignupStatus(saved.getMemberId()));
     }
 
@@ -165,7 +177,7 @@ public class AuthService {
                         .map(hour -> new SignupBusinessHour(hour.day(), hour.open(), hour.close()))
                         .toList())
                 .menus(request.menus().stream()
-                        .map(menu -> new SignupMenu(menu.name().strip()))
+                        .map(menu -> new SignupMenu(menu.name().strip(), menu.photoFileId()))
                         .toList())
                 .build();
     }

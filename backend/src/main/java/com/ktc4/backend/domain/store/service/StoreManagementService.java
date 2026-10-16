@@ -160,7 +160,7 @@ public class StoreManagementService {
                 .toList();
         List<MenuResponse> menus = menuRepository.findByStoreStoreIdAndDeletedAtIsNullOrderByMenuIdAsc(store.getStoreId())
                 .stream()
-                .map(menu -> new MenuResponse(menu.getMenuId(), menu.getName(), menu.isOnSale()))
+                .map(menu -> new MenuResponse(menu.getMenuId(), menu.getName(), menu.isOnSale(), menu.getPhotoFileId()))
                 .toList();
         // 관리자 수정은 가게 전화를 빈 문자열로 지울 수 있다 — 화면에는 "없음" 하나로 보낸다
         String phone = store.getPhone() == null || store.getPhone().isBlank() ? null : store.getPhone();

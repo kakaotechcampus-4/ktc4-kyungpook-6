@@ -82,9 +82,18 @@ public class AuthController {
                     형식 오류는 `errors` 에 몇 번째 줄의 어느 칸인지(예: `businessHours[0].close`) 담깁니다.
                     영업시간끼리 겹치면(같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간) `errors` 에 `businessHours` 칸으로 담깁니다.
 
-                    요청 본문은 JSON(`application/json`)입니다. 사진·사업자등록증은 이 요청에 싣지 않습니다.
-                    파일 업로드 API 로 먼저 올리고, 받은 파일 ID 를 가입 요청에 넘기는 방식으로 바뀔 예정입니다(다음 배포).
-                    그 전까지 가입 신청에는 첨부가 없습니다.
+                    요청 본문은 JSON(`application/json`)입니다. 사진·사업자등록증 파일은 이 요청에 싣지 않습니다.
+                    파일 업로드 API(`POST /api/files`)로 먼저 올리고, 받은 `fileId` 를 싣습니다.
+
+                    | 칸 | 업로드할 때 kind | |
+                    |---|---|---|
+                    | `bizCertFileId` | `BIZ_CERT` | **필수** |
+                    | `storeImageFileId` | `STORE_IMAGE` | 선택 |
+                    | `menus[].photoFileId` | `MENU_IMAGE` | 선택 (메뉴마다 한 장) |
+
+                    파일 ID 가 없거나(지어낸 값, 올린 지 세 시간이 지나 지워진 파일), 이미 다른 신청에 쓰였거나,
+                    칸에 맞지 않는 종류이거나, 한 신청 안에서 두 칸에 같은 ID 를 넣으면 400 `invalid-file-reference` 입니다.
+                    이때 계정도 만들어지지 않습니다. 어느 경우인지는 알려 주지 않으니, 파일을 다시 올려 새 ID 로 보내세요.
 
                     같은 곳(IPv4 는 주소 하나, IPv6 는 /64 대역)에서 10분에 10번 넘게 보내거나(성공·실패를 가리지 않고 셉니다)
                     하루에 5건 넘게 가입에 성공하면 429 `too-many-requests` 입니다. 본문이 너무 커서(64KB 초과) 거절된 요청도 셉니다.
@@ -95,7 +104,8 @@ public class AuthController {
             @ApiResponse(responseCode = "201", description = "신청 완료 — 상태는 PENDING(승인 대기). 가입 상태 확인용 토큰을 함께 줍니다"),
             @ApiResponse(responseCode = "400",
                     description = "입력값이 비었거나 형식이 틀리거나 영업시간이 겹치는 경우(errors 에 필드 표시), "
-                            + "사업자등록번호가 10자리가 아닌 경우(invalid-biz-no), 휴대폰 번호 형식이 아닌 경우(invalid-phone)",
+                            + "사업자등록번호가 10자리가 아닌 경우(invalid-biz-no), 휴대폰 번호 형식이 아닌 경우(invalid-phone), "
+                            + "실은 파일 ID 를 쓸 수 없는 경우(invalid-file-reference)",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "이미 가입된 이메일",

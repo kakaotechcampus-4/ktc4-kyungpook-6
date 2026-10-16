@@ -52,9 +52,10 @@ public enum ErrorCode {
     // 파일 업로드. FILE_TOO_LARGE 는 요청 전체가 상한을 넘어 프레임워크가 거절한 경우(413)에도 쓴다
     EMPTY_FILE(HttpStatus.BAD_REQUEST, "빈 파일은 올릴 수 없습니다"),
     UNSUPPORTED_FILE_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 파일 형식입니다"),
-    TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "파일 개수가 너무 많습니다"),
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "파일이 너무 큽니다"),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다"),
+    // 가입 신청에 실은 파일 ID 가 없거나, 이미 쓰였거나, 자리에 맞지 않는 종류인 경우 — 어느 쪽인지는 알려 주지 않는다
+    INVALID_FILE_REFERENCE(HttpStatus.BAD_REQUEST, "올린 파일을 쓸 수 없습니다"),
 
     // 가입 신청 남용 방어. TOO_MANY_REQUESTS 는 컨트롤러에 닿기 전 필터가 직접 응답한다.
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요"),
