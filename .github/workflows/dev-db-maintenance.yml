@@ -27,6 +27,10 @@ on:
         description: 지울 CHECK 제약 이름 (table 과 함께 적어야 지운다)
         required: false
         default: ""
+      recreate_schema:
+        description: "⚠️ 스키마를 통째로 새로 만든다. 자료가 전부 사라진다. 정확히 RECREATE 라고 적을 때만 돈다"
+        required: false
+        default: ""
 
 jobs:
   maintenance:
@@ -71,3 +75,46 @@ jobs:
             from pg_constraint con
             join pg_class rel on rel.oid = con.conrelid
             where con.contype = 'c' and rel.relname = '$TABLE';"
+
+      # ⚠️ 여기부터는 **지우는** 단계다. 입력에 정확히 RECREATE 라고 적을 때만 돈다.
+      #
+      # 왜 필요한가 — `ddl-auto: update` 는 **더하기만** 한다. 컬럼은 따라오지만 CHECK 제약도,
+      # NOT NULL 도 풀지 않는다. 엔티티가 바뀐 지 오래면 DB 가 코드보다 낡아 어긋나는데,
+      # 어긋난 곳을 하나씩 찾아 고치는 것보다 새로 만드는 쪽이 확실하다.
+      #
+      # 2026-10-16 에 개발 서버가 그랬다. 조사가 저장 단계에서 연달아 막혔다.
+      #   task_classification_check  = 2026-09-18 에 버려진 옛 enum 이름들
+      #   signal.confidence          NOT NULL   (코드는 nullable)
+      #   task.classification        NOT NULL   (코드는 nullable)
+      #
+      # 관리자 계정은 백엔드가 다시 뜰 때 서버 .env 의 ADMIN_EMAIL·ADMIN_PASSWORD 로 다시 만든다.
+      - name: ⚠️ 스키마 새로 만들기
+        if: ${{ inputs.recreate_schema == 'RECREATE' }}
+        run: |
+          PGU=$(grep -E "^POSTGRES_USER=" .env | tail -1 | cut -d= -f2-)
+          PGD=$(grep -E "^POSTGRES_DB=" .env | tail -1 | cut -d= -f2-)
+          count() { docker exec ktc4-postgres psql -U "${PGU:-ktc4}" -d "${PGD:-ktc4}" -At \
+            -c "select count(*) from information_schema.tables where table_schema='public';"; }
+
+          echo "== 지우기 전 표 개수: $(count) =="
+          docker exec ktc4-postgres psql -U "${PGU:-ktc4}" -d "${PGD:-ktc4}" -c \
+            "drop schema public cascade; create schema public; grant all on schema public to \"${PGU:-ktc4}\"; grant all on schema public to public;"
+          echo "== 지운 뒤 표 개수: $(count) =="
+
+          echo "== 백엔드를 다시 띄워 Hibernate 가 스키마를 만들게 한다 =="
+          docker restart ktc4-backend
+          for i in $(seq 1 40); do
+            n=$(count)
+            echo "  [$i] 표 $n 개"
+            [ "${n:-0}" -ge 10 ] && break
+            sleep 5
+          done
+
+          echo "== 새로 만들어진 뒤 =="
+          docker exec ktc4-postgres psql -U "${PGU:-ktc4}" -d "${PGD:-ktc4}" -c "
+            select rel.relname as table_name, con.conname, pg_get_constraintdef(con.oid)
+            from pg_constraint con
+            join pg_class rel on rel.oid = con.conrelid
+            join pg_namespace ns on ns.oid = rel.relnamespace
+            where con.contype = 'c' and ns.nspname = 'public' and rel.relname in ('task','signal')
+            order by rel.relname;"
