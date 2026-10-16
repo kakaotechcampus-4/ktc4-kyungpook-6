@@ -229,6 +229,54 @@ class TaskServiceTest extends PostgresContainerTest {
         }
     }
 
+    @Nested
+    @DisplayName("조사 도중 가게가 지워진 경우")
+    class StoreGone {
+
+        private static final long GONE_STORE_ID = 999_999L;
+
+        @Test
+        @DisplayName("1차 결과 — 예외를 올리지 않고 false 를 돌려주며, 진행 수는 올린다")
+        void ntsSkipsGoneStore() {
+            boolean saved = taskService.saveNts(job.getJobId(),
+                    new NtsTarget(GONE_STORE_ID, StatusComparison.OPEN_BUT_CLOSED, BusinessState.CLOSED));
+
+            assertThat(saved).isFalse();
+            entityManager.flush();
+            entityManager.clear();
+            assertThat(taskRepository.findAll()).isEmpty();
+            assertThat(completedCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("AI 결과 — 예외를 올리지 않고 false 를 돌려주며, 진행 수는 올린다")
+        void aiSkipsGoneStore() {
+            boolean saved = taskService.save(job.getJobId(),
+                    AiFinding.success(GONE_STORE_ID, TaskClassification.PRIORITY_CHECK, Map.of(),
+                            List.of(new AiSignal(SignalType.SIGNAL_HIGH, ChangeField.NAME, "새 상호", "상호: 새 상호", null))),
+                    NOW);
+
+            assertThat(saved).isFalse();
+            entityManager.flush();
+            entityManager.clear();
+            assertThat(taskRepository.findAll()).isEmpty();
+            assertThat(signalRepository.findAll()).isEmpty();
+            assertThat(completedCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("실패 기록 — 여기서 예외가 올라가면 조사 전체가 멈추므로, 이 길이 특히 중요하다")
+        void failureSkipsGoneStore() {
+            boolean saved = taskService.saveFailure(job.getJobId(), GONE_STORE_ID, "AI 응답 시간이 초과됐습니다");
+
+            assertThat(saved).isFalse();
+            entityManager.flush();
+            entityManager.clear();
+            assertThat(taskRepository.findAll()).isEmpty();
+            assertThat(completedCount()).isEqualTo(1);
+        }
+    }
+
     @Test
     @DisplayName("조사에 실패한 가게는 판정 없이 실패 이유만 남기고, 진행 수는 똑같이 오른다")
     void savesFailure() {

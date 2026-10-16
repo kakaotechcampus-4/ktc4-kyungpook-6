@@ -4,6 +4,7 @@ import com.ktc4.backend.domain.task.entity.Task;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -11,6 +12,30 @@ import java.util.List;
 import java.util.Optional;
 
 public interface TaskRepository extends JpaRepository<Task, Long> {
+
+    /**
+     * 그 가게의 조사 결과 ID 를 읽는다 — 가게를 지울 때, 조사 결과에 딸린 신호·확인 기록을 먼저 지우려고 부른다.
+     *
+     * <p>엔티티를 다 읽지 않고 ID 만 읽는다. 지우기 전 한 번 쓰고 버리는 값이라 나머지 칸이 필요 없다.
+     *
+     * @param storeId 가게 ID
+     * @return 조사 결과 ID. 없으면 빈 목록
+     */
+    @Query("select t.taskId from Task t where t.store.storeId = :storeId")
+    List<Long> findTaskIdsByStoreId(@Param("storeId") Long storeId);
+
+    /**
+     * 그 가게의 조사 결과를 한 번의 {@code delete} 문으로 지운다 — 가게를 지울 때 부른다.
+     *
+     * <p>신호·확인 기록이 이 행을 가리키므로 그 둘을 먼저 지워야 한다.
+     * 조사(job) 자체는 남는다 — 어떤 조사를 언제 돌렸는지는 가게와 별개의 기록이다.
+     *
+     * @param storeId 가게 ID
+     * @return 지운 줄 수
+     */
+    @Modifying
+    @Query("delete from Task t where t.store.storeId = :storeId")
+    int deleteAllByStoreId(@Param("storeId") Long storeId);
 
     /**
      * 조사 한 건의 Task 를 가게와 함께 읽는다 — 화면이 폴링마다 부르므로 가게를 한 쿼리로 같이 가져온다(N+1 방지).
