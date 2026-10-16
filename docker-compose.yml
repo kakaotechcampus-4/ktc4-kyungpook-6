@@ -29,8 +29,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
       AI_BASE_URL: http://ai:8000
-      # AI 가 X-API-KEY 로 확인하는 키. 백엔드도 AI 를 부를 때 같은 키를 싣는다.
-      # 비우면 AI 쪽 검사가 꺼지므로 로컬에서는 없어도 돈다.
+      # AI 가 X-API-KEY 로 확인하는 키. 비우면 검사가 꺼진다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
       # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
       UPLOAD_DIR: /app/uploads
@@ -43,11 +42,7 @@ services:
     networks:
       - db-net
 
-  # AI 서비스. 백엔드가 `POST http://ai:8000/investigations` 로 부른다.
-  #
-  # 포트를 바깥으로 열지 않는다 — 백엔드만 부르면 되고, 열어 두면 공개 주소에서
-  # 조사를 아무나 돌릴 수 있다(국세청·Vertex 쿼터가 걸린 호출이다).
-  # 같은 db-net 안에 있어 서비스명으로 닿는다.
+  # AI 서비스. 포트를 열지 않는다 — 열면 누구나 조사를 돌릴 수 있다(쿼터가 걸린 호출).
   ai:
     build:
       context: ./ai
@@ -59,30 +54,26 @@ services:
       INVESTIGATOR: ${INVESTIGATOR:-}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
       GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
-      # Vertex 는 API 키가 아니라 ADC 로 인증한다(ai/.env.example 참고). 아래 volumes 가 서비스 계정
-      # JSON 을 컨테이너 안으로 넣고, 이 변수가 그 파일을 가리킨다. VERTEX_KEY_PATH 가 비어 있으면
-      # 빈 파일이 들어가 조사기를 만들지 못하고 503 이 된다 — 켜기 전 상태와 같다.
+      # Vertex 는 API 키가 아니라 서비스 계정 JSON(ADC)으로 인증한다. 비면 조사가 503 이다.
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/vertex.json
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
-      # 지도 대조·에이전트 스위치(#74). 기본은 전부 꺼짐 — 꺼진 동작은 이전과 같다.
-      # 이 줄들이 없으면 .env 에 적어도 컨테이너에 들어가지 않아 스위치를 켤 방법이 없다.
+      # 2차 조사 스위치(#74). 기본 꺼짐. 여기 적지 않으면 .env 에 있어도 안 들어간다.
       NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
       NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
       NAVER_LOCAL_ENABLED: ${NAVER_LOCAL_ENABLED:-false}
       KAKAO_COMPARE_ENABLED: ${KAKAO_COMPARE_ENABLED:-false}
       AGENT_ENABLED: ${AGENT_ENABLED:-false}
-      # 에이전트의 판단 모델. AGENT_MODEL 이 비면 Vertex Gemini 를 그대로 쓴다(그때 아래 셋은 안 읽힌다).
+      # AGENT_MODEL 이 비면 Vertex Gemini 를 쓴다(그때 아래 둘은 안 읽힌다).
       AGENT_MODEL: ${AGENT_MODEL:-}
       AGENT_BASE_URL: ${AGENT_BASE_URL:-}
       AGENT_API_KEY: ${AGENT_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GOOGLE_PROXY_URL: ${GOOGLE_PROXY_URL:-}
-      # 가게 하나에 쓸 시간. 백엔드가 AI 응답을 기다리는 시간(ai.read-timeout-ms)과 맞춘다.
+      # 가게 하나에 쓸 시간. 백엔드의 ai.read-timeout-ms 와 맞춘다.
       INVESTIGATION_TIME_BUDGET_SECONDS: ${INVESTIGATION_TIME_BUDGET_SECONDS:-75}
     volumes:
-      # 서비스 계정 JSON. 저장소에 두지 않고 서버의 파일을 가리킨다(배포에서는 GitHub Secrets 로
-      # 내려받아 쓴다 — .github/workflows/deploy-dev.yml 참고). 읽기 전용으로 넣는다.
+      # 서비스 계정 JSON. 저장소에 두지 않고 서버 파일을 읽기 전용으로 넣는다.
       - ${VERTEX_KEY_PATH:-/dev/null}:/run/secrets/vertex.json:ro
     depends_on:
       backend:
@@ -95,9 +86,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # 브라우저가 읽는 공개 주소. 빌드할 때 박히므로 바꾸면 다시 빌드해야 한다.
-        # PUBLIC_BACKEND_URL 이 없으면 옛 키(BACKEND_BASE_URL)로 떨어진다 — 서버 .env 를 고치기 전에
-        # 머지돼도 화면이 죽지 않게 둔 것이다. 서버 .env 에 PUBLIC_BACKEND_URL 이 들어가면 이 폴백을 지운다.
+        # 브라우저가 읽는 주소. 빌드할 때 번들에 박힌다. 비면 옛 키로 떨어진다(한시적 폴백).
         VITE_BACKEND_URL: ${PUBLIC_BACKEND_URL:-${BACKEND_BASE_URL:-http://localhost:${BACKEND_PORT:-8080}}}
     container_name: ktc4-frontend
     ports:
