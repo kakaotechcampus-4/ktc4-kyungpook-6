@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - develop
+  # 손으로도 돌린다. 이게 없으면 develop 에 push 될 때만 돌아서, 배포 설정을 고쳐도
+  # 머지하기 전에는 시험해 볼 방법이 없다. 시크릿만 넣고 다시 돌리는 것도 이걸로 한다.
+  workflow_dispatch:
 
 concurrency:
   group: deploy-local
