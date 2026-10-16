@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -67,7 +68,7 @@ class StoreDeleteAdminControllerTest {
             mockMvc.perform(delete(STORE_PATH))
                     .andExpect(status().isUnauthorized());
 
-            verify(storeDeletionService, never()).delete(any());
+            verify(storeDeletionService, never()).delete(any(), anyBoolean());
         }
 
         @Test
@@ -77,7 +78,7 @@ class StoreDeleteAdminControllerTest {
             mockMvc.perform(delete(STORE_PATH))
                     .andExpect(status().isForbidden());
 
-            verify(storeDeletionService, never()).delete(any());
+            verify(storeDeletionService, never()).delete(any(), anyBoolean());
         }
 
         @Test
@@ -100,8 +101,8 @@ class StoreDeleteAdminControllerTest {
         @Test
         @DisplayName("단건 삭제는 함께 지운 줄 수를 돌려준다")
         void 단건_삭제() throws Exception {
-            when(storeDeletionService.delete(12L))
-                    .thenReturn(new StoreDeleteResponse(12L, "가나다분식", 1, 2, 0, 0, 3, 1, 4));
+            when(storeDeletionService.delete(12L, false))
+                    .thenReturn(new StoreDeleteResponse(12L, "가나다분식", 1, 2, 0, 0, 3, 1, 4, 0));
 
             mockMvc.perform(delete(STORE_PATH))
                     .andExpect(status().isOk())
@@ -114,7 +115,7 @@ class StoreDeleteAdminControllerTest {
         @Test
         @DisplayName("없는 가게는 404 이고 problem+json 으로 나간다")
         void 없는_가게는_404() throws Exception {
-            when(storeDeletionService.delete(12L)).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
+            when(storeDeletionService.delete(12L, false)).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
 
             mockMvc.perform(delete(STORE_PATH))
                     .andExpect(status().isNotFound())
@@ -124,7 +125,7 @@ class StoreDeleteAdminControllerTest {
         @Test
         @DisplayName("점주가 연결된 가게는 409 다")
         void 점주_연결은_409() throws Exception {
-            when(storeDeletionService.delete(12L)).thenThrow(new CustomException(ErrorCode.STORE_HAS_OWNER));
+            when(storeDeletionService.delete(12L, false)).thenThrow(new CustomException(ErrorCode.STORE_HAS_OWNER));
 
             mockMvc.perform(delete(STORE_PATH))
                     .andExpect(status().isConflict())
@@ -136,7 +137,7 @@ class StoreDeleteAdminControllerTest {
         void 여러건_삭제() throws Exception {
             when(storeDeletionService.deleteAll(any())).thenReturn(StoreDeletionResponse.of(
                     3, 1,
-                    List.of(new StoreDeleteResponse(1L, "구름빵집", 1, 0, 0, 0, 0, 0, 0)),
+                    List.of(new StoreDeleteResponse(1L, "구름빵집", 1, 0, 0, 0, 0, 0, 0, 0)),
                     List.of(new StoreDeletionResponse.Refusal(2L, "해오름식당",
                             ErrorCode.STORE_UNDER_INVESTIGATION.getTitle()))));
 
@@ -196,14 +197,27 @@ class StoreDeleteAdminControllerTest {
         }
 
         @Test
+        @DisplayName("force=true 를 서비스에 그대로 넘긴다")
+        void force를_넘긴다() throws Exception {
+            when(storeDeletionService.delete(12L, true))
+                    .thenReturn(new StoreDeleteResponse(12L, "미리내카페", 0, 0, 0, 0, 1, 0, 0, 2));
+
+            mockMvc.perform(delete(STORE_PATH).param("force", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.ownerLinks").value(2));
+
+            verify(storeDeletionService).delete(12L, true);
+        }
+
+        @Test
         @DisplayName("경로의 가게 ID 를 그대로 서비스에 넘긴다")
         void 경로_ID를_넘긴다() throws Exception {
-            when(storeDeletionService.delete(eq(12L)))
-                    .thenReturn(new StoreDeleteResponse(12L, "달빛국수", 0, 0, 0, 0, 0, 0, 0));
+            when(storeDeletionService.delete(eq(12L), eq(false)))
+                    .thenReturn(new StoreDeleteResponse(12L, "달빛국수", 0, 0, 0, 0, 0, 0, 0, 0));
 
             mockMvc.perform(delete(STORE_PATH)).andExpect(status().isOk());
 
-            verify(storeDeletionService).delete(12L);
+            verify(storeDeletionService).delete(12L, false);
         }
     }
 }

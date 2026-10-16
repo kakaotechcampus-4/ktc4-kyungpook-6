@@ -2,6 +2,7 @@ package com.ktc4.backend.domain.member.repository;
 
 import com.ktc4.backend.domain.member.entity.StoreOwner;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -114,6 +115,19 @@ public interface StoreOwnerRepository extends JpaRepository<StoreOwner, Long> {
             where so.store.storeId = :storeId and so.unlinkedAt is null
             """)
     boolean existsLinkedByStoreId(@Param("storeId") Long storeId);
+
+    /**
+     * 그 가게의 점주 연결을 한 번의 {@code delete} 문으로 지운다 — 가게를 지울 때 부른다.
+     *
+     * <p>끊긴 연결({@code unlinkedAt} 이 있는 행)까지 함께 지운다. 가게가 사라지면 그 연결 기록도
+     * 가리킬 곳이 없다.
+     *
+     * @param storeId 가게 ID
+     * @return 지운 줄 수
+     */
+    @Modifying
+    @Query("delete from StoreOwner so where so.store.storeId = :storeId")
+    int deleteAllByStoreId(@Param("storeId") Long storeId);
 
     /** 관리자 화면이 보는 연결된 가게 한 곳. */
     interface LinkedStoreDetail {

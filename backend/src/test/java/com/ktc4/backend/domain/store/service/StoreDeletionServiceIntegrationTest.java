@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.checkin.entity.CheckIn;
 import com.ktc4.backend.domain.job.entity.Job;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.repository.JobRepository;
@@ -97,7 +98,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
         entityManager.flush();
         entityManager.clear();
 
-        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId());
+        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId(), false);
 
         assertThat(response.storeId()).isEqualTo(store.getStoreId());
         assertThat(response.name()).isEqualTo("가나다분식");
@@ -125,7 +126,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
         entityManager.flush();
         entityManager.clear();
 
-        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId());
+        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId(), false);
 
         assertThat(response.ntsChecks()).isZero();
         assertThat(response.tasks()).isZero();
@@ -135,7 +136,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
     @Test
     @DisplayName("없는 가게를 지우면 STORE_NOT_FOUND")
     void 없는_가게는_404() {
-        assertThatThrownBy(() -> storeDeletionService.delete(999_999L))
+        assertThatThrownBy(() -> storeDeletionService.delete(999_999L, false))
                 .isInstanceOfSatisfying(CustomException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORE_NOT_FOUND));
     }
@@ -157,7 +158,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
                 .build());
         entityManager.clear();
 
-        assertThatThrownBy(() -> storeDeletionService.delete(store.getStoreId()))
+        assertThatThrownBy(() -> storeDeletionService.delete(store.getStoreId(), false))
                 .isInstanceOfSatisfying(CustomException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORE_UNDER_INVESTIGATION));
 
@@ -173,7 +174,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
         entityManager.flush();
         entityManager.clear();
 
-        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId());
+        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId(), false);
 
         assertThat(response.tasks()).isEqualTo(1);
         assertThat(storeRepository.findById(store.getStoreId())).isEmpty();
@@ -198,7 +199,7 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
         entityManager.clear();
 
         StoreDeletionResponse response = storeDeletionService.deleteAll(new StoreDeletionRequest(
-                List.of(deletable.getStoreId(), blocked.getStoreId(), 999_999L)));
+                List.of(deletable.getStoreId(), blocked.getStoreId(), 999_999L), false));
 
         assertThat(response.requested()).isEqualTo(3);
         assertThat(response.deleted()).isEqualTo(1);
@@ -224,11 +225,50 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
         entityManager.clear();
 
         StoreDeletionResponse response = storeDeletionService.deleteAll(
-                new StoreDeletionRequest(List.of(store.getStoreId(), store.getStoreId())));
+                new StoreDeletionRequest(List.of(store.getStoreId(), store.getStoreId()), false));
 
         assertThat(response.requested()).isEqualTo(1);
         assertThat(response.deleted()).isEqualTo(1);
         assertThat(response.notFound()).isZero();
+    }
+
+    @Test
+    @DisplayName("force 면 끝나지 않은 조사에 들어 있어도 지운다")
+    void force_면_진행중_조사도_넘긴다() {
+        Store store = saveStore("미리내카페");
+        Job running = jobRepository.saveAndFlush(Job.builder()
+                .requestedBy("admin")
+                .status(JobStatus.IN_PROGRESS)
+                .targetCount(1)
+                .completedCount(0)
+                .build());
+        entityManager.persistAndFlush(Task.builder()
+                .job(running)
+                .store(store)
+                .classification(TaskClassification.PRIORITY_CHECK)
+                .build());
+        entityManager.clear();
+
+        StoreDeleteResponse response = storeDeletionService.delete(store.getStoreId(), true);
+
+        assertThat(response.tasks()).isEqualTo(1);
+        entityManager.clear();
+        assertThat(storeRepository.findById(store.getStoreId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("체크인 기록은 force 여도 지우지 않는다 — 보관할 자리가 없다")
+    void 체크인은_force_로도_못_넘긴다() {
+        Store store = saveStore("해오름식당");
+        entityManager.persistAndFlush(CheckIn.of(1L, store));
+        entityManager.clear();
+
+        assertThatThrownBy(() -> storeDeletionService.delete(store.getStoreId(), true))
+                .isInstanceOfSatisfying(CustomException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORE_HAS_CHECK_IN));
+
+        entityManager.clear();
+        assertThat(storeRepository.findById(store.getStoreId())).isPresent();
     }
 
     private Store saveStore(String name) {

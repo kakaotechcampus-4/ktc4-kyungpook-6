@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -47,13 +48,17 @@ public class StoreDeleteAdminController {
                     응답에 각각 몇 줄을 지웠는지 담습니다. 조사(`job`) 자체는 남습니다 —
                     어떤 조사를 언제 돌렸는지는 가게와 별개의 기록입니다.
 
-                    **실제 활동이 남은 가게는 지우지 않고 409 로 거절합니다.**
+                    **실제 활동이 남은 가게는 그냥 지우지 않고 409 로 거절합니다.** 다만 둘은
+                    `force=true` 로 넘길 수 있습니다 — 관리자가 그 리스크를 알고 지운다는 표시입니다.
 
-                    | 거절 | 왜 |
-                    |---|---|
-                    | 점주가 연결돼 있음 | 쓰던 가게가 말없이 사라지면 안 됩니다. `DELETE /api/admin/owners/{memberId}/stores/{storeId}` 로 연결을 먼저 끊으세요 |
-                    | 끝나지 않은 조사에 들어 있음 | AI 서버가 결과를 돌려줄 때 가리킬 가게가 없어집니다. 조사가 끝난 뒤에 지우세요 |
-                    | 방문(체크인) 기록이 있음 | 아동이 실제로 다녀간 기록입니다 |
+                    | 거절 | `force` 로 넘길 수 있나 | 왜 |
+                    |---|---|---|
+                    | 점주가 연결돼 있음 | ✅ | 점주 앱에서 그 가게가 사라집니다. 연결만 끊으려면 `DELETE /api/admin/owners/{memberId}/stores/{storeId}` |
+                    | 끝나지 않은 조사에 들어 있음 | ✅ | 돌고 있는 조사의 대상이 없어집니다 |
+                    | 방문(체크인) 기록이 있음 | ❌ | 아동이 실제로 다녀간 기록인데 **보관할 자리가 아직 없습니다.** 지우면 영구히 사라집니다 |
+
+                    `force` 로 지우면 **점주 연결도 함께 끊깁니다.** 몇 건을 끊었는지 응답
+                    `ownerLinks` 에 담깁니다.
 
                     가게 자료를 **고치는** 길은 `PATCH /api/stores/{storeId}` 입니다. 이름·주소가 틀린
                     정도라면 지우고 다시 넣지 말고 고치세요 — 지우면 조사 이력까지 사라집니다.
@@ -76,8 +81,11 @@ public class StoreDeleteAdminController {
     })
     @DeleteMapping("/{storeId}")
     public StoreDeleteResponse deleteStore(
-            @Parameter(description = "지울 가게 ID", example = "12") @PathVariable Long storeId) {
-        return storeDeletionService.delete(storeId);
+            @Parameter(description = "지울 가게 ID", example = "12") @PathVariable Long storeId,
+            @Parameter(description = "점주 연결·진행 중 조사가 있어도 지울지. 기본 false",
+                    example = "false")
+            @RequestParam(defaultValue = "false") boolean force) {
+        return storeDeletionService.delete(storeId, force);
     }
 
     @Operation(
@@ -88,6 +96,9 @@ public class StoreDeleteAdminController {
 
                     **한 곳이 막혀도 나머지는 지웁니다.** 어느 가게를 왜 지우지 않았는지는 `refusals` 에
                     담깁니다 — 단건 API 의 409 조건과 같습니다.
+
+                    `force` 를 함께 보내면 점주 연결·진행 중 조사가 있어도 지웁니다(체크인 기록은
+                    그래도 지우지 않습니다). 거절 조건은 단건 API 와 같습니다.
 
                     **이미 없는 ID 는 오류가 아닙니다.** `notFound` 로 셉니다. 같은 요청을 두 번 보내도
                     두 번째가 404 로 끊기지 않습니다(넣는 쪽이 두 번 보내도 안전한 것과 짝을 맞췄습니다).
