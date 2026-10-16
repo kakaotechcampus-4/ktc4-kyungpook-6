@@ -2,21 +2,22 @@ package com.ktc4.backend.support;
 
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.CRC32;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
- * 점주 가입 신청(multipart) 요청을 만드는 테스트 도우미.
+ * 점주 가입 신청 요청과 테스트용 파일을 만드는 도우미.
  *
- * <p>가입 신청은 글자 정보({@code data}, JSON)와 파일({@code storeImage}·{@code menuImages}·{@code bizCert})을 함께 받는다.
+ * <p>가입 신청은 JSON 본문만 받는다({@link #signupRequest}). 사진·사업자등록증은 가입 요청에 싣지 않는다.
+ * 파일 도우미({@code jpeg}·{@code png}·{@code pdf} 등)는 파일 검사·저장·부가 정보 지우기 테스트가 쓴다 —
  * 사진은 구조만 맞춘 가장 작은 파일이고(서버가 저장할 때 구조를 따라가며 부가 정보를 지운다),
- * PDF 는 형식을 가리는 앞부분만 진짜 모양이다 — 실제 사진·서류가 아니다.
+ * PDF 는 형식을 가리는 앞부분만 진짜 모양이다. 실제 사진·서류가 아니다.
  */
 public final class SignupMultipart {
 
@@ -59,18 +60,9 @@ public final class SignupMultipart {
                 ByteBuffer.allocate(4).putInt((int) crc.getValue()).array());
     }
 
-    /** 글자 정보에 올바른 대표 사진·사업자등록증을 붙인 가입 요청. 메뉴 사진은 없다. */
-    public static MockMultipartHttpServletRequestBuilder signupRequest(String dataJson) {
-        return signupRequest(dataJson, jpeg("storeImage"), pdf("bizCert"));
-    }
-
-    /** 글자 정보에 넘겨준 파일만 붙인 가입 요청 — 파일이 빠지거나 틀린 경우를 만들 때 쓴다. */
-    public static MockMultipartHttpServletRequestBuilder signupRequest(String dataJson, MockMultipartFile... files) {
-        MockMultipartHttpServletRequestBuilder request = multipart(SIGNUP_URL).file(data(dataJson));
-        for (MockMultipartFile file : files) {
-            request.file(file);
-        }
-        return request;
+    /** 가입 요청 — 본문은 JSON 이다. 사진·사업자등록증은 싣지 않는다(파일 업로드 API 로 따로 올린다). */
+    public static MockHttpServletRequestBuilder signupRequest(String dataJson) {
+        return post(SIGNUP_URL).contentType(MediaType.APPLICATION_JSON).content(dataJson);
     }
 
     /** 글자 정보 칸. 실제 클라이언트처럼 칸의 Content-Type 을 application/json 으로 싣는다. */

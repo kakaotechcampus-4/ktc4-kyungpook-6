@@ -58,6 +58,7 @@ public enum ErrorCode {
 
     // 가입 신청 남용 방어. TOO_MANY_REQUESTS 는 컨트롤러에 닿기 전 필터가 직접 응답한다.
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요"),
+    REQUEST_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "요청이 너무 큽니다"),
     SIGNUP_TEMPORARILY_CLOSED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 가입 신청을 받을 수 없습니다"),
 
     // 관리자 조사(Job)

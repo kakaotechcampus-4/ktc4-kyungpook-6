@@ -74,6 +74,9 @@ signup:
     # 기본값은 0(프록시 없이 직접 받음 — 헤더를 보지 않는다)이다. 틀렸을 때 조용히 뚫리는 쪽이 아니라 바로 드러나는 쪽이다.
     # 프록시 뒤에 있는 서버만 그 대수를 넣는다(개발 서버는 docker-compose.dev.yml 에서 1).
     trusted-proxies: ${SIGNUP_TRUSTED_PROXIES:0}
+  # 가입 신청 본문(JSON)의 상한(바이트). 넘으면 413 (SignupRateLimitFilter). 본문은 다 읽은 뒤에야 칸별 검증이 돌아서,
+  # 상한이 없으면 큰 JSON 이 메모리에 다 올라간 뒤에 거절된다. 메뉴 50개·영업시간 21줄을 꽉 채워도 20KB 안쪽이다.
+  max-body-bytes: ${SIGNUP_MAX_BODY_BYTES:65536}
 
 external:
   # 외부 API 장애 시 무한 대기 방지 (기본값은 무제한 대기)

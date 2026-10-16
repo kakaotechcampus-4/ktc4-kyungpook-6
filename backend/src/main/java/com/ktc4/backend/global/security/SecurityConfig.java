@@ -70,6 +70,9 @@ public class SecurityConfig {
     @Value("${signup.rate-limit.trusted-proxies:0}")
     private int signupTrustedProxies;
 
+    @Value("${signup.max-body-bytes:65536}")
+    private long signupMaxBodyBytes;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtProvider jwtProvider,
@@ -131,13 +134,13 @@ public class SecurityConfig {
                                 problemWriter.write(response, ErrorCode.UNAUTHORIZED))
                         .accessDeniedHandler((request, response, e) ->
                                 problemWriter.write(response, ErrorCode.FORBIDDEN)))
-                // 가입 신청은 로그인 없이 큰 파일을 받는다 — 같은 IP 에서 되풀이하면 본문을 읽기 전에 거절한다.
+                // 가입 신청은 로그인 없이 받는다 — 같은 IP 에서 되풀이하거나 본문이 너무 크면 본문을 읽기 전에 거절한다.
                 // 이 필터 앞에서 본문을 읽는 필터가 없어야 한다 — CSRF 필터는 토큰을 찾으려고 본문을 읽는데, 위에서 꺼 두었다.
                 .addFilterBefore(new SignupRateLimitFilter(
                                 new SignupRateLimiter(signupMaxAttempts, Duration.ofMinutes(signupWindowMinutes),
                                         Clock.systemUTC()),
                                 new SignupRateLimiter(signupMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
-                                signupTrustedProxies, problemWriter),
+                                signupTrustedProxies, problemWriter, signupMaxBodyBytes),
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new ApiKeyAuthenticationFilter(internalApiKey),
                         UsernamePasswordAuthenticationFilter.class)
