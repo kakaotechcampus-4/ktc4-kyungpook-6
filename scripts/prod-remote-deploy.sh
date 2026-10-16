@@ -93,9 +93,15 @@ if [ -s "$WORK/sa.json" ]; then
 fi
 
 # 무엇이 비어서 무엇이 꺼지는지 크게 찍습니다. 조용히 비는 것이 반복된 사고의 원인이었습니다.
+# `return 0` 이 꼭 필요하다. `[ -z … ] && echo` 만 쓰면 값이 **채워져 있을 때** 함수가 1 을
+# 돌려주고, `set -e` 가 거기서 스크립트를 죽인다 — 설정이 올바를 때만 배포가 안 되는,
+# 가장 찾기 어려운 모양의 실패가 된다(2026-10-16 에 실제로 그렇게 죽는 것을 보고 고쳤다).
 warn_missing() {
   local var="$1" effect="$2"
-  [ -z "${!var:-}" ] && echo "[prod] ⚠️  $var 없음 — $effect"
+  if [ -z "${!var:-}" ]; then
+    echo "[prod] ⚠️  $var 없음 — $effect"
+  fi
+  return 0
 }
 warn_missing JWT_SECRET            "기동마다 임의 서명 키를 만듭니다. 재시작하면 발급한 토큰이 전부 무효입니다"
 warn_missing ADMIN_EMAIL           "관리자 계정이 만들어지지 않습니다(승인·자료 주입·조사 시작 불가)"
