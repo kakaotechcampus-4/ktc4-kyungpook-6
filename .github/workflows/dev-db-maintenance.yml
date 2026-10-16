@@ -27,6 +27,10 @@ on:
         description: 지울 CHECK 제약 이름 (table 과 함께 적어야 지운다)
         required: false
         default: ""
+      recreate_schema:
+        description: "스키마를 통째로 새로 만들려면 RECREATE 라고 정확히 적는다 (자료가 전부 사라진다)"
+        required: false
+        default: ""
 
 jobs:
   maintenance:
@@ -71,3 +75,45 @@ jobs:
             from pg_constraint con
             join pg_class rel on rel.oid = con.conrelid
             where con.contype = 'c' and rel.relname = '$TABLE';"
+
+      # 🔴 되돌릴 수 없다. 입력에 RECREATE 를 정확히 적어야만 돈다.
+      #
+      # 왜 필요한가 — ddl-auto: update 는 표와 컬럼을 **더하기만** 한다. 이름이 바뀐 enum 의
+      # CHECK 제약도, 느슨해진 NOT NULL 도 따라오지 않는다. 2026-10-16 에 개발 서버 DB 가
+      # 그 상태였다 — 제약 하나를 지우면 다음 겹이 나오는 식이라 몇 겹인지 알 수 없었다.
+      #
+      #   task_classification_check = ARRAY['TASK_HIGH','TASK_LOW','TASK_NONE']  (2026-09-18 에 버려진 이름)
+      #   signal.confidence   NOT NULL   (코드는 nullable)
+      #   task.classification NOT NULL   (코드는 nullable)
+      #
+      # 비우고 다시 만들면 Hibernate 가 지금 엔티티대로 만든다. 관리자 계정은 기동할 때
+      # .env 의 ADMIN_EMAIL·ADMIN_PASSWORD 로 다시 생긴다.
+      #
+      # ⚠️ 근본 해결은 마이그레이션 도구(Flyway 등)다. 이건 그때까지 쓰는 손도구다.
+      - name: 스키마 새로 만들기 (RECREATE 라고 적었을 때만)
+        if: ${{ inputs.recreate_schema == 'RECREATE' }}
+        run: |
+          PGU=$(grep -E "^POSTGRES_USER=" .env | tail -1 | cut -d= -f2-)
+          PGD=$(grep -E "^POSTGRES_DB=" .env | tail -1 | cut -d= -f2-)
+          psql_() { docker exec ktc4-postgres psql -U "${PGU:-ktc4}" -d "${PGD:-ktc4}" "$@"; }
+
+          echo "== 지우기 전 표별 행 수 =="
+          psql_ -At -c "select table_name||' = '||(xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text from information_schema.tables where table_schema='public' order by table_name;"
+
+          echo "== 스키마를 새로 만든다 =="
+          psql_ -c "drop schema public cascade;"
+          psql_ -c "create schema public;"
+          psql_ -c "grant all on schema public to \"${PGU:-ktc4}\"; grant all on schema public to public;"
+
+          echo "== 백엔드를 다시 띄워 Hibernate 가 표를 만들게 한다 =="
+          docker restart ktc4-backend
+          for i in $(seq 1 40); do
+            code=$(docker exec ktc4-backend sh -c 'command -v curl >/dev/null && curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:8080/ping || echo 000')
+            echo "  [$i] /ping $code"
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+
+          echo "== 다시 만든 뒤 =="
+          psql_ -At -c "select count(*) || ' 개 표' from information_schema.tables where table_schema='public';"
+          psql_ -c "select con.conname, pg_get_constraintdef(con.oid) from pg_constraint con join pg_class rel on rel.oid=con.conrelid where con.contype='c' and rel.relname in ('task','signal');"
