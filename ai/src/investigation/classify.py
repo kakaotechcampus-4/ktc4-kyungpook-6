@@ -126,10 +126,10 @@ def _comparable(change_field: ChangeField, current: str | None, observed: str) -
     DB 가 도로명 주소인데 웹에서 지번 주소를 봤으면 같은 곳인지 가릴 수 없다 — 다르다고
     세면 멀쩡한 가게가 "주소 엇갈림"이 된다(실측: 삼송빵집 "동성로3가 1-3").
 
-    안심번호(050x)는 DB 와 같은 번호일 때만 비교한다.
+    찾은 번호가 안심번호(050x)면 DB 와 같은 번호일 때만 비교한다. DB 의 안심번호는 진짜 번호를 찾으면 바꾸자고 한다.
     """
     if change_field is ChangeField.PHONE:
-        if not (_is_virtual_phone(observed) or (current and _is_virtual_phone(current))):
+        if not _is_virtual_phone(observed):
             return True
         return bool(current) and comparison_key(change_field, current) == comparison_key(change_field, observed)
     if change_field is not ChangeField.ADDRESS:

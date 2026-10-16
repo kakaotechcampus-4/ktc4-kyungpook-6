@@ -382,14 +382,20 @@ class TestClassify:
 
         assert found.classification is TaskClassification.NO_CHANGE
 
-    @pytest.mark.parametrize(("db", "seen"), [("053-111-2222", "0507-1480-0708"), ("0502-123-4567", "053-999-0000"),
-                                              ("0507-1480-0708", "0502-123-4567"), (None, "0507-1480-0708")])
-    def test_안심번호는_DB_번호와_다르거나_DB_가_비어도_변화가_아니다(self, db, seen):
+    @pytest.mark.parametrize(("db", "seen"), [("053-111-2222", "0507-1480-0708"), ("0507-1480-0708", "0502-123-4567"),
+                                              (None, "0507-1480-0708")])
+    def test_찾은_안심번호는_DB_번호와_다르거나_DB_가_비어도_변화가_아니다(self, db, seen):
         target = TARGET.model_copy(update={"phone": db})
         found = classify(target, ResearchResult([obs(ChangeField.PHONE, seen, "map.kakao.com")]))
 
         assert found.classification is TaskClassification.NO_CHANGE
         assert relation_to_db(target, ChangeField.PHONE, seen) == "unknown"
+
+    def test_DB_의_안심번호는_진짜_번호를_찾으면_바꾸자고_한다(self):
+        target = TARGET.model_copy(update={"phone": "0502-123-4567"})
+        found = classify(target, ResearchResult([obs(ChangeField.PHONE, "053-999-0000", "blog.naver.com")]))
+
+        assert found.proposed_changes == {"phone": "053-999-0000"}
 
     def test_안심번호도_DB_와_같은_번호면_확인_근거다(self):
         target = TARGET.model_copy(update={"phone": "0507-1480-0708"})
