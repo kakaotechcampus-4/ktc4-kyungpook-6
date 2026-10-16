@@ -85,7 +85,11 @@ PY
 if [ -s "$WORK/sa.json" ]; then
   if python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('[prod] 서비스 계정:', d['client_email'])" "$WORK/sa.json"; then
     mkdir -p "$KEY_DIR" && chmod 700 "$KEY_DIR"
-    cp "$WORK/sa.json" "$KEY_FILE" && chmod 600 "$KEY_FILE"
+    # 644 인 이유: ai 컨테이너가 이 파일을 **직접 마운트**해 읽는데, 그 안에서는
+    # `adduser --system app`(ai/Dockerfile:27)이 만든 시스템 사용자로 돈다. 600 으로 두면
+    # 컨테이너가 못 읽어 조사가 `Permission denied: '/run/secrets/vertex.json'` 로 실패한다
+    # (2026-10-16 에 dev 에서 실제로 그랬다). 호스트 쪽 보호는 위 디렉터리의 700 이 한다.
+    cp "$WORK/sa.json" "$KEY_FILE" && chmod 644 "$KEY_FILE"
     export VERTEX_KEY_PATH="$KEY_FILE"
   else
     echo "[prod] 받은 값이 서비스 계정 JSON 이 아닙니다 — 붙이지 않고 넘어갑니다"
