@@ -13,6 +13,7 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.InvestigationTargetSelector;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.dto.EvidenceResponse;
 import com.ktc4.backend.domain.task.dto.ProposedChangeResponse;
@@ -45,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>결과는 저장 서비스로 넣는다 — 손으로 행을 만들면 저장과 조회가 서로 다른 모양을 가정해도 통과한다.
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
-@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class,
+@Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
         InvestigationTargetSelector.class, VerificationService.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("조사 결과 조회 (JobQueryService)")

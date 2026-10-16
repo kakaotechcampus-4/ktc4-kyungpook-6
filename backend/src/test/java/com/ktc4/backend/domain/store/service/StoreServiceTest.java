@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
@@ -50,8 +51,14 @@ class StoreServiceTest {
 
     private static final LocalDateTime CHECKED_AT = LocalDateTime.of(2026, 9, 22, 3, 0);
 
+    private static final StoreChange ADMIN_EDIT = StoreChange.storeEdit(1L);
+
     @Mock
     private StoreRepository storeRepository;
+
+    // 변경 기록은 실제 DB 로 따로 본다(StoreServiceUpdateTest) — 여기서는 조립 로직만
+    @Mock
+    private StoreChangeHistoryService storeChangeHistoryService;
 
     @InjectMocks
     private StoreService storeService;
@@ -239,11 +246,11 @@ class StoreServiceTest {
             // (법인 표기 제거는 normalizeName 만의 규칙, 하이픈 보존은 normalizeAddress 만의 규칙) —
             // 두 정규화 호출이 서로 뒤바뀌어도 통과해버리는 값(단순 공백 제거만으로 갈리는 값)은 쓰지 않는다.
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
-            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
             StoreUpdateRequest request = new StoreUpdateRequest(
                     "새이름(주)", "대구광역시 북구 대학로 80-1", "010-9999-0000", StoreStatus.CLOSED);
 
-            StoreResponse response = storeService.updateStore(1L, request);
+            StoreResponse response = storeService.updateStore(1L, request, ADMIN_EDIT);
 
             assertThat(store.getName()).isEqualTo("새이름(주)");
             assertThat(store.getNameNormalized()).isEqualTo("새이름");
@@ -259,10 +266,10 @@ class StoreServiceTest {
         @DisplayName("name 을 안 보내면 nameNormalized 도 그대로다 — 재정규화하지 않는다")
         void keepsNameNormalizedWhenNameNotSent() {
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
-            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
             StoreUpdateRequest request = new StoreUpdateRequest(null, null, "010-9999-0000", null);
 
-            storeService.updateStore(1L, request);
+            storeService.updateStore(1L, request, ADMIN_EDIT);
 
             assertThat(store.getName()).isEqualTo("예시분식");
             assertThat(store.getNameNormalized()).isEqualTo("예시분식");
@@ -272,10 +279,10 @@ class StoreServiceTest {
         @DisplayName("phone 을 빈 문자열로 보내면 실제로 지워진다")
         void clearsPhoneWithEmptyString() {
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
-            when(storeRepository.findById(1L)).thenReturn(Optional.of(store));
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
             StoreUpdateRequest request = new StoreUpdateRequest(null, null, "", null);
 
-            storeService.updateStore(1L, request);
+            storeService.updateStore(1L, request, ADMIN_EDIT);
 
             assertThat(store.getPhone()).isEmpty();
         }
@@ -283,10 +290,10 @@ class StoreServiceTest {
         @Test
         @DisplayName("storeId 에 해당하는 가게가 없으면 STORE_NOT_FOUND 를 던진다")
         void throwsWhenStoreNotFound() {
-            when(storeRepository.findById(anyLong())).thenReturn(Optional.empty());
+            when(storeRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.empty());
             StoreUpdateRequest request = new StoreUpdateRequest("새이름", null, null, null);
 
-            assertThatThrownBy(() -> storeService.updateStore(999L, request))
+            assertThatThrownBy(() -> storeService.updateStore(999L, request, ADMIN_EDIT))
                     .isInstanceOf(CustomException.class)
                     .extracting(e -> ((CustomException) e).getErrorCode())
                     .isEqualTo(ErrorCode.STORE_NOT_FOUND);

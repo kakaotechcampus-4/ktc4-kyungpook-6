@@ -8,12 +8,16 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.StoreChangeField;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.repository.StoreBusinessHourRepository;
 import com.ktc4.backend.domain.store.repository.StoreMenuRepository;
+import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.support.PostgresContainerTest;
+import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,11 +27,13 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 
+import static com.ktc4.backend.support.StoreChangeHistoryRow.json;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
@@ -36,7 +42,7 @@ import static org.assertj.core.api.Assertions.tuple;
  *
  * <p>규칙: 이 점주에게 살아 있는 다른 가게가 없을 때만, 항목마다 비어 있으면 채운다. 계정·가게 정보는 모두 가짜 값이다.
  */
-@Import({OwnerApprovalService.class, StoreService.class, StoreOperatingInfoService.class})
+@Import({OwnerApprovalService.class, StoreService.class, StoreChangeHistoryService.class, StoreOperatingInfoService.class})
 @DisplayName("점주 승인·연결 때 가게 빈 칸 채우기")
 class OwnerApprovalStoreFillTest extends PostgresContainerTest {
 
@@ -59,6 +65,9 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private Long adminId;
     private int emailSequence;
@@ -312,6 +321,88 @@ class OwnerApprovalStoreFillTest extends PostgresContainerTest {
 
             assertThat(hoursOf(store)).hasSize(3);
             assertThat(menusOf(store)).hasSize(3);
+        }
+    }
+    @Nested
+    @DisplayName("변경 기록 — 옮겨 적은 항목만, 승인·연결한 관리자 ID 로")
+    class ChangeHistory {
+
+        private List<StoreChangeHistoryRow> histories(Store store) {
+            return StoreChangeHistoryRow.of(jdbcTemplate, store.getStoreId());
+        }
+
+        @Test
+        @DisplayName("빈 가게를 승인하면 세 줄 — 신청서 옮겨 적기 경로·관리자 ID, 바뀌기 전은 없음·빈 목록")
+        void approvalOfEmptyStoreRecordsThreeFields() {
+            Store store = persistStore(null);
+
+            approve(persistApplicant(), store);
+
+            List<StoreChangeHistoryRow> rows = histories(store);
+            assertThat(rows).extracting(StoreChangeHistoryRow::field)
+                    .containsExactly(StoreChangeField.PHONE, StoreChangeField.BUSINESS_HOURS, StoreChangeField.MENUS);
+            assertThat(rows).extracting(StoreChangeHistoryRow::source).containsOnly(StoreChangeSource.SIGNUP_FILL);
+            assertThat(rows).extracting(StoreChangeHistoryRow::changedBy).containsOnly(adminId);
+            assertThat(rows).extracting(StoreChangeHistoryRow::before).containsExactly(null, json("[]"), json("[]"));
+            assertThat(rows.get(0).after()).isEqualTo(json("\"" + APPLIED_STORE_PHONE + "\""));
+            // 신청서에 적힌 순서가 아니라 요일 순으로 남는다
+            assertThat(rows.get(1).after()).isEqualTo(json("[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"15:00\"},"
+                    + "{\"day\":\"MON\",\"open\":\"17:00\",\"close\":\"24:00\"},"
+                    + "{\"day\":\"FRI\",\"open\":\"21:30\",\"close\":\"02:00\"}]"));
+            assertThat(rows.get(2).after().findValuesAsText("name")).containsExactly("나물비빔밥", "가락국수", "다슬기국");
+        }
+
+        @Test
+        @DisplayName("이미 값이 있어 그대로 둔 항목은 남기지 않는다 — 채운 영업시간·메뉴만 두 줄")
+        void keptFieldIsNotRecorded() {
+            Store store = persistStore("053-999-9999");
+
+            approve(persistApplicant(), store);
+
+            assertThat(histories(store)).extracting(StoreChangeHistoryRow::field)
+                    .containsExactly(StoreChangeField.BUSINESS_HOURS, StoreChangeField.MENUS);
+        }
+
+        @Test
+        @DisplayName("신청서에 가게 정보가 없으면 아무것도 남기지 않는다")
+        void emptyApplicationLeavesNoRecord() {
+            Store store = persistStore(null);
+
+            approve(persistApplicant(null, List.of(), List.of()), store);
+
+            assertThat(histories(store)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("잘못 고른 가게를 끊고 맞는 가게에 다시 이으면 그 연결도 기록한다")
+        void correctionLinkIsRecorded() {
+            Store wrong = persistStore(null);
+            Store right = persistStore(null);
+            Long memberId = persistApplicant();
+            approve(memberId, wrong);
+            unlink(memberId, wrong);
+
+            link(memberId, right);
+
+            assertThat(histories(right))
+                    .extracting(StoreChangeHistoryRow::field, StoreChangeHistoryRow::source, StoreChangeHistoryRow::changedBy)
+                    .containsExactly(
+                            tuple(StoreChangeField.PHONE, StoreChangeSource.SIGNUP_FILL, adminId),
+                            tuple(StoreChangeField.BUSINESS_HOURS, StoreChangeSource.SIGNUP_FILL, adminId),
+                            tuple(StoreChangeField.MENUS, StoreChangeSource.SIGNUP_FILL, adminId));
+        }
+
+        @Test
+        @DisplayName("이미 가게가 있는 점주를 두 번째 가게에 이어 옮겨 적지 않으면 그 가게엔 기록도 없다")
+        void secondStoreHasNoRecord() {
+            Store first = persistStore(null);
+            Store second = persistStore(null);
+            Long memberId = persistApplicant();
+            approve(memberId, first);
+
+            link(memberId, second);
+
+            assertThat(histories(second)).isEmpty();
         }
     }
 }
