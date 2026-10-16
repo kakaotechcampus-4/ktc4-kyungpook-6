@@ -47,6 +47,8 @@ jobs:
           echo "instance-id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
 
       # 보내는 명령은 네 줄로 두고, 실제 배포 로직은 scripts/prod-remote-deploy.sh 에 둔다.
+      # ⚠️ 그 스크립트는 **배포하는 커밋 안에** 있어야 한다. 이 PR 이 develop 에만 들어간 동안
+      #    손으로 main 을 배포하면 스크립트가 없어 실패한다 — main 에 들어간 뒤에 돌린다.
       # 두 가지 이유다.
       #  ① **비밀값을 여기 실을 수 없다.** send-command 의 파라미터는 SSM 콘솔의 Command history 와
       #     CloudTrail, 그리고 이 Actions 로그에 그대로 남는다. 그래서 dev(deploy-dev.yml)처럼
@@ -56,14 +58,17 @@ jobs:
       - name: SSM으로 배포 명령 전송
         id: send-command
         env:
+          # 받을 것과 꽂을 것을 **같은 값**으로 둔다. `github.sha` 를 쓰면 안 된다 —
+          # 이 저장소의 기본 브랜치는 develop 이라, 손으로 돌릴 때 `github.sha` 는 develop 의
+          # 커밋이 된다. `git fetch origin main` 해 놓고 develop 커밋으로 reset 하게 되어,
+          # 받지 않은 객체라 실패하거나 **운영에 develop 코드가 올라간다.**
           REF: ${{ inputs.ref || 'main' }}
-          SHA: ${{ github.sha }}
         run: |
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.ec2.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ github.sha }} to prod" \
-            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin '"${REF}"'","git reset --hard '"${SHA}"'","./scripts/prod-remote-deploy.sh","docker image prune -f"]}' \
+            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin '"${REF}"'","git reset --hard FETCH_HEAD","./scripts/prod-remote-deploy.sh","docker image prune -f"]}' \
             --query "Command.CommandId" \
             --output text)
 
