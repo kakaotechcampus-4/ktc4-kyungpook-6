@@ -14,6 +14,7 @@ import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.support.PostgresContainerTest;
+import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -279,6 +280,22 @@ class OwnerApprovalStoreFillCommitTest extends PostgresContainerTest {
         assertThat(countRows("store_business_hour", storeId)).isZero();
         assertThat(countRows("store_menu", storeId)).isZero();
         assertThat(storePhone(storeId)).isNull();
+    }
+
+    @Test
+    @DisplayName("승인을 감싼 트랜잭션이 되돌려지면 옮겨 적은 값도 변경 기록도 남지 않는다 — 기록은 같은 트랜잭션에 들어간다")
+    void outerRollbackLeavesNoHistory() {
+        Long storeId = saveStore();
+        Long ownerId = saveApplicant("053-000-0001", List.of("다슬기국"));
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            ownerApprovalService.approve(ownerId, storeId, adminId);
+            status.setRollbackOnly();
+        });
+
+        assertThat(memberStatus(ownerId)).isEqualTo(MemberStatus.PENDING.name());
+        assertThat(storePhone(storeId)).isNull();
+        assertThat(StoreChangeHistoryRow.of(jdbcTemplate, storeId)).isEmpty();
     }
 
     @Test

@@ -15,6 +15,7 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.StoreChangeField;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.repository.StoreBusinessHourRepository;
 import com.ktc4.backend.domain.store.repository.StoreMenuRepository;
@@ -23,6 +24,7 @@ import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.AuthMember;
 import com.ktc4.backend.support.PostgresContainerTest;
+import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -315,6 +317,32 @@ class StoreManagementCommitTest extends PostgresContainerTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         assertNothingChanged(hourIdsBefore);
+    }
+
+    @Test
+    @DisplayName("저장을 감싼 트랜잭션이 되돌려지면 가게도 변경 기록도 남지 않는다 — 기록은 같은 트랜잭션에 들어간다")
+    void outerRollbackLeavesNoHistory() {
+        List<Long> hourIdsBefore = hourIdsOf(store);
+        // 위의 "쓰는 도중 실패"는 기록을 넣기 전에 실패한다 — 기록까지 넣은 뒤 되돌려야 같은 트랜잭션인지 드러난다
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            storeManagementService.save(store.getStoreId(), request("053-777-0000",
+                    List.of(hour(BusinessDay.SUN, "10:00", "14:00")), List.of(new MenuRequest(null, "라면", true))), owner);
+            status.setRollbackOnly();
+        });
+
+        assertNothingChanged(hourIdsBefore);
+        assertThat(StoreChangeHistoryRow.of(jdbcTemplate, store.getStoreId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("커밋된 저장은 바뀐 항목마다 변경 기록을 남긴다")
+    void committedSaveLeavesHistory() {
+        storeManagementService.save(store.getStoreId(), request("053-777-0000",
+                List.of(hour(BusinessDay.SUN, "10:00", "14:00")), List.of(new MenuRequest(null, "라면", true))), owner);
+
+        assertThat(StoreChangeHistoryRow.of(jdbcTemplate, store.getStoreId()))
+                .extracting(StoreChangeHistoryRow::field)
+                .containsExactly(StoreChangeField.PHONE, StoreChangeField.BUSINESS_HOURS, StoreChangeField.MENUS);
     }
 
     @Test
