@@ -47,6 +47,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -406,18 +407,24 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("사업자등록증 파일 ID 가 없거나 비었으면 400 이고 errors 에 bizCertFileId 가 실린다")
-    void signupRequiresBizCertFileId() throws Exception {
+    @DisplayName("사업자등록증 파일 ID 는 지금은 없어도 된다(앱이 업로드를 붙이기 전까지 잠시) — 빈 값은 여전히 400")
+    void bizCertFileIdIsTemporarilyOptional() throws Exception {
+        when(authService.signupOwner(any())).thenReturn(new OwnerSignupResponse(
+                3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
+                "issued-status-token", "Bearer", java.time.Instant.parse("2026-10-23T00:00:00Z")));
         String withoutBizCert = VALID_SIGNUP.replace(",\"bizCertFileId\":\"" + BIZ_CERT_FILE_ID + "\"", "");
         assertThat(withoutBizCert).doesNotContain("bizCertFileId");
 
-        mockMvc.perform(signupRequest(withoutBizCert))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("bizCertFileId"));
+        mockMvc.perform(signupRequest(withoutBizCert)).andExpect(status().isCreated());
+        ArgumentCaptor<OwnerSignupRequest> sent = ArgumentCaptor.forClass(OwnerSignupRequest.class);
+        verify(authService).signupOwner(sent.capture());
+        assertThat(sent.getValue().bizCertFileId()).isNull();
+
+        // 빈 문자열은 "안 실음"이 아니라 틀린 파일 ID 다
         mockMvc.perform(signupRequest(VALID_SIGNUP.replace(BIZ_CERT_FILE_ID, "")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[*].field", hasItem("bizCertFileId")));
-        verify(authService, never()).signupOwner(any());
+        verify(authService, times(1)).signupOwner(any());
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\"")

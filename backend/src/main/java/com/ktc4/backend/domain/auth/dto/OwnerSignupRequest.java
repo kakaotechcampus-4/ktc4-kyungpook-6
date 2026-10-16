@@ -34,8 +34,11 @@ import static com.ktc4.backend.global.util.TextPatterns.NO_STACKED_MARKS;
  * 옮겨 적는다. 모두 필수다 — 메뉴가 있어야 주문을 받고, 영업시간은 가입 뒤 따로 채우지 않을 가능성이 크다.
  *
  * <p>사진·사업자등록증은 이 요청에 싣지 않는다. 먼저 {@code POST /api/files} 로 올리고, 받은 파일 ID 만 싣는다
- * (멘토 10주차 리뷰 — 가입 API 와 파일 업로드 API 를 나눈다). 사업자등록증은 필수, 가게 대표 사진은 선택,
- * 메뉴 사진은 메뉴마다 선택이다({@link SignupMenuRequest#photoFileId()}).
+ * (멘토 10주차 리뷰 — 가입 API 와 파일 업로드 API 를 나눈다). 가게 대표 사진은 선택, 메뉴 사진은 메뉴마다 선택이다
+ * ({@link SignupMenuRequest#photoFileId()}).
+ *
+ * <p>사업자등록증도 <b>잠시 선택</b>이다. 앱이 아직 업로드 API 를 붙이지 않아, 필수로 두면 앱 가입이 전부 400 이 된다.
+ * 앱이 붙으면 {@code bizCertFileId} 에 {@code @NotBlank} 를 되돌려 필수로 한다.
  *
  * <p>비밀번호 최대 길이(72)는 글자 수 기준이다. BCrypt 는 바이트 기준으로 72까지만 비교하므로, 한글처럼
  * 여러 바이트인 글자로 72바이트를 넘기면 {@code AuthService} 가 한 번 더 거절한다.
@@ -111,9 +114,9 @@ public record OwnerSignupRequest(
         @Pattern(regexp = FileIdFormat.PATTERN, message = FileIdFormat.MESSAGE)
         String storeImageFileId,
 
-        @Schema(description = "사업자등록증의 파일 ID (필수). `POST /api/files` 에 kind=BIZ_CERT 로 올리고 받은 값",
-                example = "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f")
-        @NotBlank(message = "사업자등록증을 올려 주세요")
+        @Schema(description = "사업자등록증의 파일 ID (지금은 선택, 곧 필수). `POST /api/files` 에 kind=BIZ_CERT 로 올리고 받은 값",
+                example = "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f", nullable = true)
+        // 앱이 업로드를 붙이기 전까지 잠시 선택 — 붙으면 @NotBlank(message = "사업자등록증을 올려 주세요") 를 되돌린다
         @Pattern(regexp = FileIdFormat.PATTERN, message = FileIdFormat.MESSAGE)
         String bizCertFileId
 ) {

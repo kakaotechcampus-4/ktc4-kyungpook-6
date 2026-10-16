@@ -87,7 +87,7 @@ public class AuthController {
 
                     | 칸 | 업로드할 때 kind | |
                     |---|---|---|
-                    | `bizCertFileId` | `BIZ_CERT` | **필수** |
+                    | `bizCertFileId` | `BIZ_CERT` | 선택 (**곧 필수** — 앱이 업로드를 붙이면 바꿉니다) |
                     | `storeImageFileId` | `STORE_IMAGE` | 선택 |
                     | `menus[].photoFileId` | `MENU_IMAGE` | 선택 (메뉴마다 한 장) |
 
