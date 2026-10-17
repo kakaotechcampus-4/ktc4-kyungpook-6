@@ -35,8 +35,12 @@ public abstract class PostgresContainerTest {
 
     // public 인 이유: Repository 슬라이스가 아닌 테스트(@SpringBootTest 컨텍스트 스모크 테스트)도
     // 같은 컨테이너 하나를 그대로 재사용하기 위해서다. 테스트마다 따로 띄우면 Postgres 가 여러 개 뜬다.
+    // 연결 수 상한을 기본값(100)보다 넉넉히 둔다. 스프링은 테스트 구성마다 컨텍스트를 따로 만들어 캐시해 두고, 컨텍스트마다
+    // 연결 풀(기본 10개)을 연다 — 구성이 열 개를 넘으면 기본 상한에 걸려 그 뒤에 뜨는 테스트가 "too many clients" 로
+    // 컨텍스트를 못 띄운다. 운영 DB 설정과는 무관한 테스트 컨테이너 설정이다.
     @ServiceConnection
-    public static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");
+    public static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
+            .withCommand("postgres", "-c", "max_connections=300");
 
     static {
         POSTGRES.start();

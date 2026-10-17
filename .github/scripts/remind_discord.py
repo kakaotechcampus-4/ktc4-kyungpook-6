@@ -52,14 +52,31 @@ NO_REVIEW_SECOND_HOURS = 4   # 2차 독촉 — 작성자도 같이 부른다
 # 리뷰어가 **아무도 지정되지 않은** PR 은 아무의 일도 아닌 상태다. 리뷰가 늦는 것보다
 # 이쪽이 더 막힌 상태라, 여기서만 테크리더를 부른다.
 NO_REVIEWER_HOURS = 2
-# 코드 리뷰 가이드의 팀 규칙은 "리뷰 기한 PR 작성 후 24시간". 1·4시간 독촉을 지나고도
-# 리뷰가 없으면 그 뒤로는 아무 말이 없었다 — 실제로 24시간·19시간째 리뷰 0건인 PR 이 생겼다
-# (2026-10-07). 기한을 넘긴 PR 은 **하루 한 번 정해진 시각에** 다시 부른다.
+# 1·4시간 독촉을 지나고도 리뷰가 없으면 그 뒤로는 아무 말이 없었다 — 실제로 24시간·19시간째
+# 리뷰 0건인 PR 이 생겼다(2026-10-07). 그래서 **정해진 시각마다** 다시 부른다.
 #
-# 매번 보지 않는 이유 — 하루 종일 같은 PR 로 울리면 알림이 무뎌진다. 하루 한 번이면
-# 그 PR 당 정확히 한 번이라 중복도 없다.
+# 처음에는 "24시간을 넘긴 건" 만 봤는데, 그러면 2차 독촉과 이 알림 사이가 통째로 빈다.
+# 밤에 올라온 PR 은 그 구멍이 하루를 넘긴다 — 21:52 에 올라온 PR 은 2차 독촉(조용한 시간이라
+# 08:00 으로 밀림) 다음 알림이 **36시간째**(이틀 뒤 10:00)였다. 그 사이 10:00 에는 열린 지
+# 12시간이라 24시간 조건에 걸리지 않아 그날이 통째로 조용했다(2026-10-13, 스크립트를 그대로
+# 돌려 확인). 그래서 **2차 독촉을 지났는데도 리뷰가 0건이면** 그 뒤로 계속 부른다.
+#
+# STALE_REVIEW_HOURS 는 이제 "부를지 말지" 가 아니라 **말투를 가르는 선**이다
+# (넘겼으면 기한 초과, 아직이면 그냥 알림). 팀 규칙은 "리뷰 기한 PR 작성 후 24시간".
 STALE_REVIEW_HOURS = 24
-STALE_CHECK_HOUR = 10   # KST. 조용한 시간 밖이라 따로 밀 필요가 없다
+
+# 리뷰가 없는 동안 **하루에 몇 번** 부를 것인가 (KST). 조용한 시간 밖이라 따로 밀 필요가 없다.
+#
+# 처음에는 10:00 하루 한 번이었는데 그걸로는 모자랐다. 우리 PR 사이클은 3일이고 **PR 이
+# 마감 몇 시간 전에 올라오는 일이 잦다.** 하루 한 번이면 그런 PR 은 리뷰어가 한 번 놓친 뒤
+# 반나절을 통째로 기다린다 — 사이클 안에 리뷰가 들어올 자리가 없어진다.
+#
+# 그래서 깨어 있는 시간을 4시간 간격으로 끊는다. 2차 독촉(4시간)과 같은 리듬이라
+# "리뷰가 없으면 4시간마다" 하나로 설명된다. 22:00 다음은 조용한 시간을 지나 10:00 이다.
+STALE_CHECK_HOURS = (10, 14, 18, 22)
+# 직전 독촉과 이만큼은 떨어뜨린다. 조용한 시간에 4시간을 넘긴 건은 2차가 08:00 으로 밀리는데,
+# 그러면 10:00 슬롯과 2시간밖에 안 떨어져 같은 PR 로 연달아 두 번 울린다.
+STALE_MIN_GAP_HOURS = 3
 
 # 승인됐는데 머지되지 않고 이만큼 지나면 알린다 (시간)
 APPROVED_UNMERGED_HOURS = 6
@@ -85,7 +102,9 @@ DEADLINES = [
 # 찍어 준다. 수요일은 1차 PR 을 쓰기 직전, 일요일 아침은 머지까지 남은 것을 본다.
 # (요일, 시각): (제목, 마감 설명)
 READINESS = {
-    (2, 17): ("1차 PR 마감 1시간 전", "오늘 18:00 까지 develop → main PR"),
+    # 수요일 17:00 은 "마감 알림"이 아니라 **PM 이 1차 PR 을 올리겠다는 예고**다.
+    # 받는 사람이 할 일이 "더 넣을 게 있으면 지금 말하기" 하나로 떨어지게 적는다.
+    (2, 17): ("1시간 뒤 1차 PR 을 올립니다", "오늘 18:00 · develop → main"),
     (6, 9): ("main 머지 준비 점검", "오늘 23:59 까지 main 머지"),
 }
 # 멘토 쪽은 시각으로 보지 않는다. 리뷰가 언제 올지 정해져 있지 않고, 재촉할 일도 아니다.
@@ -244,6 +263,39 @@ def slot_due(now: datetime, hour: int, weekday: int | None = None) -> bool:
     return False
 
 
+def stale_nudge_due(created: datetime, now: datetime, opened_hours: float) -> bool:
+    """"아직 리뷰가 없다"를 다시 보낼 차례인가. **시각 조건만** 본다.
+
+    "리뷰 0건" 과 슬롯(STALE_CHECK_HOURS)은 호출부가 본다. 여기서 보는 건 둘이다.
+
+    1. **2차 독촉을 지났는가.** 예전에는 24시간을 넘긴 건만 봤는데, 그러면 2차 독촉과
+       이 알림 사이가 통째로 빈다. 13:00 에 올라온 PR 은 2차(17:00) 다음 알림이
+       **다음다음 날 10:00**(45시간째)이었다 — 그 사이 10:00 에는 21시간째라 24시간 조건에
+       걸리지 않았다.
+    2. **2차 독촉과 너무 붙지 않는가.** 조용한 시간에 4시간을 넘긴 건은 2차가 08:00 으로
+       밀리는데, 막지 않으면 08:00·10:00 에 같은 PR 로 두 번 울린다. 두 알림은 서로 다른
+       실행에서 나가므로 한 실행 안에서만 보면 못 막는다. 그래서 **2차가 실제로 나간 시각**
+       (`wake_at`)에서 얼마나 지났는지로 본다 — 날짜로 끊으면 그날 남은 슬롯까지 같이 죽는다.
+    """
+    if opened_hours < NO_REVIEW_SECOND_HOURS:
+        return False
+    second_wake = wake_at(created + timedelta(hours=NO_REVIEW_SECOND_HOURS))
+    return now - second_wake >= timedelta(hours=STALE_MIN_GAP_HOURS)
+
+
+def needs_reviewer(assigned: list, reviews: list) -> bool:
+    """"리뷰어를 정해 달라"고 부를 차례인가.
+
+    🚨 **리뷰가 하나라도 있으면 부르지 않는다.** GitHub 은 리뷰를 제출하면 그 사람을
+    **요청 목록(requested_reviewers)에서 뺀다.** 그래서 리뷰어가 한 명뿐인 PR 은 그 사람이
+    리뷰를 올리는 순간 요청 목록이 비고, 예전 조건(`not assigned`)으로는 "리뷰어가 아직
+    없습니다" 가 작성자에게 날아갔다 — 리뷰가 끝난 PR 인데도(2026-10-14, #108).
+
+    리뷰가 늦어지는 것과 아무도 안 보는 것은 다른 상태다. 여기는 뒤쪽만 본다.
+    """
+    return not assigned and not reviews
+
+
 def latest_review_state(reviews: list[dict]) -> str | None:
     """사람별 마지막 리뷰만 본다. COMMENTED 는 승인·변경요청을 덮지 않는다."""
     by_user: dict[str, dict] = {}
@@ -310,8 +362,8 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
         created = parse_ts(pr["created_at"])
         assigned = reviewers(pr)
 
-        if not assigned:
-            # 리뷰어가 없으면 아무도 안 본다. 리뷰 독촉 대신 "정해 달라"고 한다.
+        if needs_reviewer(assigned, reviews):
+            # 아무도 안 보고 있다. 리뷰 독촉 대신 "정해 달라"고 한다.
             if due_now(created, NO_REVIEWER_HOURS, now):
                 pr_findings.append({
                     "color": COLOR_DEADLINE,
@@ -350,22 +402,27 @@ def build_findings(repo: str, token: str, now: datetime) -> list[dict]:
                     "mention": dm.mentions(assigned + [pr["user"]["login"]]),
                 })
 
-        # 기한(24시간)을 넘기고도 리뷰가 없는 PR. **하루 한 번**만 부른다.
+        # 리뷰가 아직 없는 PR 을 **깨어 있는 시간 동안 4시간마다** 다시 부른다.
         #
         # 리뷰어가 있든 없든 본다 — 리뷰어가 없는 채로 묵은 PR 이 더 나쁜 상태인데,
         # 그쪽은 2시간 독촉 뒤로 아무 말이 없었다.
-        # 1·4시간 독촉과 겹치지 않는다: 한 PR 이 4시간 미만이면서 24시간 초과일 수 없다.
-        if (not reviews and slot_due(now, STALE_CHECK_HOUR)
-                and opened_hours >= STALE_REVIEW_HOURS):
+        #
+        # 보낼 차례인지는 stale_nudge_due 가 판정한다(그 함수 주석에 이유가 있다).
+        if (not reviews and any(slot_due(now, h) for h in STALE_CHECK_HOURS)
+                and stale_nudge_due(created, now, opened_hours)):
+            overdue = opened_hours >= STALE_REVIEW_HOURS
             # 일수를 머리말에 넣지 않는다. cron 이 불규칙해서 하루 독촉이 18시간 간격으로
             # 떨어지면 "2일째"가 두 번 나간다. 경과 시간은 아래 detail 에 정확히 적는다.
             pr_findings.append({
-                "color": COLOR_WARN,
-                "headline": "⌛ 리뷰 기한을 넘겼습니다",
+                "color": COLOR_WARN if overdue else COLOR_INFO,
+                "headline": ("⌛ 리뷰 기한을 넘겼습니다" if overdue
+                             else "🔔 아직 리뷰가 없습니다"),
                 "pr": pr,
-                "detail": f"열린 지 {int(opened_hours)}시간 · 리뷰 0건 "
-                          f"(팀 기준 리뷰 기한은 {STALE_REVIEW_HOURS}시간)",
-                "action": "오늘 보기 어려우면 다른 분께 넘기거나 PR 을 닫아 주세요",
+                "detail": (f"열린 지 {int(opened_hours)}시간 · 리뷰 0건 "
+                           + (f"(팀 기준 리뷰 기한은 {STALE_REVIEW_HOURS}시간)" if overdue
+                              else f"· 기한까지 {STALE_REVIEW_HOURS - int(opened_hours)}시간")),
+                "action": ("오늘 보기 어려우면 다른 분께 넘기거나 PR 을 닫아 주세요" if overdue
+                           else "오늘 안에 리뷰해 주세요"),
                 "mention": dm.mentions(people(pr)),
             })
 
@@ -495,27 +552,42 @@ def readiness_report(repo: str, token: str, now: datetime,
     if not slot:
         return []
     title, deadline = slot
-    lines = [f"마감: {deadline}", ""]
+    lines = [deadline, ""]
     ok = True
 
     if (k.weekday(), k.hour) == (2, 17):
-        lines.append(f"{'✅' if main_pr else '❌'} 멘토 PR: "
-                     + (f"#{main_pr['number']} 올라와 있음" if main_pr else "아직 없음"))
+        if main_pr:
+            lines.append(f"✅ 멘토 PR 은 이미 올라가 있습니다 — #{main_pr['number']}")
+        else:
+            lines.append("지금 develop 에 있는 것으로 올립니다.")
         ok = ok and bool(main_pr)
 
         try:
             cmp_ = gh(f"/repos/{repo}/compare/main...develop", token)
-            lines.append(f"ℹ️ develop 이 main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있음")
+            lines.append(f"    (main 보다 {cmp_.get('ahead_by', '?')}커밋 앞서 있습니다)")
         except urllib.error.HTTPError:
             pass
 
         unreviewed = [pr for pr, rv in dev if not rv]
         if dev:
-            lines.append(f"{'⚠️' if unreviewed else '✅'} 열린 develop PR {len(dev)}건"
-                         + (f" · 그중 리뷰 0건이 {len(unreviewed)}건" if unreviewed else ""))
-            for pr, _ in dev[:5]:
-                lines.append(f"      #{pr['number']} {pr['title'][:40]}")
-            lines.append("      → 이번 주 PR 에 포함할지 먼저 정하세요")
+            # PR 번호만 늘어놓으면 받는 사람이 무엇을 해야 할지 모른다(2026-10-14 피드백).
+            # **지금 머지해야 이번 주 PR 에 들어간다**는 것과, PR 별로 머지를 막고 있는 게
+            # 무엇인지(리뷰·승인)를 같이 적는다.
+            lines.append("")
+            lines.append(f"아직 develop 에 안 들어간 PR {len(dev)}건입니다 — 지금 머지하면 같이 올라갑니다")
+            for pr, rv in dev[:5]:
+                states = [r.get("state") for r in rv]
+                if "APPROVED" in states:
+                    mark = "승인 — 머지만 하면 됨"
+                elif "CHANGES_REQUESTED" in states:
+                    mark = "변경 요청 — 반영 필요"
+                elif rv:
+                    mark = f"리뷰 {len(rv)}건 · 승인 아직"
+                else:
+                    mark = "리뷰 0건 — 리뷰부터"
+                lines.append(f"      #{pr['number']} {pr['title'][:34]}  ({mark})")
+            lines.append("")
+            lines.append("**더 넣을 게 있으면 지금 말해 주세요.** 18:00 이후 머지분은 다음 주로 갑니다.")
             ok = False
         else:
             lines.append("✅ 열린 develop PR 없음")

@@ -28,9 +28,15 @@ public enum ErrorCode {
     BIZNO_API_ERROR(HttpStatus.BAD_GATEWAY, "비즈노 API 호출에 실패했습니다"),
     NTS_API_ERROR(HttpStatus.BAD_GATEWAY, "국세청 API 호출에 실패했습니다"),
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 가게를 찾을 수 없습니다"),
+    // 가게 삭제를 거절하는 세 경우. 셋 다 "실제 활동이 남은 가게는 지우지 않는다" 는 같은 이유다.
+    STORE_HAS_OWNER(HttpStatus.CONFLICT, "점주가 연결된 가게입니다"),
+    STORE_UNDER_INVESTIGATION(HttpStatus.CONFLICT, "조사가 진행 중입니다"),
+    STORE_HAS_CHECK_IN(HttpStatus.CONFLICT, "방문 기록이 있는 가게입니다"),
     INVALID_QR_TOKEN(HttpStatus.BAD_REQUEST, "유효하지 않은 QR 입니다"),
 
-    // 인증·권한. 앞의 둘(UNAUTHORIZED, FORBIDDEN)은 컨트롤러에 닿기 전 보안 필터가 직접 응답한다.
+    // 인증·권한. 앞의 둘(UNAUTHORIZED, FORBIDDEN)은 대개 컨트롤러에 닿기 전 보안 필터가 직접 응답한다.
+    // 서비스가 던지기도 한다 — 체크인의 "그 가게에 연결된 점주인지"(FORBIDDEN)처럼 데이터를 봐야 아는 확인과,
+    // 로그인 정보 없이 닿은 요청을 막는 방어(UNAUTHORIZED). 응답 모양은 둘 다 같다.
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다"),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다"),
@@ -43,8 +49,22 @@ public enum ErrorCode {
     PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호가 너무 깁니다"),
     OWNER_ALREADY_REVIEWED(HttpStatus.CONFLICT, "이미 처리된 가입 신청입니다"),
     OWNER_NOT_APPROVED(HttpStatus.CONFLICT, "승인된 점주가 아닙니다"),
+    OWNER_NOT_REJECTED(HttpStatus.CONFLICT, "거절된 가입 신청이 아닙니다"),
     STORE_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결된 가게입니다"),
     STORE_LINK_NOT_FOUND(HttpStatus.NOT_FOUND, "가게 연결을 찾을 수 없습니다"),
+
+    // 파일 업로드. FILE_TOO_LARGE 는 요청 전체가 상한을 넘어 프레임워크가 거절한 경우(413)에도 쓴다
+    EMPTY_FILE(HttpStatus.BAD_REQUEST, "빈 파일은 올릴 수 없습니다"),
+    UNSUPPORTED_FILE_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 파일 형식입니다"),
+    FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "파일이 너무 큽니다"),
+    FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다"),
+    // 가입 신청에 실은 파일 ID 가 없거나, 이미 쓰였거나, 자리에 맞지 않는 종류인 경우 — 어느 쪽인지는 알려 주지 않는다
+    INVALID_FILE_REFERENCE(HttpStatus.BAD_REQUEST, "올린 파일을 쓸 수 없습니다"),
+
+    // 가입 신청 남용 방어. TOO_MANY_REQUESTS 는 컨트롤러에 닿기 전 필터가 직접 응답한다.
+    TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요"),
+    REQUEST_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "요청이 너무 큽니다"),
+    SIGNUP_TEMPORARILY_CLOSED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 가입 신청을 받을 수 없습니다"),
 
     // 관리자 조사(Job)
     NO_INVESTIGATION_TARGET(HttpStatus.BAD_REQUEST, "조사할 가게가 없습니다"),

@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+  # 손으로도 돌린다. 이게 없으면 main 에 push 될 때(= develop→main 머지, 주간 멘토 리뷰 PR)만
+  # 돌아서, 배포를 고쳐도 다음 주까지 시험해 볼 방법이 없다.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 배포할 커밋/브랜치 (비우면 main)
+        required: false
+        default: main
 
 permissions:
   id-token: write
@@ -38,28 +46,64 @@ jobs:
 
           echo "instance-id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
 
+      # 🚨 비밀값을 이 명령에 실지 않는다. send-command 의 파라미터는 SSM 콘솔 Command history 와
+      #    CloudTrail, 그리고 이 Actions 로그에 그대로 남는다. 값은 서버 .env 로 관리한다.
       - name: SSM으로 배포 명령 전송
         id: send-command
+        env:
+          # 받을 것과 꽂을 것을 **같은 값**으로 둔다. `github.sha` 를 쓰면 안 된다 —
+          # 이 저장소의 기본 브랜치는 develop 이라, 손으로 돌릴 때 `github.sha` 는 develop 의
+          # 커밋이 된다. `git fetch origin main` 해 놓고 develop 커밋으로 reset 하게 되어,
+          # 받지 않은 객체라 실패하거나 **운영에 develop 코드가 올라간다.**
+          REF: ${{ inputs.ref || 'main' }}
         run: |
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.ec2.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ github.sha }} to prod" \
-            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin main","git reset --hard ${{ github.sha }}","./scripts/deploy.sh prod up -d --build --remove-orphans","docker image prune -f"]}' \
+            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin '"${REF}"'","git reset --hard FETCH_HEAD","./scripts/deploy.sh prod up -d --build --remove-orphans","docker image prune -f"]}' \
             --query "Command.CommandId" \
             --output text)
 
           echo "command-id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
 
-      - name: 배포 완료 대기
+      # `aws ssm wait command-executed` 를 쓰지 않는다. 기본 Waiter 가 20회×5초 = 100초인데
+      # 보내는 명령은 deploy.sh prod up -d --build(Gradle+npm 빌드)라 그 안에 끝날 수 없었다.
+      # 2026-10-14 재실행이 그래서 "Waiter CommandExecuted failed: Max attempts exceeded" 로
+      # 죽었다 — 명령은 서버에서 계속 돌고 있었는데 워크플로만 먼저 포기한 것이다.
+      # 게다가 그렇게 죽으면 StandardOutputContent 가 비어서 원인이 하나도 안 남았다.
+      - name: 배포 완료 대기 (15초마다, 최대 20분)
+        id: wait
+        env:
+          CID: ${{ steps.send-command.outputs.command-id }}
+          IID: ${{ steps.ec2.outputs.instance-id }}
         run: |
-          aws ssm wait command-executed \
-            --command-id "${{ steps.send-command.outputs.command-id }}" \
-            --instance-id "${{ steps.ec2.outputs.instance-id }}"
+          for i in $(seq 1 80); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CID" --instance-id "$IID" \
+              --query "Status" --output text)
+            echo "[$i/80] $STATUS"
+            case "$STATUS" in
+              Success)                       echo "status=$STATUS" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              Failed|Cancelled|TimedOut)     echo "status=$STATUS" >> "$GITHUB_OUTPUT"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::20분 안에 끝나지 않았습니다. 서버에서는 계속 돌고 있을 수 있습니다 (command-id $CID)"
+          echo "status=Timeout" >> "$GITHUB_OUTPUT"
+          exit 1
 
       - name: 배포 로그 출력
         if: always()
+        env:
+          CID: ${{ steps.send-command.outputs.command-id }}
+          IID: ${{ steps.ec2.outputs.instance-id }}
         run: |
-          aws ssm get-command-invocation \
-            --command-id "${{ steps.send-command.outputs.command-id }}" \
-            --instance-id "${{ steps.ec2.outputs.instance-id }}"
+          aws ssm get-command-invocation --command-id "$CID" --instance-id "$IID" \
+            --query "{Status:Status,Detail:StatusDetails,Code:ResponseCode}" --output table
+          echo "── 표준 출력 ─────────────────────────────"
+          aws ssm get-command-invocation --command-id "$CID" --instance-id "$IID" \
+            --query "StandardOutputContent" --output text
+          echo "── 표준 에러 ─────────────────────────────"
+          aws ssm get-command-invocation --command-id "$CID" --instance-id "$IID" \
+            --query "StandardErrorContent" --output text

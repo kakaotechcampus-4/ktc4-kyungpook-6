@@ -20,6 +20,16 @@ export const login = (payload: LoginRequest) => {
   return postRequest<LoginResponse>("/api/auth/login", payload, { skipAuthRedirect: true });
 };
 
+/** 백엔드 BusinessDay. */
+export type BusinessDay = "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
+
+/** 백엔드 BusinessHourRequest. 시간은 "HH:mm", 자정에 닫으면 close 는 "24:00". */
+export type BusinessHourRequest = {
+  day: BusinessDay;
+  open: string;
+  close: string;
+};
+
 /** 백엔드 OwnerSignupRequest. bizNo·phone 은 하이픈이 있어도 서버가 숫자만 남겨 저장한다. */
 export type OwnerSignupRequest = {
   email: string;
@@ -28,21 +38,46 @@ export type OwnerSignupRequest = {
   storeName: string;
   representativeName: string;
   phone: string;
+  storeAddress: string;
+  storePhone: string;
+  /** 1~21줄. 같은 요일 여러 줄 가능, 줄이 없는 요일은 휴무. */
+  businessHours: BusinessHourRequest[];
+  /** 1~50개. 백엔드 SignupMenuRequest — 이름만 받는다. */
+  menus: { name: string }[];
 };
 
-/** 백엔드 MemberResponse. GET /api/auth/me 의 응답. */
-export type MemberResponse = {
+/** 백엔드 LinkedStoreResponse. 점주에게 연결된 가게 한 곳. 이 storeId 로 체크인 API 를 부른다. */
+export type LinkedStore = {
+  storeId: number;
+  name: string;
+};
+
+type MemberSummary = {
   memberId: number;
   email: string;
   role: "ADMIN" | "OWNER";
   status: "PENDING" | "APPROVED" | "REJECTED";
+  /**
+   * 연결된 가게(PR #96). 처음 연결한 순서대로다. 관리자와 승인 전 신청자는 빈 목록이다.
+   * 가게를 고르는 화면이 없으면 첫 번째를 쓴다.
+   */
+  stores: LinkedStore[];
+};
+
+/** 백엔드 MemberResponse. GET /api/auth/me 의 응답. */
+export type MemberResponse = MemberSummary & {
+  /**
+   * 연결된 가게(PR #96). 처음 연결한 순서이고, 관리자와 승인 전 신청자는 빈 목록이다.
+   * 가게를 고르는 화면이 없으면 첫 번째를 쓴다.
+   */
+  stores: LinkedStore[];
 };
 
 /**
  * 백엔드 OwnerSignupResponse (PR #87). 가입 직후 status 는 항상 PENDING 이다.
  * statusToken 으로는 GET /api/auth/me 만 부를 수 있다. 승인된 뒤에는 로그인해서 접근 토큰을 받는다.
  */
-export type OwnerSignupResponse = MemberResponse & {
+export type OwnerSignupResponse = MemberSummary & {
   statusToken: string;
   tokenType: "Bearer";
   /** statusToken 만료 시각(UTC, ISO 문자열). 발급 후 7일. */

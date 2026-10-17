@@ -1,8 +1,10 @@
 package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
+import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
@@ -27,6 +29,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +49,7 @@ public class StoreService {
     public static final int MIN_NAME_LENGTH_FOR_SEARCH = 2;
 
     private final StoreRepository storeRepository;
+    private final StoreChangeHistoryService storeChangeHistoryService;
 
     /**
      * 가게 목록을 storeId 오름차순으로 페이지 단위 조회한다.
@@ -96,19 +100,24 @@ public class StoreService {
     }
 
     /**
-     * 담당자가 수정한 가게 기본 정보를 반영한다. 담아 보낸 필드만 바뀐다.
+     * 담당자가 수정한 가게 기본 정보를 반영한다. 담아 보낸 필드만 바뀐다. 바뀐 항목은 변경 기록에 남는다.
      *
      * <p>name/addressRoad 가 바뀌면 정규화 값도 함께 다시 계산해 저장한다 — 정규화 책임은
      * 엔티티가 아니라 서비스 계층에 있다({@code 데이터_정규화_가이드.md}).
      *
+     * <p>가게를 잠그고 바꾼다. 잠그지 않으면 그 사이 다른 저장(가게 관리 저장 등)이 커밋한 값이 아니라 먼저 읽어 둔 값이
+     * "바꾸기 전"으로 기록돼, 기록끼리 이어지지 않는다.
+     *
      * @param storeId 수정할 가게 ID
      * @param request 담아 보낸 필드만 채워진 부분 수정 요청
+     * @param change  어느 경로로·누가 (관리자 수정 또는 조사 수정안 반영)
      * @return 수정된 가게 정보
      * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
      */
     @Transactional
-    public StoreResponse updateStore(Long storeId, StoreUpdateRequest request) {
-        Store store = findStore(storeId);
+    public StoreResponse updateStore(Long storeId, StoreUpdateRequest request, StoreChange change) {
+        Store store = findStoreForUpdate(storeId);
+        StoreSnapshot before = storeChangeHistoryService.snapshot(store);
 
         String nameNormalized = request.name() == null ? null : StoreNormalizer.normalizeName(request.name());
         String addressNormalized = request.addressRoad() == null ? null
@@ -118,6 +127,7 @@ public class StoreService {
                 request.addressRoad(), addressNormalized,
                 request.phone(), request.status());
 
+        storeChangeHistoryService.recordChanges(store, before, storeChangeHistoryService.snapshot(store), change);
         return StoreResponse.from(store);
     }
 
@@ -130,6 +140,39 @@ public class StoreService {
      */
     public Store findStore(Long storeId) {
         return storeRepository.findById(storeId)
+                .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+    }
+
+    /**
+     * 가게 엔티티를 찾되, 없는 것을 <b>오류로 보지 않는</b> 경로용이다 — 지금은 조사 실행기만 쓴다.
+     *
+     * <p>조사가 도는 중에 담당자가 그 가게를 지울 수 있다({@code force=true}). 그때 실행기가
+     * {@link #findStore} 를 부르면 예외가 올라가 <b>조사 전체가 멈춘다</b>. 사라진 가게는 건너뛰고
+     * 나머지를 계속 조사하는 편이 맞으므로, 그 판단을 부르는 쪽이 하게 빈 값으로 돌려준다.
+     *
+     * @param storeId 찾을 가게 ID
+     * @return 가게 엔티티. 없으면 빈 값
+     */
+    public Optional<Store> findStoreIfPresent(Long storeId) {
+        return storeRepository.findById(storeId);
+    }
+
+    /**
+     * 가게를 잠그고 찾는다. 다른 도메인(점주 승인 등)이 가게를 보고 판단한 뒤 바꿀 때 이 메서드를 거친다.
+     *
+     * <p>호출하는 트랜잭션에서 가게를 처음 읽는 자리에서 불러야 한다 — 이유는
+     * {@link StoreRepository#findByIdForUpdate} 참고.
+     *
+     * <p><b>회원·조사 결과도 잠그는 흐름이면 반드시 그쪽을 먼저 잠근다.</b> 점주 승인·연결·끊기가 회원 → 가게, 조사 수정안
+     * 반영이 조사 결과 → 가게 순서로 잠그므로, 가게를 먼저 잠근 뒤 회원·조사 결과를 잠그는 흐름이 생기면 서로를 기다리며
+     * 멈춘다(교착).
+     *
+     * @param storeId 찾을 가게 ID
+     * @return 잠긴 가게 엔티티
+     * @throws CustomException storeId 에 해당하는 가게가 없으면 {@code STORE_NOT_FOUND}
+     */
+    public Store findStoreForUpdate(Long storeId) {
+        return storeRepository.findByIdForUpdate(storeId)
                 .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
     }
 

@@ -1,5 +1,9 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
-import { getAccessToken } from "./authToken";
+import { clearAccessToken, getAccessToken } from "./authToken";
+import { isUnauthorized } from "../utils/apiError";
+
+/** 로그인 화면 경로. 토큰이 없거나 만료되면 여기로 보낸다. */
+export const LOGIN_PATH = "/login";
 
 /*
   개발 중에는 빈 값을 써서 /api/... 로 그냥 보낸다. 그러면 vite 개발 서버가 받아
@@ -27,6 +31,41 @@ axiosApiInstance.interceptors.request.use((config) => {
   }
   return config;
 });
+
+/**
+ * 로그인이 풀린 응답(401)을 한곳에서 처리한다.
+ *
+ * 이게 없으면 화면마다 다르게 어긋난다 — 가게 목록은 조회에 실패하면 **목업 데이터**를 대신
+ * 보여주도록 돼 있어서, 로그인이 풀린 담당자가 진짜처럼 보이는 가짜 가게 목록을 읽게 된다
+ * (PROMPT-150 에서 실제로 그렇게 나왔다). 권한 검사 스위치가 켜지면(PROMPT-146) 로그인 안 한
+ * 사람은 전부 이 길로 들어온다.
+ *
+ * 로그인 요청 자체의 401(비밀번호 틀림)은 건드리지 않는다 — 그건 로그인 화면이 문구로 알려 줄 일이고,
+ * 여기서 가로채면 입력하던 화면이 통째로 다시 뜬다.
+ */
+const LOGIN_URL = "/api/auth/login";
+
+const handleUnauthorized = (error: unknown) => {
+  if (!isUnauthorized(error)) return;
+
+  const requestUrl = axios.isAxiosError(error) ? error.config?.url ?? "" : "";
+  if (requestUrl.endsWith(LOGIN_URL)) return;
+
+  clearAccessToken();
+
+  /* 테스트는 node 환경이라 window 가 없다. 리다이렉트는 브라우저에서만 한다. */
+  if (typeof window === "undefined") return;
+  if (window.location.pathname === LOGIN_PATH) return;
+  window.location.replace(LOGIN_PATH);
+};
+
+axiosApiInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    handleUnauthorized(error);
+    return Promise.reject(error);
+  }
+);
 
 const successHandler = <T>(response: AxiosResponse<T>) => {
   return response.data;

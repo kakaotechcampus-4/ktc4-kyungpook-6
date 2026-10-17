@@ -25,7 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -38,6 +37,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -47,7 +47,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(JobController.class)
 @Import(SecurityConfig.class)
-@TestPropertySource(properties = "auth.enforce=true")
 @DisplayName("조사 조회 API")
 class JobControllerQueryTest {
 
@@ -181,5 +180,24 @@ class JobControllerQueryTest {
         mockMvc.perform(get("/api/jobs/42")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issue(1L, MemberRole.OWNER).value()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("토큰 없이 조회하면 401 이고 조회 서비스에 닿지 않는다 — 결과와 최신 결과 모두")
+    void rejectsWithoutToken() throws Exception {
+        mockMvc.perform(get("/api/jobs/42")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/jobs/latest")).andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(jobQueryService);
+    }
+
+    @Test
+    @DisplayName("가입 상태 확인용 토큰은 403 — 승인 전 신청자는 조사 결과를 볼 수 없다")
+    void rejectsSignupStatusToken() throws Exception {
+        mockMvc.perform(get("/api/jobs/42")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issueSignupStatus(1L).value()))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(jobQueryService);
     }
 }

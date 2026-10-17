@@ -212,6 +212,37 @@ class InvestigationRunnerTest {
             verify(taskService).save(eq(JOB_ID), eq(finding(2)), any());
             verify(jobService).finish(eq(JOB_ID), any());
         }
+
+        @Test
+        @DisplayName("조사 도중 가게가 지워지면 그 가게만 건너뛰고 끝까지 간다 — Job 을 멈추지 않는다")
+        void goneStoreIsSkipped() {
+            // 담당자가 force 로 지운 경우다. 저장 메서드는 예외가 아니라 false 로 알려 준다 —
+            // 예외였다면 안전망이 받아 나머지 가게의 결과까지 버린다.
+            InvestigationTarget gone = aiTarget(1);
+            InvestigationTarget alive = aiTarget(2);
+            given(aiClient.investigate(gone)).willReturn(finding(1));
+            given(aiClient.investigate(alive)).willReturn(finding(2));
+            given(taskService.save(eq(JOB_ID), eq(finding(1)), any())).willReturn(false);
+            given(taskService.save(eq(JOB_ID), eq(finding(2)), any())).willReturn(true);
+
+            runner.run(plan(List.of(ntsTarget(3)), List.of(gone, alive)));
+
+            verify(taskService, never()).saveFailure(anyLong(), anyLong(), anyString());
+            verify(jobService).finish(eq(JOB_ID), any());
+            verify(jobService, never()).fail(anyLong(), anyString(), any());
+        }
+
+        @Test
+        @DisplayName("1차 대상이 지워져 있어도 그 가게만 건너뛴다")
+        void goneNtsTargetIsSkipped() {
+            given(taskService.saveNts(JOB_ID, ntsTarget(1))).willReturn(false);
+
+            runner.run(plan(List.of(ntsTarget(1)), List.of()));
+
+            verify(taskService, never()).saveFailure(anyLong(), anyLong(), anyString());
+            verify(jobService).finish(eq(JOB_ID), any());
+            verify(jobService, never()).fail(anyLong(), anyString(), any());
+        }
     }
 
     @Nested

@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.member.controller;
 
+import com.ktc4.backend.domain.member.dto.LinkedStoreDetailResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.OwnerApproveRequest;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
@@ -89,6 +90,26 @@ public class OwnerAdminController {
         return ownerApprovalService.getStoreCandidates(memberId);
     }
 
+    @Operation(summary = "연결된 가게 조회",
+            description = """
+                    이 점주에게 **지금 연결된** 가게를 봅니다. 끊긴 연결은 담지 않습니다 —
+                    연결을 끊을 대상을 고르는 데 쓰는 목록이라, 지금 체크인할 수 있는 가게만 보여야 합니다.
+
+                    승인 전(PENDING)이면 연결이 없어 빈 배열입니다. 연결할 수 있는 **후보**는
+                    `GET /api/admin/owners/{memberId}/store-candidates` 입니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "조회 성공 (연결이 없으면 빈 배열)"),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없는 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @GetMapping("/{memberId}/stores")
+    public List<LinkedStoreDetailResponse> getLinkedStores(
+            @Parameter(description = "점주 회원 ID", example = "3") @PathVariable Long memberId) {
+        return ownerApprovalService.getLinkedStores(memberId);
+    }
+
     @Operation(summary = "점주 가입 승인",
             description = """
                     승인 대기 중인 점주를 승인하고, 고른 가게에 연결합니다. 승인된 점주는 바로 로그인해 그 가게에 체크인할 수 있습니다.
@@ -96,6 +117,7 @@ public class OwnerAdminController {
 
                     - `storeId` 는 필수입니다. 가게 없이는 승인할 수 없습니다.
                     - 승인과 가게 연결은 함께 처리됩니다. 가게가 없으면 신청은 승인 대기 그대로 남습니다.
+                    - 신청서의 가게 전화·영업시간·메뉴를 가게의 **빈 항목에만** 옮겨 적습니다. 이미 값이 있는 항목은 바꾸지 않습니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "승인 성공"),
@@ -140,6 +162,32 @@ public class OwnerAdminController {
         return ownerApprovalService.reject(memberId, admin.memberId());
     }
 
+    @Operation(summary = "가입 거절 되돌리기",
+            description = """
+                    **잘못 거절한 신청을 다시 승인 대기로 되돌립니다.**
+
+                    거절된 계정은 로그인할 수 없고 같은 이메일로 다시 가입할 수도 없어서, 손이 미끄러진 한 번이
+                    그 점주의 가입을 영영 막았습니다. 되돌리면 처리 기록(언제·누가 거절했는지)을 지우고 다시 대기로 둡니다.
+
+                    되돌릴 수 있는 건 **거절된 신청뿐**입니다. 승인된 점주를 대기로 되돌리면 이미 연결된 가게와
+                    체크인 권한이 어떤 상태인지 말할 수 없어집니다 — 그건 `DELETE .../stores/{storeId}`(연결 끊기)로 다룹니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "되돌림 — 상태는 PENDING"),
+            @ApiResponse(responseCode = "404", description = "해당 ID 의 점주가 없는 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "거절된 신청이 아닌 경우(owner-not-rejected)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @PostMapping("/{memberId}/reopen")
+    public OwnerApplicationResponse reopen(
+            @Parameter(description = "점주 회원 ID", example = "3") @PathVariable Long memberId,
+            @AuthenticationPrincipal AuthMember admin) {
+        return ownerApprovalService.reopen(memberId, admin.memberId());
+    }
+
     @Operation(summary = "점주를 가게에 연결",
             description = """
                     이미 승인된 점주를 가게에 연결합니다. 가게를 잘못 골라 승인했거나 실수로 연결을 끊었을 때 바로잡는 데 씁니다.
@@ -147,6 +195,9 @@ public class OwnerAdminController {
 
                     - 승인 대기 중인 점주는 이 API 가 아니라 승인 API 로 연결합니다.
                     - 끊긴 적이 있는 가게면 그 연결을 되살립니다.
+                    - 이 점주에게 연결된 다른 가게가 없을 때만, 신청서의 가게 전화·영업시간·메뉴를 가게의 빈 항목에 옮겨 적습니다.
+                      잘못 고른 가게를 바로잡을 때는 **잘못된 가게를 먼저 끊고** 연결해야 맞는 가게에 옮겨 적힙니다.
+                      잘못된 가게에 이미 옮겨 적힌 값은 연결을 끊어도 남습니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "연결 성공"),

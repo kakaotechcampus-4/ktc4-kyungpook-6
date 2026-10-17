@@ -5,21 +5,33 @@ import com.ktc4.backend.domain.member.dto.OwnerApplicationResponse;
 import com.ktc4.backend.domain.member.dto.StoreCandidateResponse;
 import com.ktc4.backend.domain.member.entity.Member;
 import com.ktc4.backend.domain.member.entity.OwnerInfo;
+import com.ktc4.backend.domain.member.entity.SignupBusinessHour;
+import com.ktc4.backend.domain.member.entity.SignupMenu;
 import com.ktc4.backend.domain.member.entity.StoreOwner;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.member.enums.NameMatch;
 import com.ktc4.backend.domain.member.repository.MemberRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStoreDetail;
+import com.ktc4.backend.domain.member.dto.LinkedStoreDetailResponse;
+import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.LinkedStore;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository.OwnerCount;
+import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.dto.MenuSeed;
+import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
+import com.ktc4.backend.domain.store.service.StoreOperatingInfoService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -40,6 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,12 +75,17 @@ class OwnerApprovalServiceTest {
     @Mock
     private StoreService storeService;
 
+    @Mock
+    private StoreOperatingInfoService storeOperatingInfoService;
+
     @InjectMocks
     private OwnerApprovalService ownerApprovalService;
 
     private static Member pendingOwner(long id) {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("1234567890", "예시분식", "홍길동", "01000000000"));
+                OwnerInfo.builder()
+                        .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                        .build());
         ReflectionTestUtils.setField(owner, "memberId", id);
         return owner;
     }
@@ -194,7 +212,9 @@ class OwnerApprovalServiceTest {
     @DisplayName("신청서의 사업자번호가 비어 있으면 번호가 빈 가게와도 일치로 보지 않는다")
     void emptyApplicantBizNoNeverMatches() {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("", "예시분식", "홍길동", "01000000000"));
+                OwnerInfo.builder()
+                        .bizNo("").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                        .build());
         when(memberRepository.findById(3L)).thenReturn(Optional.of(owner));
         when(storeService.findOwnerCandidates(any(), any(), any())).thenReturn(List.of(
                 store(10L, "예시분식", "", null),
@@ -223,7 +243,9 @@ class OwnerApprovalServiceTest {
     @DisplayName("휴대폰 번호 없이 가입한 점주는 휴대폰 일치로 표시되지 않는다 — 가게의 점주 휴대폰 번호가 비어 있어도")
     void applicantWithoutPhoneNeverMatchesByPhone() {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("1234567890", "예시분식", "홍길동", null));
+                OwnerInfo.builder()
+                        .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone(null)
+                        .build());
         when(memberRepository.findById(3L)).thenReturn(Optional.of(owner));
         when(storeService.findOwnerCandidates("1234567890", null, "예시분식")).thenReturn(List.of(
                 store(10L, "예시분식", "1234567890", null),
@@ -264,7 +286,7 @@ class OwnerApprovalServiceTest {
         Store store = store(STORE_ID, "예시분식", "1234567890");
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin);
-        when(storeService.findStore(STORE_ID)).thenReturn(store);
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
         LocalDateTime before = LocalDateTime.now();
 
         OwnerApplicationResponse response = ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID);
@@ -287,7 +309,7 @@ class OwnerApprovalServiceTest {
         Store store = store(STORE_ID, "예시분식", null, null, "053-000-0000");
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(pendingOwner(3L)));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
-        when(storeService.findStore(STORE_ID)).thenReturn(store);
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
 
         ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID);
 
@@ -301,7 +323,7 @@ class OwnerApprovalServiceTest {
         Store store = store(STORE_ID, "예시분식", null, "010-0000-0009");
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(pendingOwner(3L)));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
-        when(storeService.findStore(STORE_ID)).thenReturn(store);
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
 
         ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID);
 
@@ -312,12 +334,14 @@ class OwnerApprovalServiceTest {
     @DisplayName("휴대폰 번호 없이 가입한 점주를 승인해도 가게의 점주 휴대폰 번호는 비어 있는 그대로다")
     void approveWithoutApplicantPhoneLeavesOwnerPhoneEmpty() {
         Member owner = Member.ownerApplicant("owner@example.com", "hash",
-                new OwnerInfo("1234567890", "예시분식", "홍길동", null));
+                OwnerInfo.builder()
+                        .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone(null)
+                        .build());
         ReflectionTestUtils.setField(owner, "memberId", 3L);
         Store store = store(STORE_ID, "예시분식", null);
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
-        when(storeService.findStore(STORE_ID)).thenReturn(store);
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
 
         ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID);
 
@@ -330,7 +354,7 @@ class OwnerApprovalServiceTest {
         Member owner = pendingOwner(3L);
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
-        when(storeService.findStore(STORE_ID)).thenReturn(store(STORE_ID, "예시분식", null));
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store(STORE_ID, "예시분식", null));
 
         ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID);
 
@@ -343,7 +367,7 @@ class OwnerApprovalServiceTest {
     void keepsPendingWhenStoreMissing() {
         Member owner = pendingOwner(3L);
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
-        when(storeService.findStore(STORE_ID)).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
+        when(storeService.findStoreForUpdate(STORE_ID)).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
 
         assertThatThrownBy(() -> ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID))
                 .isInstanceOf(CustomException.class)
@@ -469,10 +493,12 @@ class OwnerApprovalServiceTest {
     void unlinksStore() {
         Member owner = approvedOwner(3L);
         Member admin = admin();
-        StoreOwner link = activeLink(store(STORE_ID, "예시분식", null), owner);
+        Store store = store(STORE_ID, "예시분식", null);
+        StoreOwner link = activeLink(store, owner);
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin);
         when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L)).thenReturn(Optional.of(link));
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
         LocalDateTime before = LocalDateTime.now();
 
         ownerApprovalService.unlinkStore(3L, STORE_ID, ADMIN_ID);
@@ -493,6 +519,7 @@ class OwnerApprovalServiceTest {
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
         when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L))
                 .thenReturn(Optional.of(activeLink(store, owner)));
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
 
         ownerApprovalService.unlinkStore(3L, STORE_ID, ADMIN_ID);
 
@@ -509,6 +536,7 @@ class OwnerApprovalServiceTest {
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
         when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L))
                 .thenReturn(Optional.of(activeLink(store, owner)));
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
 
         ownerApprovalService.unlinkStore(3L, STORE_ID, ADMIN_ID);
 
@@ -543,7 +571,7 @@ class OwnerApprovalServiceTest {
         Store store = store(STORE_ID, "예시분식", null);
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin);
-        when(storeService.findStore(STORE_ID)).thenReturn(store);
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
         when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L)).thenReturn(Optional.empty());
 
         ownerApprovalService.linkStore(3L, STORE_ID, ADMIN_ID);
@@ -567,7 +595,7 @@ class OwnerApprovalServiceTest {
         unlinked.unlink(admin(), LocalDateTime.of(2026, 10, 1, 9, 0));
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
         when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin);
-        when(storeService.findStore(STORE_ID)).thenReturn(store);
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
         when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L)).thenReturn(Optional.of(unlinked));
         LocalDateTime before = LocalDateTime.now();
 
@@ -588,7 +616,7 @@ class OwnerApprovalServiceTest {
         StoreOwner active = activeLink(store, owner);
         LocalDateTime linkedAt = active.getLinkedAt();
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
-        when(storeService.findStore(STORE_ID)).thenReturn(store);
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
         when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L)).thenReturn(Optional.of(active));
 
         assertThatThrownBy(() -> ownerApprovalService.linkStore(3L, STORE_ID, ADMIN_ID))
@@ -618,7 +646,7 @@ class OwnerApprovalServiceTest {
     @DisplayName("없는 가게에는 연결할 수 없다 — STORE_NOT_FOUND")
     void cannotLinkMissingStore() {
         when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(approvedOwner(3L)));
-        when(storeService.findStore(STORE_ID)).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
+        when(storeService.findStoreForUpdate(STORE_ID)).thenThrow(new CustomException(ErrorCode.STORE_NOT_FOUND));
 
         assertThatThrownBy(() -> ownerApprovalService.linkStore(3L, STORE_ID, ADMIN_ID))
                 .extracting("errorCode").isEqualTo(ErrorCode.STORE_NOT_FOUND);
@@ -653,5 +681,225 @@ class OwnerApprovalServiceTest {
 
         assertThatThrownBy(() -> StoreOwner.link(store(STORE_ID, "예시분식", null), admin, admin, LocalDateTime.now()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * 연결을 끊는 API 는 있는데 무엇이 연결돼 있는지 볼 방법이 없어, 화면에서 끊을 대상을 고를 수 없었다(PROMPT-150).
+     */
+    @Nested
+    @DisplayName("연결된 가게 조회")
+    class GetLinkedStores {
+
+        private LinkedStoreDetail detail(long storeId, String name) {
+            return new LinkedStoreDetail() {
+                @Override
+                public Long getStoreId() {
+                    return storeId;
+                }
+
+                @Override
+                public String getName() {
+                    return name;
+                }
+
+                @Override
+                public String getAddressRoad() {
+                    return "가상특별시 예시구 샘플로 123";
+                }
+
+                @Override
+                public LocalDateTime getLinkedAt() {
+                    return LocalDateTime.of(2026, 10, 13, 9, 0);
+                }
+            };
+        }
+
+        @Test
+        @DisplayName("연결된 가게를 그대로 옮겨 준다")
+        void returnsLinkedStores() {
+            Member owner = pendingOwner(3L);
+            when(memberRepository.findById(3L)).thenReturn(Optional.of(owner));
+            when(storeOwnerRepository.findLinkedStoreDetailsByMemberId(3L))
+                    .thenReturn(List.of(detail(10L, "예시분식"), detail(11L, "예시분식 2호점")));
+
+            List<LinkedStoreDetailResponse> stores = ownerApprovalService.getLinkedStores(3L);
+
+            assertThat(stores).extracting(LinkedStoreDetailResponse::storeId).containsExactly(10L, 11L);
+            assertThat(stores.get(0).name()).isEqualTo("예시분식");
+            assertThat(stores.get(0).linkedAt()).isEqualTo(LocalDateTime.of(2026, 10, 13, 9, 0));
+        }
+
+        @Test
+        @DisplayName("연결이 없으면 빈 목록이다 — 승인 전 점주도 여기로 온다")
+        void returnsEmptyWhenNoLink() {
+            when(memberRepository.findById(3L)).thenReturn(Optional.of(pendingOwner(3L)));
+            when(storeOwnerRepository.findLinkedStoreDetailsByMemberId(3L)).thenReturn(List.of());
+
+            assertThat(ownerApprovalService.getLinkedStores(3L)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("점주가 아니면 없는 것으로 본다 — 관리자 계정의 존재를 알아낼 수 없게")
+        void hidesNonOwner() {
+            when(memberRepository.findById(ADMIN_ID)).thenReturn(Optional.of(admin()));
+
+            assertThatThrownBy(() -> ownerApprovalService.getLinkedStores(ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
+            verify(storeOwnerRepository, never()).findLinkedStoreDetailsByMemberId(any());
+        }
+    }
+
+    /**
+     * 잘못 거절하면 그 계정은 굳는다 — 로그인도 못 하고 같은 이메일로 재가입도 안 된다(PROMPT-150).
+     */
+    @Nested
+    @DisplayName("가입 거절 되돌리기")
+    class Reopen {
+
+        private Member rejectedOwner(long id) {
+            Member owner = pendingOwner(id);
+            owner.reject(LocalDateTime.of(2026, 10, 13, 9, 0), ADMIN_ID);
+            return owner;
+        }
+
+        @Test
+        @DisplayName("거절된 신청을 다시 승인 대기로 되돌린다")
+        void reopensRejected() {
+            Member owner = rejectedOwner(3L);
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
+
+            OwnerApplicationResponse response = ownerApprovalService.reopen(3L, ADMIN_ID);
+
+            assertThat(response.status()).isEqualTo(MemberStatus.PENDING);
+            assertThat(owner.getStatus()).isEqualTo(MemberStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("되돌리면 처리 기록을 지운다 — 남겨 두면 화면이 처리된 건으로 읽는다")
+        void clearsReviewRecord() {
+            Member owner = rejectedOwner(3L);
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
+
+            OwnerApplicationResponse response = ownerApprovalService.reopen(3L, ADMIN_ID);
+
+            assertThat(response.reviewedAt()).isNull();
+            assertThat(owner.getOwnerInfo().getRejectedBy()).isNull();
+        }
+
+        @Test
+        @DisplayName("승인된 점주는 되돌릴 수 없다 — 연결된 가게와 체크인 권한이 어떤 상태인지 말할 수 없어진다")
+        void rejectsApproved() {
+            Member owner = pendingOwner(3L);
+            owner.approve(LocalDateTime.of(2026, 10, 13, 9, 0));
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(owner));
+
+            assertThatThrownBy(() -> ownerApprovalService.reopen(3L, ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.OWNER_NOT_REJECTED);
+            assertThat(owner.getStatus()).isEqualTo(MemberStatus.APPROVED);
+        }
+
+        @Test
+        @DisplayName("이미 대기 중인 신청도 되돌릴 것이 없다")
+        void rejectsPending() {
+            when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(pendingOwner(3L)));
+
+            assertThatThrownBy(() -> ownerApprovalService.reopen(3L, ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.OWNER_NOT_REJECTED);
+        }
+
+        @Test
+        @DisplayName("점주가 아니면 없는 것으로 본다")
+        void hidesNonOwner() {
+            when(memberRepository.findByIdForUpdate(ADMIN_ID)).thenReturn(Optional.of(admin()));
+
+            assertThatThrownBy(() -> ownerApprovalService.reopen(ADMIN_ID, ADMIN_ID))
+                    .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
+        }
+    }
+
+    // ── 신청서의 가게 정보를 가게로 넘기기 (실제로 채우는 동작은 OwnerApprovalStoreFillTest 가 DB 로 본다) ──────────
+
+    private static final String PHOTO_FILE_ID = "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+
+    private static Member pendingOwnerWithStoreInfo(long id) {
+        Member owner = Member.ownerApplicant("owner@example.com", "hash", OwnerInfo.builder()
+                .bizNo("1234567890").storeName("예시분식").representativeName("홍길동").phone("01000000000")
+                .storeAddress("가상특별시 예시구 샘플로 123").storePhone("053-000-0001")
+                .businessHours(List.of(
+                        new SignupBusinessHour(BusinessDay.FRI, "21:00", "02:00"),
+                        new SignupBusinessHour(BusinessDay.MON, "11:00", "24:00")))
+                .menus(List.of(new SignupMenu("다슬기국", PHOTO_FILE_ID), new SignupMenu("가락국수", null)))
+                .build());
+        ReflectionTestUtils.setField(owner, "memberId", id);
+        return owner;
+    }
+
+    private static LinkedStore linkedStore(long storeId) {
+        return new LinkedStore() {
+            @Override
+            public Long getStoreId() {
+                return storeId;
+            }
+
+            @Override
+            public String getName() {
+                return "다른가게";
+            }
+        };
+    }
+
+    // 옮겨 적기 기록에 승인·연결한 관리자가 들어가는지 — 시각은 호출할 때 정해지므로 경로·사람·조사 ID 만 본다
+    private static StoreChange signupFillBy(long adminId) {
+        return argThat(change -> change.source() == StoreChangeSource.SIGNUP_FILL
+                && change.changedBy() == adminId && change.taskId() == null);
+    }
+
+    @Test
+    @DisplayName("승인하면 잠근 가게와 신청서의 가게 전화·영업시간(HH:mm 그대로)·메뉴 이름·사진을 적힌 순서대로 넘긴다")
+    void approveHandsApplicationToStore() {
+        Store store = store(STORE_ID, "예시분식", null);
+        when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(pendingOwnerWithStoreInfo(3L)));
+        when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
+
+        ownerApprovalService.approve(3L, STORE_ID, ADMIN_ID);
+
+        verify(storeOperatingInfoService).fillIfEmpty(eq(store), eq("053-000-0001"),
+                eq(List.of(new BusinessHourRequest(BusinessDay.FRI, "21:00", "02:00"),
+                        new BusinessHourRequest(BusinessDay.MON, "11:00", "24:00"))),
+                eq(List.of(new MenuSeed("다슬기국", PHOTO_FILE_ID), new MenuSeed("가락국수", null))),
+                signupFillBy(ADMIN_ID));
+        verify(storeService, never()).findStore(any());
+    }
+
+    @Test
+    @DisplayName("이미 살아 있는 다른 가게가 있는 점주를 연결하면 신청서의 가게 정보를 넘기지 않는다")
+    void linkToSecondStoreDoesNotFill() {
+        Store store = store(STORE_ID, "예시분식", null);
+        when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(approvedOwner(3L)));
+        when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
+        when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L)).thenReturn(Optional.empty());
+        when(storeOwnerRepository.findLinkedStoresByMemberId(3L)).thenReturn(List.of(linkedStore(11L)));
+
+        ownerApprovalService.linkStore(3L, STORE_ID, ADMIN_ID);
+
+        verify(storeOperatingInfoService, never()).fillIfEmpty(any(), any(), any(), any(), any());
+        verify(storeOwnerRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("살아 있는 다른 가게가 없는 점주를 연결하면 신청서의 가게 정보를 넘긴다")
+    void linkWithoutOtherStoreFills() {
+        Store store = store(STORE_ID, "예시분식", null);
+        when(memberRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(approvedOwner(3L)));
+        when(memberRepository.getReferenceById(ADMIN_ID)).thenReturn(admin());
+        when(storeService.findStoreForUpdate(STORE_ID)).thenReturn(store);
+        when(storeOwnerRepository.findByStoreIdAndMemberId(STORE_ID, 3L)).thenReturn(Optional.empty());
+        when(storeOwnerRepository.findLinkedStoresByMemberId(3L)).thenReturn(List.of());
+
+        ownerApprovalService.linkStore(3L, STORE_ID, ADMIN_ID);
+
+        verify(storeOperatingInfoService).fillIfEmpty(eq(store), any(), any(), any(), signupFillBy(ADMIN_ID));
     }
 }

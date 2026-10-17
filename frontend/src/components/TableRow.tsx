@@ -50,8 +50,13 @@ const STATUS_STYLE = {
   },
 } as const;
 
+/*
+  칸 높이가 20px 로 고정돼 있어 두 줄짜리 값은 아래 절반이 잘려 보였다 —
+  실데이터 20행 중 14행의 주소가 그랬다(PROMPT-150). 한 줄로 두고 말줄임표로 끊되,
+  전체 값은 title 로 띄워 마우스로 읽을 수 있게 한다.
+*/
 const CELL_TEXT =
-  "w-full font-sans text-sm font-normal leading-5 text-[#1e293b]";
+  "w-full truncate font-sans text-sm font-normal leading-5 text-[#1e293b]";
 
 type TableRowProps = {
   /** 상호명 */
@@ -88,7 +93,11 @@ function TableRow({
   const renderCellText = (value: string | undefined) => {
     if (isLoading) return <Skeleton className="h-5 w-full" />;
     if (!value) return null;
-    return <p className={CELL_TEXT}>{value}</p>;
+    return (
+      <p className={CELL_TEXT} title={value}>
+        {value}
+      </p>
+    );
   };
 
   return (

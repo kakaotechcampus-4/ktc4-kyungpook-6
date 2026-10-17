@@ -4,9 +4,9 @@
 
     도구
       check_maps()             지도 대조(네이버 지역 검색·카카오). LLM 에는 항목별 "일치·다름·못 찾음" 만 알린다
-                               — 카카오 값은 외부 LLM 에 넘길 수 없다(약관). 값과 링크는 코드에만 남는다
+                               — 지도 값은 외부 LLM 에 넘길 수 없다(약관). 값과 링크는 코드에만 남는다
       web_search(field, goal)  항목·목적을 좁힌 웹검색(그라운딩 호출을 따로 한다 — Gemini 는 그라운딩과
-                               함수 도구를 한 요청에 같이 쓸 수 없다)
+                               함수 도구를 한 요청에 같이 쓸 수 없다). 수정안에 담을 수 있는 값은 여기서만 나온다
       finish(reason)           조사를 끝낸다
     상한: 도구 호출 MAX_STEPS 번, 그중 웹검색 MAX_WEB_SEARCHES 번
 
@@ -22,8 +22,8 @@ Responses API(`/v1/responses`)로 부른다 — gpt-6-luna 는 chat/completions 
 상태는 서버에 남기지 않고(`store=false`) 암호화된 추론을 다음 턴에 되돌려 준다.
 
     AGENT_MODEL     판단 모델 이름. 비우면 Vertex Gemini(MODEL)
-    AGENT_BASE_URL  OpenAI 호환 /v1 주소. 비우면 GOOGLE_PROXY_URL + "/v1"
-    AGENT_API_KEY   그 API 키. 비우면 GOOGLE_API_KEY
+    AGENT_BASE_URL  OpenAI 호환 /v1 주소 (카테캠 프록시는 모델마다 주소가 다르다 — `https://mlapi.run/<uuid>/v1`)
+    AGENT_API_KEY   그 API 키
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field as dc_field
 
 import httpx
 
-from src.investigation.classify import classify, relation_to_db
+from src.investigation.classify import classify, relation_to_db, with_confirmations
 from src.investigation.models import ChangeField, InvestigationTarget, PlaceCheck, StoreFinding
 from src.investigation.web import RATE_LIMIT_WAITS_SECONDS, MapObserver, PlaceChecker, _is_rate_limited
 from src.investigation.web_research import (
@@ -53,6 +53,21 @@ from src.investigation.web_research import (
 MODEL = "gemini-2.5-flash"
 MAX_STEPS = 4
 MAX_WEB_SEARCHES = 2
+#: 가게 하나에 쓸 시간(초). 백엔드가 AI 응답을 기다리는 시간(`ai.read-timeout-ms`, 지금 75초)을 넘으면 백엔드는
+#: `AiReadTimeout` 으로 그 가게를 버린다 — AI 가 찾은 것까지 다 잃는다. 그래서 남은 시간이 모자라면 새 도구를 시작하지
+#: 않고, 그때까지 모은 관측으로 판정한다. 혼합 방식 실측(l1): 중앙 36초, 상위 10% 107초, 60곳 중 14곳이 75초 초과.
+TIME_BUDGET_ENV = "INVESTIGATION_TIME_BUDGET_SECONDS"
+DEFAULT_TIME_BUDGET_SECONDS = 75.0
+#: 웹검색을 새로 시작하려면 남아 있어야 하는 시간. 한 번에 보통 10~20초, 429 대기(5·15초)가 붙으면 40초 가까이 걸린다(실측).
+WEB_SEARCH_RESERVE_SECONDS = 40.0
+
+
+def time_budget_from_env() -> float:
+    """`INVESTIGATION_TIME_BUDGET_SECONDS` — 백엔드 타임아웃을 바꾸면 같이 바꾼다. 잘못된 값이면 기본값."""
+    try:
+        return float(os.environ.get(TIME_BUDGET_ENV) or DEFAULT_TIME_BUDGET_SECONDS)
+    except ValueError:
+        return DEFAULT_TIME_BUDGET_SECONDS
 
 _FIELD_NAMES = {"name": ChangeField.NAME, "address": ChangeField.ADDRESS, "phone": ChangeField.PHONE,
                 "status": ChangeField.STATUS}
@@ -103,7 +118,8 @@ def build_continue_prompt(target: InvestigationTarget, maps_summary: str) -> str
 - finish(reason): 조사를 끝낸다
 
 방법:
-- 카카오맵에서만 "다름" 인 항목은 그 항목을 웹에서 찾아 실제 값을 확인해라(카카오 값은 수정안에 쓸 수 없다)
+- 지도에서 "다름" 인 항목은 그 항목을 웹에서 찾아 실제 값을 확인해라(지도 값은 약관상 수정안에 쓸 수 없다 —
+  웹에서 같은 값을 찾아야 수정안에 오른다)
 - 지도에서 **아무 항목도 못 찾았으면** web_search("all") 한 번으로 전부 찾아라
 - "못 찾음"·"판단 보류" 인 항목만 찾아라. 이미 일치한 항목은 다시 찾지 마라
 - 웹검색은 많아야 {MAX_WEB_SEARCHES}번이다. 더 찾을 것이 없으면 끝내라
@@ -157,22 +173,28 @@ class OpenAIDecider:
         self._url = base_url.rstrip("/") + "/responses"
         self._http = http if http is not None else httpx.Client(
             timeout=LLM_TIMEOUT_SECONDS, headers={"Authorization": f"Bearer {api_key}"})
+        #: 암호화된 추론을 받아 다음 턴에 되돌려 준다(OpenAI 추론 모델). 프록시의 다른 모델(gemini-4-argon·
+        #: claude-sonnet-5)은 이 옵션을 400 으로 거절한다 — 한 번 거절되면 이 판단 모델에서는 빼고 보낸다.
+        self._include_reasoning = True
 
     @classmethod
     def from_env(cls) -> OpenAIDecider | None:
         model = os.environ.get("AGENT_MODEL")
         if not model:
             return None
-        base = os.environ.get("AGENT_BASE_URL") or (os.environ.get("GOOGLE_PROXY_URL", "").rstrip("/") + "/v1")
-        return cls(model, base, os.environ.get("AGENT_API_KEY") or os.environ.get("GOOGLE_API_KEY", ""))
+        return cls(model, os.environ.get("AGENT_BASE_URL", ""), os.environ.get("AGENT_API_KEY", ""))
 
     def respond(self, items: list[dict], tool_names: list[str] | None = None) -> list[dict]:
         """지금까지의 입력·출력 항목을 주고 이번 출력 항목(추론·함수 호출·문장)을 받는다."""
         tools = [t for t in OPENAI_TOOLS if tool_names is None or t["name"] in tool_names]
-        response = self._http.post(self._url, json={
-            "model": self.model, "input": items, "tools": tools,
-            "store": False, "include": ["reasoning.encrypted_content"],
-        })
+        body = {"model": self.model, "input": items, "tools": tools, "store": False}
+        if self._include_reasoning:
+            response = self._http.post(self._url, json=body | {"include": ["reasoning.encrypted_content"]})
+            if not (response.status_code == 400 and "include" in response.text):
+                response.raise_for_status()
+                return response.json()["output"]
+            self._include_reasoning = False
+        response = self._http.post(self._url, json=body)
         response.raise_for_status()
         return response.json()["output"]
 
@@ -196,6 +218,8 @@ class AgentInvestigator:
         client: object | None = None,
         decider: OpenAIDecider | None = None,
         sleep=time.sleep,
+        clock=time.monotonic,
+        time_budget: float | None = None,
     ) -> None:
         self._decider = decider
         self._research = research
@@ -205,6 +229,10 @@ class AgentInvestigator:
         # Gemini 판단(decider 없음)일 때만 Vertex 클라이언트가 필요하다.
         self._client = client if client is not None or decider is not None else research.client
         self._sleep = sleep
+        self._clock = clock
+        self._time_budget = time_budget if time_budget is not None else time_budget_from_env()
+        #: 평가용 기록(`eval/mismatch_bench.py`). 서버는 조사기를 하나만 두고 요청을 동시에 돌리므로, 응답에 쓰는 값은
+        #: 여기서 읽지 않고 반환값으로 받는다.
         self.last_trace = Trace()
         self.last_observations: list[Observation] = []
 
@@ -220,7 +248,7 @@ class AgentInvestigator:
             parts = []
             for o in found:
                 relation = _RELATION_LABELS[relation_to_db(target, change_field, o.value)]
-                # 저장할 수 없는 값(카카오)은 LLM 에 넘기지 않는다 — 관계와 출처만 알린다.
+                # 저장할 수 없는 값(지도)은 LLM 에 넘기지 않는다 — 관계와 출처만 알린다.
                 shown = f" {o.value}" if o.storable else ""
                 parts.append(f"{relation}({sorted(o.domains)[0]}{shown})")
             lines.append(f"{_FIELD_LABELS[change_field]}: " + ", ".join(parts))
@@ -270,6 +298,10 @@ class AgentInvestigator:
         self, target: InvestigationTarget, start: list[Observation], *, maps_done: bool, place: PlaceCheck | None = None
     ) -> StoreFinding:
         trace = self.last_trace = Trace()
+        started = self._clock()
+
+        def remaining() -> float:
+            return self._time_budget - (self._clock() - started)
         search_errors: list[Exception] = []
         observations: list[Observation] = start
         self.last_observations = observations
@@ -297,6 +329,9 @@ class AgentInvestigator:
                 return "field 는 name·address·phone·status·all 중 하나다"
             if trace.web_searches >= MAX_WEB_SEARCHES:
                 return "웹검색 한도를 다 썼다. finish 로 끝내라"
+            if remaining() < WEB_SEARCH_RESERVE_SECONDS:
+                trace.steps.append(f"web_search({field}, {goal!r}) → 시간 예산 부족으로 건너뜀")
+                return "시간이 부족해 더 검색할 수 없다. finish 로 끝내라"
             trace.web_searches += 1
             trace.llm_calls += 1
             prompt = build_research_prompt(target) if change_field is None else build_focused_prompt(target, change_field, goal)
@@ -343,7 +378,7 @@ class AgentInvestigator:
         # 웹검색이 전부 실패해 아무것도 못 잡았으면 "변화없음"이 아니라 실패다 — 서버가 failure 로 바꾼다.
         if search_errors and len(search_errors) == trace.web_searches and not finding.signals:
             raise search_errors[-1]
-        return finding
+        return with_confirmations(target, observations, finding)
 
     def _run_openai(self, prompt: str, tools: dict, trace: Trace) -> None:
         items: list[dict] = [{"role": "user", "content": prompt}]

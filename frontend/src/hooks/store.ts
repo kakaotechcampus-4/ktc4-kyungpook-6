@@ -1,7 +1,11 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { estimateSurveyMinutes, useAgentSurveyTrigger } from './agentSurvey';
 import type { UseAgentSurveyTriggerResult } from './agentSurvey';
 import { useModal } from './modal';
+import { startJob } from '../services/analysis';
+import { messageOf } from '../utils/apiError';
 
 export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   /** 조사 시작 모달 열림 여부. */
@@ -10,8 +14,12 @@ export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   openSurveyModal: () => void;
   /** 취소 또는 ESC로 모달을 닫는다. */
   closeSurveyModal: () => void;
-  /** 모달의 "조사 시작하기". */
+  /** 모달의 "조사 시작하기". 조사를 만들고 결과 화면으로 보낸다. */
   startSurvey: () => void;
+  /** 조사 시작 요청이 날아가 있는 동안 true. */
+  isStartingSurvey: boolean;
+  /** 조사를 시작하지 못한 이유. 없으면 undefined. */
+  surveyErrorMessage: string | undefined;
   /** 조사 대상 가게 수. 모달의 "가게 수". */
   surveyTargetCount: number;
   /** 예상 소요 시간(분). 모달의 "예상 소요 시간". */
@@ -51,6 +59,10 @@ export function applySelection(
  */
 export function useStoreListPage(): UseStoreListPageResult {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [surveyErrorMessage, setSurveyErrorMessage] = useState<
+    string | undefined
+  >(undefined);
+  const navigate = useNavigate();
 
   const isSelected = (id: string) => selectedIds.has(id);
 
@@ -81,15 +93,38 @@ export function useStoreListPage(): UseStoreListPageResult {
   */
   const openSurveyModal = () => {
     agentSurvey.dismissTooltip();
+    setSurveyErrorMessage(undefined);
     surveyModal.open();
   };
 
   /*
-    조사 시작. 조사 시작 API가 아직 없어 지금은 모달만 닫는다.
-    TODO: API가 나오면 여기서 호출한 뒤 결과에 따라 모달을 닫는다.
+    조사 시작. 성공해야 모달을 닫는다 — 실패했는데 닫으면 담당자는 조사가 시작된 줄 안다.
+    조사는 한 번에 하나라, 이미 도는 조사가 있으면 백엔드가 409로 거절하고 그 이유를 모달에 띄운다.
+
+    선택 id 는 화면용 문자열이고 목업 행은 "fallback-1" 처럼 숫자가 아니다.
+    서버에 없는 가게라 숫자로 바뀌지 않는 id 는 빼고 보낸다.
   */
+  const startMutation = useMutation({
+    mutationFn: (storeIds: number[]) => startJob(storeIds),
+    onMutate: () => setSurveyErrorMessage(undefined),
+    onSuccess: ({ jobId }) => {
+      surveyModal.close();
+      navigate(`/analysis/${jobId}`);
+    },
+    onError: (error) => setSurveyErrorMessage(messageOf(error)),
+  });
+
   const startSurvey = () => {
-    surveyModal.close();
+    const storeIds = [...selectedIds]
+      .map(Number)
+      .filter((id) => Number.isInteger(id) && id > 0);
+
+    if (storeIds.length === 0) {
+      setSurveyErrorMessage('조사할 가게를 먼저 고르세요.');
+      return;
+    }
+
+    startMutation.mutate(storeIds);
   };
 
   return {
@@ -98,6 +133,8 @@ export function useStoreListPage(): UseStoreListPageResult {
     openSurveyModal,
     closeSurveyModal: surveyModal.close,
     startSurvey,
+    isStartingSurvey: startMutation.isPending,
+    surveyErrorMessage,
     surveyTargetCount: selectedIds.size,
     estimatedMinutes: estimateSurveyMinutes(selectedIds.size),
     selectedIds,

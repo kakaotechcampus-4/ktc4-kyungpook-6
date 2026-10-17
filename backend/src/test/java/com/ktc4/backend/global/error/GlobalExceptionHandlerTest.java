@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.ktc4.backend.domain.store.controller.StoreController;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private StoreManagementService storeManagementService;
 
     private ListAppender<ILoggingEvent> logAppender;
     private Logger handlerLogger;
@@ -288,6 +292,8 @@ class GlobalExceptionHandlerTest {
                     Arguments.of(HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND),
                     Arguments.of(HttpStatus.METHOD_NOT_ALLOWED, ErrorCode.METHOD_NOT_ALLOWED),
                     Arguments.of(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ErrorCode.UNSUPPORTED_MEDIA_TYPE),
+                    // 올린 파일이 multipart 상한을 넘으면 프레임워크가 413 으로 거절한다 — MockMvc 로는 상한이 걸리지 않아 여기서 덮는다
+                    Arguments.of(HttpStatus.PAYLOAD_TOO_LARGE, ErrorCode.FILE_TOO_LARGE),
                     // 매핑이 없는 4xx — 406 처럼 우리가 아직 안 본 상태도 INVALID_REQUEST 로
                     Arguments.of(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_REQUEST),
                     Arguments.of(HttpStatus.NOT_ACCEPTABLE, ErrorCode.INVALID_REQUEST),

@@ -33,6 +33,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -40,6 +41,22 @@ import java.util.stream.Collectors;
  *
  * <p>메서드마다 트랜잭션 하나에서 Task·Signal 저장과 Job 진행 수 +1 을 함께 커밋한다 — 나누면 저장은 됐는데
  * 진행 수가 안 오르거나 그 반대가 되어, 진행도가 영영 끝나지 않거나 Task 가 빠진다.
+ *
+ * <h2>조사 도중 가게가 지워진 경우</h2>
+ * 담당자는 조사가 도는 중에도 {@code force=true} 로 가게를 지울 수 있다. 그러면 결과를 남길 곳이
+ * 없다 — {@code task.store_id} 는 NOT NULL 이라 Task 를 만들 수조차 없다. 이때 저장 메서드는
+ * <b>예외를 올리지 않고 {@code false} 를 돌려주며 진행 수만 올린다.</b> 이유는 둘이다.
+ *
+ * <ul>
+ *   <li>예외를 올리면 실행기의 안전망이 받아 <b>조사 전체를 실패로 끝낸다.</b> 가게 한 곳이
+ *       사라진 것 때문에 나머지 가게의 조사 결과까지 버리는 셈이다</li>
+ *   <li>진행 수를 안 올리면 대상 수에 끝내 도달하지 못해 그 조사가 <b>영영 진행 중으로 남는다</b>
+ *       (서버 재시작 정리가 실패로 바꿀 때까지). 다음 조사도 그동안 시작할 수 없다</li>
+ * </ul>
+ *
+ * <p>그래서 그 가게만 결과 없이 빠진다. 요청한 가게 수와 Task 수가 어긋나지만, 지운 쪽이 그걸
+ * 알고 지웠다. 삭제가 애초에 겹치지 않도록 {@code StoreDeletionService} 가 조사가 도는 동안
+ * 삭제를 받지 않는다 — 이 길은 {@code force} 로 그걸 넘긴 경우의 안전망이다.
  */
 @Service
 @RequiredArgsConstructor
@@ -64,14 +81,19 @@ public class TaskService {
      *
      * @param jobId  조사 ID
      * @param target 국세청과 상태가 다른 가게
+     * @return 결과를 남겼으면 true. 그 가게가 조사 도중 지워져 건너뛰었으면 false
      * @throws IllegalArgumentException 상태가 같아 제안할 것이 없는 가게일 때 — 대상 나누기가 잘못됐다는 뜻이다
      */
-    public void saveNts(Long jobId, NtsTarget target) {
+    public boolean saveNts(Long jobId, NtsTarget target) {
         StoreStatus proposed = target.statusComparison().proposedStatus()
                 .orElseThrow(() -> new IllegalArgumentException(
                         "국세청과 상태가 같아 1차 수정안이 없습니다 - storeId=" + target.storeId()));
         Job job = jobService.recordProgress(jobId);
-        Store store = storeService.findStore(target.storeId());
+        Optional<Store> found = storeService.findStoreIfPresent(target.storeId());
+        if (found.isEmpty()) {
+            return false;
+        }
+        Store store = found.get();
 
         Task task = taskRepository.save(Task.builder()
                 .job(job)
@@ -88,6 +110,7 @@ public class TaskService {
                 .signalType(SignalType.SIGNAL_HIGH)
                 .evidenceText("국세청 사업자 상태: " + label(target.ntsStatus()))
                 .build());
+        return true;
     }
 
     /**
@@ -100,14 +123,19 @@ public class TaskService {
      * @param jobId   조사 ID
      * @param finding AI 조사 결과 (성공)
      * @param now     추가확인을 판단할 기준 시각
+     * @return 결과를 남겼으면 true. 그 가게가 조사 도중 지워져 건너뛰었으면 false
      * @throws IllegalArgumentException 실패 결과를 넘겼을 때 — 실패는 {@link #saveFailure} 로 남긴다
      */
-    public void save(Long jobId, AiFinding finding, LocalDateTime now) {
+    public boolean save(Long jobId, AiFinding finding, LocalDateTime now) {
         if (finding.isFailed()) {
             throw new IllegalArgumentException("실패 결과는 saveFailure 로 저장합니다 - storeId=" + finding.storeId());
         }
         Job job = jobService.recordProgress(jobId);
-        Store store = storeService.findStore(finding.storeId());
+        Optional<Store> found = storeService.findStoreIfPresent(finding.storeId());
+        if (found.isEmpty()) {
+            return false;
+        }
+        Store store = found.get();
 
         Task task = taskRepository.save(Task.builder()
                 .job(job)
@@ -126,6 +154,7 @@ public class TaskService {
                     .evidenceUrl(signal.evidenceUrl())
                     .build());
         }
+        return true;
     }
 
     /**
@@ -135,16 +164,21 @@ public class TaskService {
      * @param jobId   조사 ID
      * @param storeId 가게 ID
      * @param reason  화면에 보여 줄 실패 이유 (정해 둔 문구)
+     * @return 실패를 남겼으면 true. 그 가게가 조사 도중 지워져 건너뛰었으면 false
      */
-    public void saveFailure(Long jobId, Long storeId, String reason) {
+    public boolean saveFailure(Long jobId, Long storeId, String reason) {
         Job job = jobService.recordProgress(jobId);
-        Store store = storeService.findStore(storeId);
+        Optional<Store> found = storeService.findStoreIfPresent(storeId);
+        if (found.isEmpty()) {
+            return false;
+        }
 
         taskRepository.save(Task.builder()
                 .job(job)
-                .store(store)
+                .store(found.get())
                 .failureReason(reason)
                 .build());
+        return true;
     }
 
     /**

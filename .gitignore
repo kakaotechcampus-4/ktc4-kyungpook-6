@@ -18,6 +18,7 @@
 .env
 .env.*
 !.env.example
+!.env.development.example
 *.pem
 *.key
 *.p12
@@ -66,6 +67,12 @@ target/
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
 
+# ── 올라온 파일 ─────────────────────────────────────
+# 백엔드를 로컬에서 띄우면 가게 사진·사업자등록증이 여기에 저장된다(UPLOAD_DIR 기본값). 커밋하지 않는다.
+# 실제로 생기는 두 자리만 적는다 — 앞의 / 가 없으면 레포 어디에 있든 uploads 라는 폴더가 통째로 빠진다.
+/uploads/
+/backend/uploads/
+
 # ── 기타 ────────────────────────────────────────────
 *.sqlite3
 *.db
@@ -73,3 +80,7 @@ target/
 
 # 디스코드 멘션 매핑 — 실제 값은 시크릿 DISCORD_MEMBERS 에 있다 (example 만 커밋)
 .github/discord-members.json
+
+# Vertex 서비스 계정 키 — 저장소에 두지 않습니다(호스트 경로를 VERTEX_KEY_PATH 로 가리킵니다)
+vertex*.json
+*-sa.json

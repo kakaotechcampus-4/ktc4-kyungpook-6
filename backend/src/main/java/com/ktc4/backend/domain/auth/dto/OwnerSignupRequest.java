@@ -1,11 +1,24 @@
 package com.ktc4.backend.domain.auth.dto;
 
+import com.ktc4.backend.domain.file.FileIdFormat;
+import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
+import com.ktc4.backend.domain.store.dto.MenuRequest;
+import com.ktc4.backend.domain.store.validation.NonOverlappingBusinessHours;
 import com.ktc4.backend.global.util.LogMasking;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+
+import java.util.List;
+
+import static com.ktc4.backend.global.util.TextPatterns.HAS_LETTER_OR_DIGIT;
+import static com.ktc4.backend.global.util.TextPatterns.NO_INVISIBLE_CHARACTERS;
+import static com.ktc4.backend.global.util.TextPatterns.NO_STACKED_MARKS;
 
 /**
  * 점주 가입 신청.
@@ -14,20 +27,18 @@ import jakarta.validation.constraints.Size;
  * 숫자 10자리로 맞춰 확인한다 — 형식 확인을 여기서 하지 않는 이유는 "123-45-67890" 같은 표기를 그대로 받기 위해서다.
  * 휴대폰 번호도 같은 이유로 서버가 숫자만 남겨 확인한다.
  *
- * <p>상호명·대표자 이름은 두 겹으로 막는다.
- * <ol>
- *   <li><b>글자나 숫자가 하나 이상</b> 있어야 한다 — 전각 공백(U+3000)처럼 {@code @NotBlank} 를 통과하지만
- *       서비스의 {@code strip()} 에서 지워져 빈 값이 되는 글자, 기호·빈칸만으로 된 이름을 막는다.
- *       막는 문자 목록에 없는 새로운 "빈 글자"가 와도 이 규칙이 한 번 더 막는다.</li>
- *   <li><b>보이지 않거나 화면을 흐트러뜨리는 글자</b>를 막는다 — 줄바꿈·탭(Cc), 폭 없는 공백·글자 방향 뒤집기(Cf),
- *       줄·문단 구분자(Zl, Zp), 글자로 분류되지만 보이지 않는 한글 채움 문자(U+115F, U+1160, U+3164, U+FFA0),
- *       점자 빈칸(U+2800), 보이지 않는 결합 글자 연결자(U+034F), 사용자 정의 영역(Co)·아직 배정되지 않은 코드(Cn).
- *       관리자 화면·로그·CSV 에서 이름이 비어 보이거나 뒤집혀 보이지 않게 한다.</li>
- *   <li><b>결합 부호를 3개 이상 겹쳐 쓰지 못하게</b> 한다 — 글자 하나에 부호를 수십 개 쌓아 화면을 망가뜨리는
- *       문자열을 막는다. ❤️ 처럼 이모지에 붙는 부호 하나는 통과한다.</li>
- * </ol>
- * Cf 에는 이모지를 이어 붙이는 글자(ZWJ, U+200D)도 있어 가족 이모지 같은 결합 이모지는 거절된다 —
- * 상호명·대표자 이름에서는 받아들일 만한 제약으로 판단했다.
+ * <p>상호명·대표자 이름은 글자 없는 이름과 보이지 않는 글자를 막는다 — 규칙과 이유는
+ * {@link com.ktc4.backend.global.util.TextPatterns} 에 있다(메뉴 이름도 같은 규칙을 쓴다).
+ *
+ * <p>가게 정보(주소·가게 전화·영업시간·메뉴)는 관리자가 어느 가게인지 찾고 승인할지 판단하는 자료이고, 승인하면 그 가게에
+ * 옮겨 적는다. 모두 필수다 — 메뉴가 있어야 주문을 받고, 영업시간은 가입 뒤 따로 채우지 않을 가능성이 크다.
+ *
+ * <p>사진·사업자등록증은 이 요청에 싣지 않는다. 먼저 {@code POST /api/files} 로 올리고, 받은 파일 ID 만 싣는다
+ * (멘토 10주차 리뷰 — 가입 API 와 파일 업로드 API 를 나눈다). 가게 대표 사진은 선택, 메뉴 사진은 메뉴마다 선택이다
+ * ({@link SignupMenuRequest#photoFileId()}).
+ *
+ * <p>사업자등록증도 <b>잠시 선택</b>이다. 앱이 아직 업로드 API 를 붙이지 않아, 필수로 두면 앱 가입이 전부 400 이 된다.
+ * 앱이 붙으면 {@code bizCertFileId} 에 {@code @NotBlank} 를 되돌려 필수로 한다.
  *
  * <p>비밀번호 최대 길이(72)는 글자 수 기준이다. BCrypt 는 바이트 기준으로 72까지만 비교하므로, 한글처럼
  * 여러 바이트인 글자로 72바이트를 넘기면 {@code AuthService} 가 한 번 더 거절한다.
@@ -69,19 +80,50 @@ public record OwnerSignupRequest(
                 example = "010-0000-0000")
         @NotBlank(message = "휴대폰 번호를 입력해 주세요")
         @Size(max = 20, message = "휴대폰 번호가 너무 깁니다")
-        String phone
+        String phone,
+
+        @Schema(description = """
+                가게 주소 (500자 이하). 관리자가 어느 가게인지 찾는 단서다. 가게 자료의 도로명 주소(addressRoad)와
+                자동으로 이어지지 않는다""", example = "대구광역시 북구 대학로 80")
+        @NotBlank(message = "가게 주소를 입력해 주세요")
+        @Size(max = 500, message = "가게 주소는 {max}자를 넘을 수 없습니다")
+        @Pattern(regexp = NO_INVISIBLE_CHARACTERS, message = "가게 주소에 줄바꿈이나 보이지 않는 글자를 넣을 수 없습니다")
+        String storeAddress,
+
+        @Schema(description = "가게 전화번호 (20자 이하). 대표자 휴대폰과 달리 매장 유선 번호도 된다", example = "053-123-4567")
+        @NotBlank(message = "가게 전화번호를 입력해 주세요")
+        @Size(max = 20, message = "가게 전화번호는 {max}자를 넘을 수 없습니다")
+        @Pattern(regexp = NO_INVISIBLE_CHARACTERS, message = "가게 전화번호에 줄바꿈이나 보이지 않는 글자를 넣을 수 없습니다")
+        String storePhone,
+
+        @ArraySchema(arraySchema = @Schema(description = "영업시간 (1 ~ 21줄). 같은 요일 여러 줄 가능, 줄이 없는 요일은 휴무"),
+                minItems = 1, maxItems = BusinessHourRequest.MAX_LINES)
+        @NotNull(message = "영업시간을 입력해 주세요")
+        @Size(min = 1, max = BusinessHourRequest.MAX_LINES, message = "영업시간은 {min} ~ {max}줄이어야 합니다")
+        @NonOverlappingBusinessHours
+        List<@Valid @NotNull(message = "빈 영업시간 줄이 있습니다") BusinessHourRequest> businessHours,
+
+        @ArraySchema(arraySchema = @Schema(description = "메뉴 (1 ~ 50개). 처음에는 모두 판매 중이다"),
+                minItems = 1, maxItems = MenuRequest.MAX_COUNT)
+        @NotNull(message = "메뉴를 입력해 주세요")
+        @Size(min = 1, max = MenuRequest.MAX_COUNT, message = "메뉴는 {min} ~ {max}개여야 합니다")
+        List<@Valid @NotNull(message = "빈 메뉴가 있습니다") SignupMenuRequest> menus,
+
+        @Schema(description = "가게 대표 사진의 파일 ID (선택). `POST /api/files` 에 kind=STORE_IMAGE 로 올리고 받은 값",
+                example = "3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f", nullable = true)
+        @Pattern(regexp = FileIdFormat.PATTERN, message = FileIdFormat.MESSAGE)
+        String storeImageFileId,
+
+        @Schema(description = "사업자등록증의 파일 ID (지금은 선택, 곧 필수). `POST /api/files` 에 kind=BIZ_CERT 로 올리고 받은 값",
+                example = "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f", nullable = true)
+        // 앱이 업로드를 붙이기 전까지 잠시 선택 — 붙으면 @NotBlank(message = "사업자등록증을 올려 주세요") 를 되돌린다
+        @Pattern(regexp = FileIdFormat.PATTERN, message = FileIdFormat.MESSAGE)
+        String bizCertFileId
 ) {
-    // 글자(L)나 숫자(N)가 최소 하나. (?s): 줄바꿈이 섞여도 . 이 매칭되게 한다(줄바꿈 자체는 아래 규칙이 막는다).
-    static final String HAS_LETTER_OR_DIGIT = "(?s).*[\\p{L}\\p{N}].*";
-    // 제어(Cc)·서식(Cf) 문자, 사용자 정의 영역(Co), 배정 안 된 코드(Cn), 줄·문단 구분자(Zl, Zp),
-    // 한글 채움 문자 4개, 점자 빈칸, 결합 글자 연결자(U+034F)를 막는다.
-    static final String NO_INVISIBLE_CHARACTERS =
-            "[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cn}\\p{Zl}\\p{Zp}\\u115F\\u1160\\u3164\\uFFA0\\u2800\\u034F]*";
-    // 결합 부호(M)가 3개 이상 연달아 오면 안 된다. (?!...) 는 "뒤에 이런 게 없어야 한다"는 뜻이다.
-    static final String NO_STACKED_MARKS = "(?s)(?!.*\\p{M}{3}).*";
 
     // 로그에 요청 객체가 찍혀도 비밀번호·대표자 이름·휴대폰 번호가 새지 않고 이메일은 일부만 보이게 한다.
-    // record 기본 toString 은 모든 필드를 그대로 출력한다.
+    // record 기본 toString 은 모든 필드를 그대로 출력한다. 가게 정보(주소·가게 전화·영업시간·메뉴)는 로그로
+    // 찾을 일이 없고 목록이 길어 아예 찍지 않는다.
     @Override
     public String toString() {
         return "OwnerSignupRequest[email=" + LogMasking.maskEmail(email) + ", password=****, bizNo=" + bizNo

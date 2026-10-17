@@ -28,31 +28,59 @@ services:
       DB_USERNAME: ${DB_USERNAME:-ktc4}
       DB_PASSWORD: ${DB_PASSWORD:-ktc4local}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      AI_BASE_URL: http://ai:8000
+      # AI 가 X-API-KEY 로 확인하는 키. 비우면 검사가 꺼진다.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # 로그인·외부 조회에 쓰는 값. 비면 그 기능만 꺼진다(관리자 계정은 만들어지지 않는다).
+      JWT_SECRET: ${JWT_SECRET:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      BIZNO_API_KEY: ${BIZNO_API_KEY:-}
+      NTS_SERVICE_KEY: ${NTS_SERVICE_KEY:-}
+      # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      # 컨테이너는 배포할 때마다 새로 만들어진다. 볼륨에 두지 않으면 올라온 파일이 그때 사라지고 DB 기록만 남는다.
+      - backend-uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - db-net
 
-  # AI 서비스. 백엔드가 `POST http://ai:8000/investigations` 로 부른다.
-  #
-  # 포트를 바깥으로 열지 않는다 — 백엔드만 부르면 되고, 열어 두면 공개 주소에서
-  # 조사를 아무나 돌릴 수 있다(국세청·Vertex 쿼터가 걸린 호출이다).
-  # 같은 db-net 안에 있어 서비스명으로 닿는다.
+  # AI 서비스. 포트를 열지 않는다 — 열면 누구나 조사를 돌릴 수 있다(쿼터가 걸린 호출).
   ai:
     build:
       context: ./ai
       dockerfile: Dockerfile
     container_name: ktc4-ai
     environment:
-      # 컨테이너 안에서 백엔드는 localhost 가 아니라 서비스명이다.
-      BACKEND_BASE_URL: ${AI_BACKEND_BASE_URL:-http://backend:8080}
+      BACKEND_BASE_URL: http://backend:8080
       # 조사 구현 선택: web / mock / off. 비우면 GOOGLE_CLOUD_PROJECT 유무로 정해진다.
       INVESTIGATOR: ${INVESTIGATOR:-}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
       GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
+      # Vertex 는 API 키가 아니라 서비스 계정 JSON(ADC)으로 인증한다. 비면 조사가 503 이다.
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/vertex.json
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # 2차 조사 스위치(#74). 기본 꺼짐. 여기 적지 않으면 .env 에 있어도 안 들어간다.
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
+      NAVER_LOCAL_ENABLED: ${NAVER_LOCAL_ENABLED:-false}
+      KAKAO_COMPARE_ENABLED: ${KAKAO_COMPARE_ENABLED:-false}
+      AGENT_ENABLED: ${AGENT_ENABLED:-false}
+      # AGENT_MODEL 이 비면 Vertex Gemini 를 쓴다(그때 아래 둘은 안 읽힌다).
+      AGENT_MODEL: ${AGENT_MODEL:-}
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-}
+      AGENT_API_KEY: ${AGENT_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_PROXY_URL: ${GOOGLE_PROXY_URL:-}
+      # 가게 하나에 쓸 시간. 백엔드의 ai.read-timeout-ms 와 맞춘다.
+      INVESTIGATION_TIME_BUDGET_SECONDS: ${INVESTIGATION_TIME_BUDGET_SECONDS:-75}
+    volumes:
+      # 서비스 계정 JSON. 저장소에 두지 않고 서버 파일을 읽기 전용으로 넣는다.
+      - ${VERTEX_KEY_PATH:-/dev/null}:/run/secrets/vertex.json:ro
     depends_on:
       backend:
         condition: service_started
@@ -64,7 +92,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_PORT:-8080}}
+        # 브라우저가 읽는 주소. 빌드할 때 번들에 박힌다. 비면 옛 키로 떨어진다(한시적 폴백).
+        VITE_BACKEND_URL: ${PUBLIC_BACKEND_URL:-${BACKEND_BASE_URL:-http://localhost:${BACKEND_PORT:-8080}}}
     container_name: ktc4-frontend
     ports:
       - "0.0.0.0:${FRONTEND_PORT:-3000}:80"
@@ -73,6 +102,7 @@ services:
 
 volumes:
   postgres-data:
+  backend-uploads:
 
 networks:
   db-net:

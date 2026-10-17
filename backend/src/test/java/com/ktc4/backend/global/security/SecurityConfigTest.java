@@ -11,6 +11,7 @@ import com.ktc4.backend.domain.member.service.OwnerApprovalService;
 import com.ktc4.backend.domain.qr.controller.QrCredentialController;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.controller.StoreController;
+import com.ktc4.backend.domain.store.service.StoreManagementService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -28,10 +29,15 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 
+import static com.ktc4.backend.support.SignupMultipart.signupRequest;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -45,7 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest({StoreController.class, AuthController.class, TestController.class, OwnerAdminController.class,
         CheckInController.class, QrCredentialController.class})
 @Import(SecurityConfig.class)
-@TestPropertySource(properties = {"auth.enforce=true", "auth.internal-api-key=" + SecurityConfigTest.API_KEY})
+@TestPropertySource(properties = {"auth.internal-api-key=" + SecurityConfigTest.API_KEY})
 @DisplayName("API 접근 권한")
 class SecurityConfigTest {
 
@@ -59,6 +65,9 @@ class SecurityConfigTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private StoreManagementService storeManagementService;
 
     @MockitoBean
     private AuthService authService;
@@ -91,9 +100,22 @@ class SecurityConfigTest {
     class Anonymous {
 
         @Test
-        @DisplayName("관리자 API 는 401")
+        @DisplayName("관리자 API 는 401 — 가게 목록·국세청 대조 자료·가게 수정")
         void blocksAdminApi() throws Exception {
             expectProblem(mockMvc.perform(get("/api/stores")), ErrorCode.UNAUTHORIZED);
+            expectProblem(mockMvc.perform(get("/api/stores/nts-checks")), ErrorCode.UNAUTHORIZED);
+            expectProblem(mockMvc.perform(patch("/api/stores/1")
+                    .contentType(MediaType.APPLICATION_JSON).content("{}")), ErrorCode.UNAUTHORIZED);
+
+            verifyNoInteractions(storeService);
+        }
+
+        @Test
+        @DisplayName("내 정보 조회도 토큰이 있어야 한다 — 토큰 주인을 알려주는 API 다")
+        void meRequiresToken() throws Exception {
+            expectProblem(mockMvc.perform(get("/api/auth/me")), ErrorCode.UNAUTHORIZED);
+
+            verifyNoInteractions(authService);
         }
 
         @Test
@@ -108,10 +130,13 @@ class SecurityConfigTest {
         @Test
         @DisplayName("점주 가입 신청은 부를 수 있다")
         void allowsOwnerSignup() throws Exception {
-            mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
+            mockMvc.perform(signupRequest("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
                                     + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\","
-                                    + "\"phone\":\"010-0000-0000\"}"))
+                                    + "\"phone\":\"010-0000-0000\",\"storeAddress\":\"대구광역시 북구 대학로 80\","
+                                    + "\"storePhone\":\"053-123-4567\","
+                                    + "\"businessHours\":[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}],"
+                                    + "\"menus\":[{\"name\":\"김치찌개\"}],"
+                                    + "\"bizCertFileId\":\"7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f\"}"))
                     .andExpect(status().isCreated());
         }
 
@@ -120,7 +145,11 @@ class SecurityConfigTest {
         void blocksOwnerAdminApi() throws Exception {
             expectProblem(mockMvc.perform(get("/api/admin/owners")), ErrorCode.UNAUTHORIZED);
             expectProblem(mockMvc.perform(get("/api/admin/owners/3/store-candidates")), ErrorCode.UNAUTHORIZED);
-            expectProblem(mockMvc.perform(post("/api/admin/owners/3/approve")), ErrorCode.UNAUTHORIZED);
+            expectProblem(mockMvc.perform(post("/api/admin/owners/3/approve")
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.UNAUTHORIZED);
+
+            // 승인은 "누가 인정했는지"를 남기므로 토큰 없는 요청은 서비스까지 닿지도 않아야 한다
+            verifyNoInteractions(ownerApprovalService);
         }
 
         @Test
@@ -194,7 +223,12 @@ class SecurityConfigTest {
         @DisplayName("점주가 점주 승인 API 를 부르면 403 — 스스로 승인할 수 없게")
         void cannotApproveSelf() throws Exception {
             expectProblem(mockMvc.perform(post("/api/admin/owners/1/approve")
+                    .header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.OWNER))
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(get("/api/admin/owners/1/store-candidates")
                     .header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.OWNER))), ErrorCode.FORBIDDEN);
+
+            verifyNoInteractions(ownerApprovalService);
         }
 
         @Test
@@ -248,6 +282,8 @@ class SecurityConfigTest {
                     .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.FORBIDDEN);
             expectProblem(mockMvc.perform(post("/api/children/7/qr-token")
                     .header(HttpHeaders.AUTHORIZATION, statusBearer())), ErrorCode.FORBIDDEN);
+
+            verifyNoInteractions(storeService, ownerApprovalService, qrCredentialService);
         }
 
         @Test
@@ -358,6 +394,75 @@ class SecurityConfigTest {
             expectProblem(mockMvc.perform(post("/api/children/7/qr-token")), ErrorCode.UNAUTHORIZED);
             mockMvc.perform(post("/api/children/7/qr-token").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
                     .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    @DisplayName("가게 상세 조회·운영 정보 저장 — 점주 앱의 홈·가게 관리")
+    class StoreDetailAndOperatingInfo {
+
+        private static final String DETAIL = "/api/stores/1";
+        private static final String OPERATING_INFO = "/api/stores/1/operating-info";
+        private static final String SAVE_BODY = "{\"phone\":\"053-123-4567\","
+                + "\"businessHours\":[{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}],"
+                + "\"menus\":[{\"name\":\"김치찌개\",\"onSale\":true}]}";
+
+        private ResultActions save(String authorization) throws Exception {
+            var request = put(OPERATING_INFO).contentType(MediaType.APPLICATION_JSON).content(SAVE_BODY);
+            return mockMvc.perform(authorization == null ? request : request.header(HttpHeaders.AUTHORIZATION, authorization));
+        }
+
+        @Test
+        @DisplayName("점주·관리자는 컨트롤러까지 닿는다 — 연결된 가게인지는 서비스가 본다")
+        void ownerAndAdminReachController() throws Exception {
+            for (MemberRole role : List.of(MemberRole.OWNER, MemberRole.ADMIN)) {
+                mockMvc.perform(get(DETAIL).header(HttpHeaders.AUTHORIZATION, bearer(role)))
+                        .andExpect(status().isOk());
+                save(bearer(role)).andExpect(status().isOk());
+            }
+        }
+
+        @Test
+        @DisplayName("토큰 없이는 401")
+        void anonymousIsUnauthorized() throws Exception {
+            expectProblem(mockMvc.perform(get(DETAIL)), ErrorCode.UNAUTHORIZED);
+            expectProblem(save(null), ErrorCode.UNAUTHORIZED);
+        }
+
+        @Test
+        @DisplayName("가입 상태 확인용 토큰과 서버 간 API 키는 403 — 승인 전 신청자·AI 서버는 가게를 보거나 고칠 수 없다")
+        void signupStatusAndApiKeyAreForbidden() throws Exception {
+            String status = "Bearer " + jwtProvider.issueSignupStatus(1L).value();
+            expectProblem(mockMvc.perform(get(DETAIL).header(HttpHeaders.AUTHORIZATION, status)), ErrorCode.FORBIDDEN);
+            expectProblem(save(status), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(get(DETAIL).header(ApiKeyAuthenticationFilter.HEADER, API_KEY)),
+                    ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(put(OPERATING_INFO).header(ApiKeyAuthenticationFilter.HEADER, API_KEY)
+                    .contentType(MediaType.APPLICATION_JSON).content(SAVE_BODY)), ErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("숫자 가게 ID 만 열린다 — 국세청 대조 자료는 여전히 관리자·AI 서버만, 가게 목록·수정은 관리자만")
+        void ruleDoesNotOpenOtherStorePaths() throws Exception {
+            String owner = bearer(MemberRole.OWNER);
+            expectProblem(mockMvc.perform(get("/api/stores/nts-checks").header(HttpHeaders.AUTHORIZATION, owner)),
+                    ErrorCode.FORBIDDEN);
+            mockMvc.perform(get("/api/stores/nts-checks").header(ApiKeyAuthenticationFilter.HEADER, API_KEY))
+                    .andExpect(status().isOk());
+            expectProblem(mockMvc.perform(get("/api/stores").header(HttpHeaders.AUTHORIZATION, owner)),
+                    ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(get("/api/stores/abc").header(HttpHeaders.AUTHORIZATION, owner)),
+                    ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(put("/api/stores/1").header(HttpHeaders.AUTHORIZATION, owner)
+                    .contentType(MediaType.APPLICATION_JSON).content("{}")), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(get(OPERATING_INFO).header(HttpHeaders.AUTHORIZATION, owner)),
+                    ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(delete(OPERATING_INFO).header(HttpHeaders.AUTHORIZATION, owner)),
+                    ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(patch(DETAIL).header(HttpHeaders.AUTHORIZATION, owner)
+                    .contentType(MediaType.APPLICATION_JSON).content("{}")), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(get(DETAIL + "/").header(HttpHeaders.AUTHORIZATION, owner)),
+                    ErrorCode.FORBIDDEN);
         }
     }
 }

@@ -57,7 +57,7 @@ compose 파일이 셋입니다. **base 위에 환경별 오버라이드를 얹�
 
 ```
 docker-compose.yml        base       — 모든 환경 공통
-docker-compose.dev.yml    dev 전용   — 인증·외부 API 환경변수
+docker-compose.dev.yml    dev 전용   — 인증·외부 API 환경변수, DB·AI 포트 공개
 docker-compose.prod.yml   prod 전용
 ```
 
@@ -68,7 +68,60 @@ scripts/deploy.sh dev up -d --build
 `.env` 는 **각 서버에 둡니다**(git 에 올리지 않습니다). compose 는 그 파일을 `${...}` 치환에만
 쓰고, 오버라이드의 `environment:` 에 적은 것만 컨테이너에 들어갑니다.
 
+dev 서버에서만 쓰는 값은 `.env.development` 에 따로 둡니다(`.env.development.example` 참고).
+`scripts/deploy.sh dev` 가 `.env` 위에 얹어 읽고, 같은 키는 `.env.development` 가 이깁니다.
+파일이 없으면 `.env` 만 읽습니다.
+
+| 값 | 설명 |
+|---|---|
+| `POSTGRES_PORT` | DB 를 바깥에 여는 포트. 비어 있으면 dev 배포가 멈춥니다 |
+| `AI_PORT` | AI 서버를 바깥에 여는 포트(기본 8000). AI 포트를 열기 때문에 dev 는 `.env` 의 `INTERNAL_API_KEY` 가 비어 있으면 배포가 멈춥니다 |
+| `AI_BASE_URL` | 백엔드가 부를 AI 주소(기본 `http://ai:8000`). base·prod 는 이 주소로 고정이라 dev 에서만 바꿀 수 있습니다 |
+
+백엔드 주소는 **쓰임이 달라 키가 둘**입니다. 한 키를 두 뜻으로 쓰다가 10주차 멘토 리뷰에서 지적받아 갈랐습니다.
+
+| 값 | 누가 읽나 | 언제 박히나 |
+|---|---|---|
+| `PUBLIC_BACKEND_URL` | 브라우저 — 공개망 주소입니다 | frontend 를 빌드할 때 |
+| `BACKEND_BASE_URL` | AI 컨테이너 — dev 에서만 바꿉니다 | 컨테이너가 뜰 때 |
+
+`PUBLIC_` 접두사는 "여기 들어간 값은 전 세계가 본다" 는 뜻입니다. 내부망 주소를 넣지 마세요.
+
+서버 `.env` 에 `PUBLIC_BACKEND_URL` 이 없으면 옛 키(`BACKEND_BASE_URL`)로 떨어집니다 — 서버에 키를 넣기
+전에 머지돼도 화면이 죽지 않게 둔 폴백입니다. 서버 `.env` 에 키가 들어가면 `docker-compose.yml` 에서 그
+폴백을 지우세요.
+
+⚠️ dev 의 AI 컨테이너는 **지금 공개 주소로 백엔드를 부릅니다**(서버 `.env` 에 들어 있는 값이 그것입니다).
+내부망 `http://backend:8080` 으로 돌리는 쪽이 맞지만, 호출 경로가 달라지므로 배포본에서 조사가 도는지
+확인한 뒤에 바꿉니다. `http://localhost:8080` 은 AI 컨테이너 안에서 자기 자신을 가리키니 넣지 마세요.
+
+### AI 조사에 필요한 값
+
+조사는 **Vertex AI** 로 돕니다. 키가 없으면 **배포는 성공하고 화면도 뜨는데 조사만 503** 이라 티가
+안 납니다(`ai/src/server/main.py` 가 `GOOGLE_CLOUD_PROJECT` 가 없으면 조사기를 안 꽂습니다).
+
+Vertex 는 API 키가 아니라 **서비스 계정 JSON(ADC)** 으로 인증합니다. 배포에서는 저장소 시크릿에서
+받아 붙입니다 — **서버 `.env` 를 고치지 않습니다.**
+
+```
+GitHub Secrets (GCP_SA_KEY)  →  deploy-dev.yml 이 ~/.ktc4/vertex.json 으로 씀
+                             →  VERTEX_KEY_PATH  →  컨테이너 /run/secrets/vertex.json
+```
+
+| 이름 | 종류 | 없으면 |
+|---|---|---|
+| `GCP_SA_KEY` · `GCP_PROJECT_ID` | Secret | 조사가 503 |
+| `KAKAO_REST_API_KEY` | Secret | 지도 확인 없이 웹검색만 |
+| `NAVER_CLIENT_ID` · `NAVER_CLIENT_SECRET` | Secret | 네이버 대조 불가 |
+| `AGENT_API_KEY` | Secret | 판단 모델이 Vertex 로 떨어집니다 |
+| `AI_NAVER_LOCAL_ENABLED` · `AI_KAKAO_COMPARE_ENABLED` · `AI_AGENT_ENABLED` · `AI_AGENT_MODEL` | Variable | 전부 꺼짐 |
+
+⚠️ **지도 대조 스위치를 켜기 전에** `ai/src/investigation/classify.py:84` 를 고쳐야 합니다 —
+`"대구왕갈비본점" → "왕갈비본점"` 으로 잘려서 같은 구 안의 **다른 가게** 정보를 끌어옵니다.
+
 배포는 `main`·`develop` 푸시에 `.github/workflows/deploy-main.yml`·`deploy-dev.yml` 이 돕니다.
+**main 쪽은 `workflow_dispatch` 로 손으로도 돌릴 수 있습니다** — 그게 없으면 주간 멘토 리뷰 PR 이
+머지될 때만 돌아서, 배포를 고쳐도 다음 주까지 시험할 방법이 없었습니다.
 
 ## 브랜치와 PR
 

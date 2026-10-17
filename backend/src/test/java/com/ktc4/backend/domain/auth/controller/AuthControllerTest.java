@@ -1,8 +1,11 @@
 package com.ktc4.backend.domain.auth.controller;
 
 import com.ktc4.backend.domain.auth.dto.LoginResponse;
+import com.ktc4.backend.domain.auth.dto.LinkedStoreResponse;
 import com.ktc4.backend.domain.auth.dto.MemberResponse;
+import com.ktc4.backend.domain.auth.dto.OwnerSignupRequest;
 import com.ktc4.backend.domain.auth.dto.OwnerSignupResponse;
+import com.ktc4.backend.domain.auth.dto.SignupMenuRequest;
 import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.domain.member.enums.MemberRole;
@@ -11,6 +14,7 @@ import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.error.GlobalExceptionHandler;
 import com.ktc4.backend.global.security.JwtProvider;
 import com.ktc4.backend.global.security.SecurityConfig;
+import com.ktc4.backend.support.BusinessHourFixtures;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -18,23 +22,38 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
 
+import static com.ktc4.backend.support.SignupMultipart.SIGNUP_URL;
+import static com.ktc4.backend.support.SignupMultipart.file;
+import static com.ktc4.backend.support.SignupMultipart.signupRequest;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,6 +62,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(AuthController.class)
 @Import(SecurityConfig.class)
+// 이 클래스는 가입 신청을 수십 번 부른다. 같은 IP 의 횟수 제한(기본 10분에 10번, 하루 성공 5건)에 걸리지 않게 넉넉히 푼다 —
+// 횟수 제한 자체는 SignupRateLimitFilterTest 가 맡는다.
+@TestPropertySource(properties = {
+        "signup.rate-limit.max-attempts=100000", "signup.rate-limit.max-signups-per-day=100000"})
 class AuthControllerTest {
 
     @Autowired
@@ -142,6 +165,20 @@ class AuthControllerTest {
         verify(authService).getMe(7L);
     }
 
+    @Test
+    @DisplayName("내 정보의 연결된 가게는 stores[].storeId·stores[].name 으로 나간다 — 점주 앱이 체크인 경로에 쓰는 필드")
+    void meReturnsLinkedStores() throws Exception {
+        when(authService.getMe(7L)).thenReturn(new MemberResponse(7L, "owner@example.com", MemberRole.OWNER,
+                MemberStatus.APPROVED, List.of(new LinkedStoreResponse(12L, "예시분식"))));
+        String token = jwtProvider.issue(7L, MemberRole.OWNER).value();
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stores.length()").value(1))
+                .andExpect(jsonPath("$.stores[0].storeId").value(12))
+                .andExpect(jsonPath("$.stores[0].name").value("예시분식"));
+    }
+
     private static final String PHONE = "010-0000-0000";
 
     private static String signupBody(String email, String password, String bizNo,
@@ -151,21 +188,298 @@ class AuthControllerTest {
 
     private static String signupBody(String email, String password, String bizNo,
                                      String storeName, String representativeName, String phone) {
+        return accountPart(email, password, bizNo, storeName, representativeName, phone) + STORE_INFO + "}";
+    }
+
+    private static String accountPart(String email, String password, String bizNo,
+                                      String storeName, String representativeName, String phone) {
         return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\",\"bizNo\":\"" + bizNo
                 + "\",\"storeName\":\"" + storeName + "\",\"representativeName\":\"" + representativeName
-                + "\",\"phone\":\"" + phone + "\"}";
+                + "\",\"phone\":\"" + phone + "\"";
+    }
+
+    // ── 가입 때 받는 가게 정보 (주소·가게 전화·영업시간·메뉴) ─────────────────────────
+
+    private static final String HOUR = "{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"21:00\"}";
+    private static final String MENU = "{\"name\":\"김치찌개\"}";
+    // 파일 업로드 API 가 돌려준 값이라 치는 가짜 ID. 가입 요청에는 사업자등록증 ID 가 반드시 있다
+    private static final String BIZ_CERT_FILE_ID = "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f";
+    private static final String STORE_IMAGE_FILE_ID = "3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f";
+    private static final String MENU_PHOTO_FILE_ID = "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+    private static final String OVERLAP_MESSAGE =
+            "영업시간이 겹치는 줄이 있습니다 — 같은 요일, 또는 자정을 넘긴 시간과 다음 날 시간이 겹치지 않게 적어 주세요";
+    private static final String STORE_INFO = storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), list(MENU, 1));
+
+    private static String list(String item, int count) {
+        return "[" + String.join(",", Collections.nCopies(count, item)) + "]";
+    }
+
+    // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다. 사업자등록증 파일 ID 는 늘 싣는다
+    private static String storeInfo(String storeAddress, String storePhone, String businessHours, String menus) {
+        StringBuilder sb = new StringBuilder();
+        if (storeAddress != null) {
+            sb.append(",\"storeAddress\":\"").append(storeAddress).append('"');
+        }
+        if (storePhone != null) {
+            sb.append(",\"storePhone\":\"").append(storePhone).append('"');
+        }
+        if (businessHours != null) {
+            sb.append(",\"businessHours\":").append(businessHours);
+        }
+        if (menus != null) {
+            sb.append(",\"menus\":").append(menus);
+        }
+        sb.append(",\"bizCertFileId\":\"").append(BIZ_CERT_FILE_ID).append('"');
+        return sb.toString();
+    }
+
+    private ResultActions signupWithStoreInfo(String storeInfo) throws Exception {
+        String body = accountPart("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", PHONE)
+                + storeInfo + "}";
+        return mockMvc.perform(signupRequest(body));
+    }
+
+    @Test
+    @DisplayName("가입 신청에는 가게 주소·가게 전화·영업시간·메뉴가 모두 필요하다")
+    void signupRequiresStoreInfo() throws Exception {
+        signupWithStoreInfo(storeInfo(null, "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeAddress"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", null, list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storePhone"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", null, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), null))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("menus"));
+    }
+
+    @Test
+    @DisplayName("가게 주소는 비울 수 없고 500자까지 받는다")
+    void storeAddressRules() throws Exception {
+        signupWithStoreInfo(storeInfo("가".repeat(500), "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo("가".repeat(501), "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo("   ", "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeAddress"));
+    }
+
+    @Test
+    @DisplayName("가게 전화는 매장 유선 번호도 받는다 — 대표자 휴대폰과 달리 휴대폰 형식을 보지 않는다. 비울 수 없고 20자까지")
+    void storePhoneRules() throws Exception {
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "0".repeat(20), list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "0".repeat(21), list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", " ", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storePhone"));
+    }
+
+    @Test
+    @DisplayName("가입 때 영업시간은 1~21줄, 메뉴는 1~50개다")
+    void storeInfoCounts() throws Exception {
+        String address = "대구광역시 북구 대학로 80";
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", "[]", list(MENU, 1))).andExpect(status().isBadRequest());
+        // 겹치지 않는 줄로 센다 — 같은 줄을 반복하면 개수가 아니라 겹침 때문에 거절돼 개수 제한을 확인하지 못한다
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", BusinessHourFixtures.nonOverlappingJson(21), list(MENU, 1)))
+                .andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", BusinessHourFixtures.nonOverlappingJson(22), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours"))
+                .andExpect(jsonPath("$.errors[0].message").value("영업시간은 1 ~ 21줄이어야 합니다"));
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), "[]")).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), list(MENU, 50))).andExpect(status().isCreated());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), list(MENU, 51))).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("가입 때 영업시간·메뉴에 빈 줄이 있거나, 요일이 MON~SUN 이 아니거나, 여닫는 시간이 같으면 400")
+    void signupRejectsNullRowsUnknownDayAndSameTimes() throws Exception {
+        String address = "대구광역시 북구 대학로 80";
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", "[null]", list(MENU, 1))).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567", list(HOUR, 1), "[null]")).andExpect(status().isBadRequest());
+        signupWithStoreInfo(storeInfo(address, "053-123-4567",
+                "[{\"day\":\"MONDAY\",\"open\":\"11:00\",\"close\":\"21:00\"}]", list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()));
+        signupWithStoreInfo(storeInfo(address, "053-123-4567",
+                "[{\"day\":\"MON\",\"open\":\"12:00\",\"close\":\"12:00\"}]", list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours[0].openDifferentFromClose"));
+    }
+
+    @Test
+    @DisplayName("영업시간이 겹치면 400 invalid-request 이고, errors 에 businessHours 칸과 겹침 문구가 실린다")
+    void signupRejectsOverlappingHours() throws Exception {
+        String overlapping = "[{\"day\":\"SUN\",\"open\":\"22:00\",\"close\":\"03:00\"},"
+                + "{\"day\":\"MON\",\"open\":\"02:00\",\"close\":\"10:00\"}]";
+
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", overlapping, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours"))
+                .andExpect(jsonPath("$.errors[0].message").value(OVERLAP_MESSAGE));
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("빈 줄·형식이 틀린 줄이 겹치는 줄과 섞여도 500 이 아니라 400 — 칸별 오류와 겹침 오류가 함께 실린다")
+    void signupWithMalformedAndOverlappingHoursIsBadRequest() throws Exception {
+        String hours = "[null,{\"day\":\"TUE\",\"open\":\"25:00\",\"close\":\"21:00\"},"
+                + "{\"day\":\"MON\",\"open\":\"11:00\",\"close\":\"14:00\"},"
+                + "{\"day\":\"MON\",\"open\":\"13:00\",\"close\":\"21:00\"}]";
+
+        // 오류 순서는 검증기가 정하지 않으므로 "포함"으로 본다
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", hours, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", hasItems("businessHours[0]", "businessHours[1].open", "businessHours")))
+                .andExpect(jsonPath("$.errors[*].message", hasItem(OVERLAP_MESSAGE)));
+    }
+
+    @Test
+    @DisplayName("가게 주소·가게 전화에 줄바꿈이나 보이지 않는 글자가 있으면 400 — 관리자 화면·로그에 그대로 보이는 값")
+    void rejectsInvisibleCharactersInStoreAddressAndPhone() throws Exception {
+        signupWithStoreInfo(storeInfo("대구광역시\\n북구", "053-123-4567", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeAddress"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053\\u200B123", list(HOUR, 1), list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storePhone"));
+    }
+
+    @Test
+    @DisplayName("가입 때의 영업시간·메뉴 오류도 몇 번째 줄의 어느 칸인지 응답에 실린다")
+    void signupNestedErrorsPointToTheRow() throws Exception {
+        String badClose = "[{\"day\":\"SUN\",\"open\":\"21:00\",\"close\":\"00:00\"}]";
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", badClose, list(MENU, 1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("businessHours[0].close"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1),
+                        "[" + MENU + ",{\"name\":\"\\u3164\"}]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("menus[1].name"));
+    }
+
+    // ── 가입 요청 형식 ─────────────────────────
+
+    private static final String VALID_SIGNUP =
+            signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동");
+
+    @Test
+    @DisplayName("가입 신청은 JSON 본문으로 받는다 — 파일은 ID 만 싣고, 대표 사진·메뉴 사진은 없어도 된다")
+    void signupAcceptsJsonWithFileIds() throws Exception {
+        when(authService.signupOwner(any())).thenReturn(new OwnerSignupResponse(
+                3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
+                "issued-status-token", "Bearer", java.time.Instant.parse("2026-10-23T00:00:00Z")));
+
+        mockMvc.perform(signupRequest(VALID_SIGNUP)).andExpect(status().isCreated());
+
+        ArgumentCaptor<OwnerSignupRequest> sent = ArgumentCaptor.forClass(OwnerSignupRequest.class);
+        verify(authService).signupOwner(sent.capture());
+        assertThat(sent.getValue().bizCertFileId()).isEqualTo(BIZ_CERT_FILE_ID);
+        assertThat(sent.getValue().storeImageFileId()).isNull();
+        assertThat(sent.getValue().menus().get(0).photoFileId()).isNull();
+    }
+
+    @Test
+    @DisplayName("대표 사진·메뉴 사진의 파일 ID 도 그대로 넘긴다")
+    void signupPassesPhotoFileIds() throws Exception {
+        String menus = "[{\"name\":\"김치찌개\",\"photoFileId\":\"" + MENU_PHOTO_FILE_ID + "\"},{\"name\":\"라면\"}]";
+        String body = accountPart("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", PHONE)
+                + storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1), menus)
+                + ",\"storeImageFileId\":\"" + STORE_IMAGE_FILE_ID + "\"}";
+
+        mockMvc.perform(signupRequest(body)).andExpect(status().isCreated());
+
+        ArgumentCaptor<OwnerSignupRequest> sent = ArgumentCaptor.forClass(OwnerSignupRequest.class);
+        verify(authService).signupOwner(sent.capture());
+        assertThat(sent.getValue().storeImageFileId()).isEqualTo(STORE_IMAGE_FILE_ID);
+        assertThat(sent.getValue().menus()).extracting(SignupMenuRequest::photoFileId)
+                .containsExactly(MENU_PHOTO_FILE_ID, null);
+    }
+
+    @Test
+    @DisplayName("사업자등록증 파일 ID 는 지금은 없어도 된다(앱이 업로드를 붙이기 전까지 잠시) — 빈 값은 여전히 400")
+    void bizCertFileIdIsTemporarilyOptional() throws Exception {
+        when(authService.signupOwner(any())).thenReturn(new OwnerSignupResponse(
+                3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
+                "issued-status-token", "Bearer", java.time.Instant.parse("2026-10-23T00:00:00Z")));
+        String withoutBizCert = VALID_SIGNUP.replace(",\"bizCertFileId\":\"" + BIZ_CERT_FILE_ID + "\"", "");
+        assertThat(withoutBizCert).doesNotContain("bizCertFileId");
+
+        mockMvc.perform(signupRequest(withoutBizCert)).andExpect(status().isCreated());
+        ArgumentCaptor<OwnerSignupRequest> sent = ArgumentCaptor.forClass(OwnerSignupRequest.class);
+        verify(authService).signupOwner(sent.capture());
+        assertThat(sent.getValue().bizCertFileId()).isNull();
+
+        // 빈 문자열은 "안 실음"이 아니라 틀린 파일 ID 다
+        mockMvc.perform(signupRequest(VALID_SIGNUP.replace(BIZ_CERT_FILE_ID, "")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", hasItem("bizCertFileId")));
+        verify(authService, times(1)).signupOwner(any());
+    }
+
+    @ParameterizedTest(name = "[{index}] \"{0}\"")
+    @ValueSource(strings = {"12", "7B1D0E4F-2C3A-4D5B-8E6F-9A0B1C2D3E4F", "7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f0",
+            "../7b1d0e4f-2c3a-4d5b-8e6f-9a0b1c2d3e4f"})
+    @DisplayName("파일 ID 모양(소문자 UUID)이 아니면 칸마다 400 이고 서비스에 닿지 않는다")
+    void rejectsMalformedFileIds(String bad) throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP.replace(BIZ_CERT_FILE_ID, bad)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("bizCertFileId"));
+        String withStoreImage = VALID_SIGNUP.substring(0, VALID_SIGNUP.length() - 1)
+                + ",\"storeImageFileId\":\"" + bad + "\"}";
+        mockMvc.perform(signupRequest(withStoreImage))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("storeImageFileId"));
+        signupWithStoreInfo(storeInfo("대구광역시 북구 대학로 80", "053-123-4567", list(HOUR, 1),
+                        "[{\"name\":\"김치찌개\",\"photoFileId\":\"" + bad + "\"}]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("menus[0].photoFileId"));
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @Test
+    @DisplayName("실은 파일 ID 를 쓸 수 없으면 400 invalid-file-reference — 어느 칸이 왜인지는 알려 주지 않는다")
+    void mapsInvalidFileReference() throws Exception {
+        when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_FILE_REFERENCE));
+
+        mockMvc.perform(signupRequest(VALID_SIGNUP))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_FILE_REFERENCE.getType().toString()))
+                .andExpect(jsonPath("$.detail").doesNotExist())
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("multipart 로 보내면 415 — 파일은 가입 요청에 싣지 않는다")
+    void signupRejectsMultipart() throws Exception {
+        mockMvc.perform(multipart(SIGNUP_URL).file(new org.springframework.mock.web.MockMultipartFile(
+                        "data", "", MediaType.APPLICATION_JSON_VALUE, VALID_SIGNUP.getBytes(java.nio.charset.StandardCharsets.UTF_8))))
+                .andExpect(status().isUnsupportedMediaType());
+
+        verify(authService, never()).signupOwner(any());
     }
 
     @Test
     @DisplayName("휴대폰 번호가 없거나 비었으면 400 이고 errors 에 필드를 알려준다")
     void rejectsMissingPhone() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
-                                + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\"}"))
+        mockMvc.perform(signupRequest("{\"email\":\"owner@example.com\",\"password\":\"password1234\","
+                                + "\"bizNo\":\"1234567890\",\"storeName\":\"예시분식\",\"representativeName\":\"홍길동\""
+                                + STORE_INFO + "}"))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(1))
                 .andExpect(jsonPath("$.errors[0].field").value("phone"));
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", " ")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동", " ")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("phone"));
     }
@@ -175,8 +489,7 @@ class AuthControllerTest {
     void mapsInvalidPhone() throws Exception {
         when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.INVALID_PHONE));
 
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
                                 "053-000-0000")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_PHONE.getType().toString()));
@@ -192,8 +505,7 @@ class AuthControllerTest {
         handlerLogger.addAppender(logs);
         String responseBody;
         try {
-            responseBody = mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                            .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
+            responseBody = mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동",
                                     tooLong)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("phone"))
@@ -214,8 +526,7 @@ class AuthControllerTest {
                 3L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING,
                 "issued-status-token", "Bearer", Instant.parse("2026-10-16T03:00:00Z")));
 
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "123-45-67890", "예시분식", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "123-45-67890", "예시분식", "홍길동")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.memberId").value(3))
                 .andExpect(jsonPath("$.role").value("OWNER"))
@@ -229,7 +540,7 @@ class AuthControllerTest {
     @DisplayName("가입 상태 확인용 토큰으로 내 정보를 조회하면 토큰의 회원 ID 로 상태를 돌려준다")
     void meWithSignupStatusToken() throws Exception {
         when(authService.getMe(7L)).thenReturn(
-                new MemberResponse(7L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING));
+                new MemberResponse(7L, "owner@example.com", MemberRole.OWNER, MemberStatus.PENDING, List.of()));
         String token = jwtProvider.issueSignupStatus(7L).value();
 
         mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -245,8 +556,7 @@ class AuthControllerTest {
         logs.start();
         handlerLogger.addAppender(logs);
         try {
-            mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                            .content(signupBody("owner@example.com", "short7!", "1234567890", "예시분식", "비공개이름")))
+            mockMvc.perform(signupRequest(signupBody("owner@example.com", "short7!", "1234567890", "예시분식", "비공개이름")))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("password"));
         } finally {
@@ -261,12 +571,10 @@ class AuthControllerTest {
     @DisplayName("전각 공백(U+3000)만 넣은 상호명·대표자 이름은 400 — 저장 뒤 빈 값이 되지 않게")
     void rejectsFullWidthSpaceOnly() throws Exception {
         // JSON 의 \u3000 이스케이프로 보낸다 — 소스에 보이지 않는 글자를 직접 쓰지 않기 위해서다.
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "\\u3000", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "\\u3000", "홍길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("storeName"));
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3000\\u3000")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3000\\u3000")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("representativeName"));
     }
@@ -290,8 +598,7 @@ class AuthControllerTest {
     })
     @DisplayName("보이지 않거나 글자·숫자가 없는 상호명은 400")
     void rejectsInvisibleOrLetterlessStoreName(String storeName) throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("storeName"));
     }
@@ -299,8 +606,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("대표자 이름에도 같은 규칙 — 한글 채움 문자만 넣으면 400")
     void rejectsInvisibleRepresentativeName() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3164\\u3164")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "\\u3164\\u3164")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("representativeName"));
     }
@@ -310,20 +616,17 @@ class AuthControllerTest {
             "예시분식 \\u2764\\uFE0F", "Cafe\\u0301 예시"})   // ❤️(부호 1개), é(부호 1개)는 통과
     @DisplayName("공백·숫자·영문·단일 이모지가 섞인 평범한 상호명은 통과한다 — 규칙이 너무 좁지 않은지")
     void acceptsOrdinaryStoreNames(String storeName) throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", storeName, "홍길동")))
                 .andExpect(status().isCreated());
     }
 
     @Test
     @DisplayName("줄바꿈 같은 제어 문자가 들어간 상호명·대표자 이름은 400")
     void rejectsControlCharacters() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시\\n분식", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시\\n분식", "홍길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("storeName"));
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍\\t길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍\\t길동")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("representativeName"));
     }
@@ -331,8 +634,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("상호명·대표자 이름이 비었으면 400")
     void rejectsBlankOwnerInfo() throws Exception {
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", " ", "")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", " ", "")))
                 .andExpect(status().isBadRequest());
     }
 
@@ -341,8 +643,7 @@ class AuthControllerTest {
     void mapsDuplicateEmail() throws Exception {
         when(authService.signupOwner(any())).thenThrow(new CustomException(ErrorCode.DUPLICATE_EMAIL));
 
-        mockMvc.perform(post("/api/auth/owners/signup").contentType(MediaType.APPLICATION_JSON)
-                        .content(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동")))
+        mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value(ErrorCode.DUPLICATE_EMAIL.getType().toString()));
     }
