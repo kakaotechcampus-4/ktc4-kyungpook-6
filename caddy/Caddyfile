@@ -1,0 +1,43 @@
+# 운영(prod) 앞단. 인증서를 자동으로 받아 갱신하고, 경로로 프론트와 백엔드를 가른다.
+#
+# 왜 두는가 — 지금 운영은 3000(프론트)과 8080(백엔드)을 평문 HTTP 로 전 세계에 열고 있다.
+# 그 위에 관리자 로그인을 얹으면 비밀번호가 평문으로 오간다. 그래서 로그인을 아직 열지
+# 않았다(PROMPT-166). Caddy 가 443 하나만 받고 뒤로 넘기면 그 둘을 닫을 수 있다.
+#
+# 도메인은 PUBLIC_DOMAIN 으로 받는다. Let's Encrypt 는 IP 로는 인증서를 내주지 않으므로
+# 이름이 반드시 필요하다.
+
+{
+	# 인증서 발급 실패 알림을 받을 주소. 없으면 Caddy 가 익명으로 발급받는다.
+	email {$ACME_EMAIL:admin@example.com}
+}
+
+{$PUBLIC_DOMAIN} {
+	encode gzip
+
+	# 백엔드로 넘길 것만 적는다. 여기 없는 경로는 바깥에서 닿지 않는다 —
+	# 8080 을 통째로 열어 두던 것과 달라지는 지점이다.
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
+	# API 문서. 지금 SecurityConfig 가 permitAll 이라 어차피 공개지만,
+	# 닫고 싶으면 이 블록만 지우면 된다.
+	handle /v3/api-docs* {
+		reverse_proxy backend:8080
+	}
+	handle /swagger-ui/* {
+		reverse_proxy backend:8080
+	}
+
+	# 나머지는 전부 화면. SPA 라 새로고침해도 index.html 이 나와야 하는데,
+	# 그 처리는 프론트 컨테이너의 nginx 가 이미 하고 있다.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	# 업로드(사업자등록증 10MB)가 막히지 않게 한다. 실제 상한은 백엔드가 다시 본다.
+	request_body {
+		max_size 11MB
+	}
+}

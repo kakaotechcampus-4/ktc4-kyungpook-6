@@ -1,6 +1,37 @@
 # prod 오버라이드. base 위에 병합합니다 — scripts/deploy.sh prod up -d --build
 #
 # 값은 서버 .env 로 관리합니다(EC2 에 직접 접속해 수정하는 정책).
-# base 와 차이가 없어 비어 있습니다. prod 전용 설정이 필요해지면 여기에 추가하세요.
 
-services: {}
+services:
+  # HTTPS 앞단. dev 에는 두지 않습니다 — dev 는 서버 주인이 직접 가진 도메인으로 받습니다.
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: ktc4-caddy
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    environment:
+      # 인증서를 받을 이름. Let's Encrypt 는 IP 로는 내주지 않습니다.
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN 이 없으면 인증서를 받을 수 없습니다}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # 🚨 받은 인증서가 여기 쌓입니다. 지우면 배포할 때마다 새로 발급받게 되고,
+      #    Let's Encrypt 는 같은 이름에 주당 발급 횟수를 제한합니다.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - db-net
+    depends_on:
+      - backend
+      - frontend
+
+  # Caddy 가 이름으로 부를 수 있어야 합니다. base 에서는 기본 네트워크에만 있습니다.
+  frontend:
+    networks:
+      - db-net
+
+volumes:
+  caddy-data:
+  caddy-config:
