@@ -30,7 +30,7 @@ function StorePhotoField({ id, file, onChange }: StorePhotoFieldProps) {
           <img src={plusLargeIcon} alt="" width={32} height={32} />
         )}
       </label>
-      <input id={id} type="file" accept="image/*" className="sr-only" onChange={handleChange} />
+      <input id={id} type="file" accept="image/jpeg,image/png" className="sr-only" onChange={handleChange} />
     </div>
   );
 }
