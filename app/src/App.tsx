@@ -12,6 +12,7 @@ import OwnerSignupHoursPage from "./pages/OwnerSignupHoursPage";
 import OwnerSignupMenusPage from "./pages/OwnerSignupMenusPage";
 import OwnerSignupCompletePage from "./pages/OwnerSignupCompletePage";
 import OwnerStorePage from "./pages/OwnerStorePage";
+import OwnerOrdersPage from "./pages/OwnerOrdersPage";
 import OwnerQrScanPage from "./pages/OwnerQrScanPage";
 import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
 
@@ -47,6 +48,7 @@ function App() {
           <Route path="store/menus" element={<OwnerSignupMenusPage />} />
           <Route path="complete" element={<OwnerSignupCompletePage />} />
         </Route>
+        <Route path="/owner/orders" element={<OwnerOrdersPage />} />
         <Route path="/owner/store" element={<OwnerStorePage />} />
         <Route path="/owner/qr" element={<OwnerQrScanPage />} />
         <Route path="/owner/qr/result" element={<OwnerCheckInResultPage />} />
