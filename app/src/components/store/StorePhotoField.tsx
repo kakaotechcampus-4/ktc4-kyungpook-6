@@ -4,7 +4,7 @@ import StoreMascot from "./StoreMascot";
 
 type StorePhotoFieldProps = {
   id: string;
-  /** 고른 사진의 미리보기 주소. 없으면 마스코트 빈 자리를 보여 준다. */
+  /** 보여 줄 대표 사진 주소(새로 고른 사진이나 가입 때 올린 사진). 없으면 마스코트 빈 자리를 보여 준다. */
   photoUrl: string | null;
   onSelect: (file: File) => void;
   onRemove: () => void;
