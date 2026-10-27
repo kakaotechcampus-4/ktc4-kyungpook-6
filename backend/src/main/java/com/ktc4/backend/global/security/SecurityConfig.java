@@ -111,6 +111,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
                         // 가입 신청에 붙일 파일. 가입 전이라 계정이 없다 — 횟수는 UploadRateLimitFilter 가 막는다
                         .requestMatchers(HttpMethod.POST, "/api/files").permitAll()
+                        // 올린 사업자등록증을 읽어 가입 form 을 채운다. 가입 전이라 계정이 없다 — 횟수 제한은 PROMPT-173 에서 붙인다.
+                        // 파일 ID 를 모양으로 좁혀, 맞지 않는 경로는 맨 아래 관리자 전용 규칙에 걸리게 한다
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/files/{fileId:" + FileIdFormat.PATH_REGEX + "}/biz-cert-extraction").permitAll()
                         // 가게 사진은 관리자와 그 가게에 연결된 점주만 본다(StoreImageController 주석). 어느 가게의 점주인지는
                         // 서비스가 확인한다. 사업자등록증은 이 경로로 나가지 않고 /api/admin/files/** 로만 나간다.
                         // 가게 번호를 숫자로 좁히는 이유는 아래 /api/stores/{storeId} 규칙과 같다.
