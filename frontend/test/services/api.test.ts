@@ -152,3 +152,24 @@ describe("응답 인터셉터 — 401 처리", () => {
     expect(replaced).toEqual([]);
   });
 });
+
+/**
+ * 응답이 오지 않는 백엔드에 영영 매달리지 않는다 — PROMPT-160.
+ *
+ * <p>번들에 옛 서버 주소가 박혀 있을 때 그 주소가 연결을 거절조차 하지 않으면 요청이 pending
+ * 인 채로 끝나지 않는다. 실패가 나지 않으니 401 리다이렉트도 목업 폴백도 돌지 못하고 화면은
+ * 스켈레톤만 계속 돈다. 운영에서 실제로 그랬다.
+ */
+describe("요청 타임아웃", () => {
+  beforeEach(() => {
+    storage.clear();
+    sent = undefined;
+    vi.stubGlobal("sessionStorage", fakeSessionStorage);
+  });
+
+  it("모든 요청에 타임아웃이 걸린다 — 끝나지 않는 요청은 실패로 떨어져야 폴백이 돈다", async () => {
+    await customInstance({ url: "/api/stores", method: "GET", adapter: captureAdapter });
+
+    expect(sent?.timeout).toBeGreaterThan(0);
+  });
+});
