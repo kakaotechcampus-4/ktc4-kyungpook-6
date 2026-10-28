@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import homeActiveIcon from "../../assets/tab-home-active-icon.svg";
 import homeIcon from "../../assets/tab-home-icon.svg";
 import ordersActiveIcon from "../../assets/tab-orders-active-icon.svg";
 import ordersIcon from "../../assets/tab-orders-icon.svg";
