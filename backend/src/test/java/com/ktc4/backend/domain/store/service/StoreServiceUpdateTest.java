@@ -69,8 +69,50 @@ class StoreServiceUpdateTest extends PostgresContainerTest {
     }
 
     private void update(String name, String addressRoad, String phone, StoreStatus status) {
-        storeService.updateStore(store.getStoreId(), new StoreUpdateRequest(name, addressRoad, phone, status),
+        storeService.updateStore(store.getStoreId(), StoreUpdateRequest.ofBasic(name, addressRoad, phone, status),
                 StoreChange.storeEdit(ADMIN_ID));
+    }
+
+    private void updateDetails(String category, String ownerPhone, String bizNo) {
+        storeService.updateStore(store.getStoreId(),
+                new StoreUpdateRequest(null, null, null, null, null, null, category, ownerPhone, bizNo),
+                StoreChange.storeEdit(ADMIN_ID));
+    }
+
+    /*
+      사업자등록번호는 변경 기록에 남긴다 — 틀린 번호로 국세청에 물으면 남의 답이 오므로 누가 언제
+      무엇으로 고쳤는지가 남아야 한다. 점주 개인 휴대폰은 반대로 일부러 남기지 않는다(PROMPT-161).
+    */
+
+    @Test
+    @DisplayName("사업자등록번호를 바꾸면 한 줄 — 하이픈을 뗀 값으로 남는다")
+    void recordsBizNoChange() {
+        updateDetails(null, null, "222-22-22222");
+
+        assertThat(histories()).singleElement().satisfies(row -> {
+            assertThat(row.field()).isEqualTo(StoreChangeField.BIZ_NO);
+            assertThat(row.before()).isNull();
+            assertThat(row.after()).isEqualTo(json("\"2222222222\""));
+        });
+    }
+
+    @Test
+    @DisplayName("점주 개인 휴대폰은 바꿔도 기록하지 않는다 — 개인정보라 응답에도 내보내지 않는 칸이다")
+    void doesNotRecordOwnerPhone() {
+        updateDetails(null, "010-1234-5678", null);
+
+        assertThat(histories()).isEmpty();
+        entityManager.clear();
+        assertThat(entityManager.find(Store.class, store.getStoreId()).getOwnerPhone())
+                .isEqualTo("01012345678");
+    }
+
+    @Test
+    @DisplayName("업종을 바꿔도 기록하지 않는다 — 변경 기록 항목이 아니다")
+    void doesNotRecordCategory() {
+        updateDetails("분식", null, null);
+
+        assertThat(histories()).isEmpty();
     }
 
     @Test
@@ -134,7 +176,7 @@ class StoreServiceUpdateTest extends PostgresContainerTest {
                 .status(StoreStatus.OPEN)
                 .build());
 
-        storeService.updateStore(noPhone.getStoreId(), new StoreUpdateRequest(null, null, blank, null),
+        storeService.updateStore(noPhone.getStoreId(), StoreUpdateRequest.ofBasic(null, null, blank, null),
                 StoreChange.storeEdit(ADMIN_ID));
 
         entityManager.flush();

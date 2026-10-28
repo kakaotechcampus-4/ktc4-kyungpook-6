@@ -161,7 +161,7 @@ public class VerificationService {
             }
             values.put(field, value);
         }
-        StoreUpdateRequest request = new StoreUpdateRequest(
+        StoreUpdateRequest request = StoreUpdateRequest.ofBasic(
                 values.get(ChangeField.NAME),
                 values.get(ChangeField.ADDRESS_ROAD),
                 phone(task, values.get(ChangeField.PHONE)),
