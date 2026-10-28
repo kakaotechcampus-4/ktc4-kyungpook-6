@@ -24,10 +24,24 @@ spring:
       # 요청 전체: 파일 하나 10MB 에 kind 칸과 multipart 경계 몫으로 1MB 더.
       max-request-size: 11MB
 
+  flyway:
+    enabled: true
+    # 이미 돌고 있는 DB(dev·prod)에는 표가 이미 있다. Flyway 는 빈 DB 가 아니면 멈추는 것이 기본이라,
+    # 그런 DB 를 "V1 까지는 끝난 것"으로 도장 찍고 V2 부터 돌게 한다. 빈 DB 는 V1 부터 그냥 돈다.
+    baseline-on-migrate: true
+    baseline-version: 1
+
   jpa:
     hibernate:
-      # update: 엔티티를 보고 없는 테이블·컬럼을 자동 생성합니다. (컬럼 삭제·타입변경은 반영 안 됨)
-      ddl-auto: update
+      # validate: 스키마를 건드리지 않고 엔티티와 맞는지만 본다. 어긋나면 기동이 멈춘다.
+      #
+      # 전에는 update 였다. 그건 표와 컬럼을 더하기만 해서, 이미 만들어진 CHECK 제약이나
+      # NOT NULL 은 따라오지 않는다. 로컬은 DB 를 새로 만들어 쓰니 드러나지 않고 배포본만
+      # 조용히 어긋나, 2026-09-18 부터 한 달 가까이 AI 조사가 죽어 있었다(PROMPT-159).
+      #
+      # 이제 스키마는 db/migration 의 SQL 이 바꾼다. 엔티티를 고쳤으면 마이그레이션도 같이 쓴다 —
+      # 안 쓰면 여기서 기동이 멈춘다. 그게 이 설정의 목적이다.
+      ddl-auto: validate
     open-in-view: false
 
 server:
