@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { newDraftItemId, useSignupDraft } from "./signupDraft";
-import type { SignupMenu } from "./signupDraft";
+import type { SignupBusinessHour, SignupInfo, SignupMenu, SignupStore, SignupAccount } from "./signupDraft";
 import { signupOwner } from "../services/auth";
-import type { BusinessDay, OwnerSignupRequest } from "../services/auth";
+import type { BusinessDay } from "../services/auth";
+import { uploadFile } from "../services/file";
 import { saveStatusToken } from "../services/statusToken";
 import { toSignupError } from "../utils/signupError";
 import { MENU_MAX_COUNT, validateMenuName } from "../utils/signupValidation";
@@ -35,9 +36,43 @@ export type UseSignupMenusResult = {
   errorMessage: string | null;
 };
 
-/** 가입 신청 성공 확인과 함께 가입 상태 확인용 토큰을 저장한다. 완료 화면이 이 토큰으로 승인 여부를 묻는다. */
-const submitSignup = async (payload: OwnerSignupRequest) => {
-  const response = await signupOwner(payload);
+type SignupSubmission = {
+  account: SignupAccount;
+  info: SignupInfo & { bizRegistrationFile: File };
+  store: SignupStore;
+  businessHours: SignupBusinessHour[];
+  menus: SignupMenu[];
+};
+
+/**
+ * 파일을 먼저 올리고(POST /api/files) 받은 파일 ID 를 실어 가입 신청을 보낸다.
+ * 성공하면 가입 상태 확인용 토큰을 저장한다. 완료 화면이 이 토큰으로 승인 여부를 묻는다.
+ *
+ * 파일 ID 는 세 시간 안에 한 번만 쓸 수 있어서, 실패 뒤 다시 누르면 파일도 다시 올린다.
+ */
+const submitSignup = async ({ account, info, store, businessHours, menus }: SignupSubmission) => {
+  const [bizCertFileId, storeImageFileId, menuPhotoFileIds] = await Promise.all([
+    uploadFile("BIZ_CERT", info.bizRegistrationFile),
+    store.storePhoto ? uploadFile("STORE_IMAGE", store.storePhoto) : undefined,
+    Promise.all(menus.map((menu) => (menu.photo ? uploadFile("MENU_IMAGE", menu.photo) : undefined))),
+  ]);
+
+  // 백엔드는 이름 앞뒤 공백을 지워 저장하고, bizNo·phone 의 하이픈은 지우고 저장한다. 보이는 그대로 보낸다.
+  const response = await signupOwner({
+    email: account.email,
+    password: account.password,
+    representativeName: info.representativeName,
+    phone: info.phone,
+    bizNo: info.bizNo,
+    storeName: store.storeName,
+    storeAddress: store.storeAddress,
+    storePhone: store.storePhone,
+    // 영업시간 화면을 통과한 줄은 요일을 골랐다(validateBusinessHour).
+    businessHours: businessHours.map(({ day, open, close }) => ({ day: day as BusinessDay, open, close })),
+    menus: menus.map(({ name }, index) => ({ name, photoFileId: menuPhotoFileIds[index] })),
+    storeImageFileId,
+    bizCertFileId,
+  });
   await saveStatusToken(response);
   return response;
 };
@@ -50,18 +85,14 @@ export const useSignupMenus = (): UseSignupMenusResult => {
 
   const [menus, setMenus] = useState<SignupMenu[]>(savedMenus ?? []);
   const [newMenuName, setNewMenuName] = useState("");
-  /*
-    TODO(백엔드 메뉴 사진 업로드): 가입 요청의 메뉴(SignupMenuRequest)는 이름만 받아 사진은 들고만 있다.
-    업로드 API 가 생기면 보낸다.
-  */
   const [newMenuPhoto, setNewMenuPhoto] = useState<File | null>(null);
 
   const signupMutation = useMutation({
     mutationFn: submitSignup,
     onSuccess: () => navigate(COMPLETE_PATH, { replace: true }),
-    onError: (error, payload) => {
+    onError: (error, { account: submitted }) => {
       if (toSignupError(error).kind === "duplicate-email") {
-        markEmailTaken(payload.email);
+        markEmailTaken(submitted.email);
         navigate(ACCOUNT_STEP_PATH);
       }
     },
@@ -86,22 +117,15 @@ export const useSignupMenus = (): UseSignupMenusResult => {
 
   const goNext = () => {
     // 앞 단계 값은 화면이 확인하고 들여보내므로(OwnerSignupMenusPage) 여기서는 타입만 좁힌다.
-    if (!canProceed || !account || !info || !store || !businessHours) return;
+    if (!canProceed || !account || !info?.bizRegistrationFile || !store || !businessHours) return;
     // 409 로 1단계에 다녀와도 목록이 남도록 보관한다.
     saveMenus(menus);
-    // 백엔드는 이름 앞뒤 공백을 지워 저장하고, bizNo·phone 의 하이픈은 지우고 저장한다. 보이는 그대로 보낸다.
     signupMutation.mutate({
-      email: account.email,
-      password: account.password,
-      representativeName: info.representativeName,
-      phone: info.phone,
-      bizNo: info.bizNo,
-      storeName: store.storeName,
-      storeAddress: store.storeAddress,
-      storePhone: store.storePhone,
-      // 영업시간 화면을 통과한 줄은 요일을 골랐다(validateBusinessHour).
-      businessHours: businessHours.map(({ day, open, close }) => ({ day: day as BusinessDay, open, close })),
-      menus: menus.map(({ name }) => ({ name })),
+      account,
+      info: { ...info, bizRegistrationFile: info.bizRegistrationFile },
+      store,
+      businessHours,
+      menus,
     });
   };
 

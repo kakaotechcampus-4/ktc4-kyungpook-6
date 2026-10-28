@@ -18,10 +18,7 @@ export type UseSignupInfoResult = {
   setBizNo: (value: string) => void;
   bizRegistrationFile: File | null;
   setBizRegistrationFile: (file: File | null) => void;
-  /**
-   * 세 칸이 모두 맞을 때만 true. 칸별 에러 문구는 따로 보여 주지 않는다.
-   * 사업자 등록증은 아직 서버가 받지 않아 검사하지 않는다(아래 TODO).
-   */
+  /** 세 칸이 모두 맞고 사업자 등록증을 골랐을 때만 true. 칸별 에러 문구는 따로 보여 주지 않는다. */
   canProceed: boolean;
   /** "다음" 버튼. 입력값을 보관하고 가게 등록으로 넘어간다. 가입 신청은 마지막 단계(메뉴)에서 보낸다. */
   goNext: () => void;
@@ -35,19 +32,16 @@ export const useSignupInfo = (): UseSignupInfoResult => {
   const [representativeName, setRepresentativeName] = useState(info?.representativeName ?? "");
   const [phone, setPhone] = useState(info?.phone ?? "");
   const [bizNo, setBizNo] = useState(info?.bizNo ?? "");
-  /*
-    TODO(백엔드 사업자 등록증 업로드 — 다음 주 예정): 지금은 고른 파일을 들고만 있고 서버에 보내지 않는다.
-    업로드 API 가 생기면 가입 요청과 함께(또는 따로) 보내고, 필수라면 canProceed 조건에 넣는다.
-  */
+  // 필수다. 고른 파일은 들고 있다가 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts).
   const [bizRegistrationFile, setBizRegistrationFile] = useState<File | null>(
     info?.bizRegistrationFile ?? null,
   );
 
-  const canProceed = [
-    validateRepresentativeName(representativeName),
-    validatePhone(phone),
-    validateBizNo(bizNo),
-  ].every((message) => message === null);
+  const canProceed =
+    bizRegistrationFile !== null &&
+    [validateRepresentativeName(representativeName), validatePhone(phone), validateBizNo(bizNo)].every(
+      (message) => message === null,
+    );
 
   const goNext = () => {
     if (!canProceed) return;

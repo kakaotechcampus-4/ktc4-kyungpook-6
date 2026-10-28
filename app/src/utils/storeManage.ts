@@ -1,6 +1,5 @@
 import { isAxiosError } from "axios";
 import type { BusinessDay, BusinessHour, OperatingInfoRequest } from "../services/store";
-import { isNotImplemented } from "../services/store";
 
 /** 화면에 보이는 순서. */
 export const BUSINESS_DAYS: BusinessDay[] = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
@@ -72,7 +71,6 @@ const DEFAULT_SAVE_MESSAGE = "저장하지 못했어요. 잠시 후 다시 시�
  * errors 가 있으면 첫 칸의 문구를, 없으면 title 을 보여 준다.
  */
 export const toSaveErrorMessage = (error: unknown) => {
-  if (isNotImplemented(error)) return "저장 기능은 아직 준비 중이에요. 바꾼 내용은 저장되지 않았어요.";
   if (!isAxiosError(error)) return DEFAULT_SAVE_MESSAGE;
   if (!error.response) return NETWORK_ERROR_MESSAGE;
 

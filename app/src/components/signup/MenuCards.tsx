@@ -56,7 +56,7 @@ export function NewMenuCard({
       <input
         id="signup-new-menu-photo"
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png"
         className="sr-only"
         onChange={handlePhotoChange}
       />

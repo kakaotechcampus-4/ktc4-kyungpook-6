@@ -33,7 +33,7 @@ function BizRegistrationUploadField({ id, file, onChange }: BizRegistrationUploa
       <input
         id={id}
         type="file"
-        accept="image/*,application/pdf"
+        accept="image/jpeg,image/png,application/pdf"
         className="sr-only"
         onChange={handleChange}
       />
