@@ -82,6 +82,16 @@ upload:
     # 같은 곳에서 하루에 올릴 수 있는 파일 수(성공한 것만). 10분 한도만 있으면 한 곳에서 몇 시간 만에 쌓인 파일 상한을 채운다
     max-uploads-per-day: ${UPLOAD_RATE_LIMIT_MAX_UPLOADS_PER_DAY:150}
 
+biz-cert-extraction:
+  # 사업자등록증 읽기 횟수 제한. 넘으면 429 (BizCertReadRateLimitFilter). 부를 때마다 모델 비용이 들어 성공·실패를 가리지 않고 센다.
+  # 같은 파일 ID 로 부르는 횟수도 센다 — 읽은 값을 남기지 않아 같은 파일을 다시 부르면 모델도 다시 불린다.
+  rate-limit:
+    max-attempts: ${BIZ_CERT_EXTRACTION_RATE_LIMIT_MAX_ATTEMPTS:5}
+    window-minutes: ${BIZ_CERT_EXTRACTION_RATE_LIMIT_WINDOW_MINUTES:10}
+    max-attempts-per-day: ${BIZ_CERT_EXTRACTION_RATE_LIMIT_MAX_ATTEMPTS_PER_DAY:10}
+    max-attempts-per-file: ${BIZ_CERT_EXTRACTION_RATE_LIMIT_MAX_ATTEMPTS_PER_FILE:3}
+    file-window-hours: ${BIZ_CERT_EXTRACTION_RATE_LIMIT_FILE_WINDOW_HOURS:3}
+
 signup:
   # 점주 가입 신청을 같은 IP 에서 되풀이하는 횟수 제한. 넘으면 429 (SignupRateLimitFilter).
   # 여러 사람이 같은 와이파이로 가입할 수 있어 넉넉히 둔다. 횟수는 서버 메모리에 있어 다시 띄우면 초기화된다.
