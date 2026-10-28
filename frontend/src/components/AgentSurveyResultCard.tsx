@@ -45,7 +45,7 @@ export type TaskClassification =
  * 분류별로 달라지는 값. 두 카드의 차이는 이 두 문자열뿐이라 컴포넌트를 나누지 않는다.
  *
  * 라벨을 개별 prop으로 열어두지 않은 이유:
- * "수정 사항"인데 버튼은 "메세지 보내기"인 조합은 화면에 존재하지 않는다.
+ * "수정 사항"인데 버튼은 "메시지 보내기"인 조합은 화면에 존재하지 않는다.
  * 호출부가 둘을 따로 넘기면 그런 조합이 만들어질 수 있어 한 묶음으로 고정한다.
  *
  * Figma 112:5474(priority) / 112:5502(additional)
@@ -59,7 +59,7 @@ const VARIANT = {
   /** 추가확인. 값을 정할 근거가 부족해 가게에 연락부터 해야 하는 건. */
   additional: {
     changesLabel: '추가 확인 사항',
-    primaryActionLabel: '메세지 보내기',
+    primaryActionLabel: '메시지 보내기',
   },
   /*
     변화없음. 아직 Figma 노드가 없어 임시로 잡아둔 모양이다.
@@ -125,11 +125,11 @@ type AgentSurveyResultCardProps = {
   verifiedLabel?: string;
   /**
    * Task.classification. 두 번째 섹션 라벨과 주 버튼 라벨이 이 값으로 정해진다.
-   * priority = 수정 사항 / 즉시 수정 반영하기, additional = 추가 확인 사항 / 메세지 보내기,
+   * priority = 수정 사항 / 즉시 수정 반영하기, additional = 추가 확인 사항 / 메시지 보내기,
    * unchanged = 둘 다 없음(임시)
    */
   variant?: TaskClassification;
-  /** 주 버튼 클릭. variant에 따라 수정 반영일 수도, 메세지 발송일 수도 있다. */
+  /** 주 버튼 클릭. variant에 따라 수정 반영일 수도, 메시지 발송일 수도 있다. */
   onPrimaryAction?: () => void;
   /** "직접 수정하기" 클릭. 담당자가 값을 직접 고치는 화면으로 보낸다. */
   onEdit?: () => void;
@@ -285,11 +285,15 @@ function AgentSurveyResultCard({
             {verifiedLabel}
           </p>
         ) : null}
+        {/*
+          onPrimaryAction 이 없으면 눌러도 아무 일이 없다. 색까지 그대로면 먹통처럼 보이므로
+          아래 '직접 수정하기' 와 같게 비활성으로 둔다 — additional(메시지 보내기)이 그 경우다.
+        */}
         {primaryActionLabel && !verifiedLabel ? (
           <button
             type="button"
             onClick={onPrimaryAction}
-            disabled={isLoading || isProcessing}
+            disabled={isLoading || isProcessing || !onPrimaryAction}
             className={`${ACTION_BUTTON} bg-[#eab308] text-white focus-visible:outline-[#eab308] disabled:opacity-60`}
           >
             {primaryActionLabel}
