@@ -46,6 +46,11 @@ public class StoreNtsCheckService {
      * 이전에 확인해 둔 국세청 상태는 지우지 않는다. 확인된 가게 중 국세청 상태가 이전과 달라진
      * 건만 변경 이력을 추가한다(처음 확인한 경우도 "이전 상태 없음 → 현재" 로 남는다).
      *
+     * <p><b>지난 조회 때와 사업자등록번호가 다르면 이력을 남기지 않는다.</b> 앞 상태는 다른 사업자의
+     * 것이라 견줄 대상이 아니다 — 오타를 고쳤을 뿐인데 "폐업 → 영업" 이 남으면 가게가 되살아난 것처럼
+     * 보인다. 수정 경로에서 이미 확인 기록을 되돌리지만(PROMPT-161), 번호는 주입이나 DB 직접 수정으로도
+     * 바뀔 수 있어 배치 앞에서 한 번 더 거른다.
+     *
      * @param stores          이 묶음에 속한 가게 목록. 비어 있으면 아무것도 하지 않는다
      * @param statusesByBizNo 사업자등록번호(하이픈 없는 숫자)별 국세청 상태
      * @param attemptedAt     이번 배치 회차의 시각
@@ -69,7 +74,13 @@ public class StoreNtsCheckService {
             if (status == null) {
                 check.applyUnconfirmed(bizNo, attemptedAt);
             } else {
-                if (check.getNtsState() != status.state()) {
+                /*
+                  지난 조회에 쓴 번호가 지금 번호와 다르면 저장된 상태는 다른 사업자의 것이다.
+                  한 번도 조회한 적 없으면(null) 견줄 앞 상태 자체가 없으므로 지금처럼 "없음 → 현재" 로 남긴다 —
+                  그래서 번호를 고쳐 기록을 되돌릴 때도 이 칸은 비우지 않는다.
+                */
+                boolean otherBusiness = check.getBizNo() != null && !check.getBizNo().equals(bizNo);
+                if (!otherBusiness && check.getNtsState() != status.state()) {
                     changes.add(StoreNtsChange.builder()
                             .store(check.getStore())
                             .fromState(check.getNtsState())
