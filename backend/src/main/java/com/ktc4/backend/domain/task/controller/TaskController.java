@@ -29,9 +29,13 @@ public class TaskController {
     @Operation(
             summary = "수정안 즉시 반영",
             description = """
-                    결과 카드의 "즉시 수정 반영하기". 카드의 `proposedChanges` 를 **그대로 전부** 가게 정보에 반영하고,
-                    가게 확인일(`lastCheckedAt`)과 확인 기록을 남깁니다. 응답은 결과 조회의 task 한 건과 같은 모양이라
+                    결과 카드의 "즉시 수정 반영하기". 카드의 `proposedChanges` 를 **그대로 전부** 가게 정보에 반영하고
+                    확인 기록을 남깁니다. 응답은 결과 조회의 task 한 건과 같은 모양이라
                     그 카드만 바꿔 그리면 됩니다 (`verification` 이 채워져 있으면 "✓ 확인 완료됨").
+
+                    **가게 확인일(`lastCheckedAt`)은 올라가지 않습니다.** 반영한 것은 조사가 찾아낸 값이지
+                    담당자가 가게를 직접 본 것이 아니라서, 그 가게는 90일 재확인 대상에 그대로 남습니다.
+                    확인일을 올리려면 `POST /api/tasks/{taskId}/confirm` 입니다.
 
                     - 카드 하나는 **한 번만** 처리합니다. 이미 반영·확인한 카드는 409 `task-already-confirmed`
                     - 수정안이 비었거나(변화없음·추가확인·조사 실패) 가게 규칙에 맞지 않는 값이 있으면

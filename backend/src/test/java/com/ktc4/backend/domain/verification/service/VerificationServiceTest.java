@@ -66,6 +66,7 @@ import static org.assertj.core.api.Assertions.tuple;
 class VerificationServiceTest extends PostgresContainerTest {
 
     private static final Long ADMIN_ID = 7L;
+    private static final LocalDateTime INITIAL_LAST_CHECKED_AT = LocalDateTime.of(2026, 1, 1, 9, 0);
 
     @Autowired
     private VerificationService verificationService;
@@ -93,7 +94,7 @@ class VerificationServiceTest extends PostgresContainerTest {
                 .name("맛나 치킨").nameNormalized("맛나치킨")
                 .addressRoad("대구광역시 북구 대학로 80").addressNormalized("대구광역시북구대학로80")
                 .status(StoreStatus.OPEN).phone("053-111-1111")
-                .lastCheckedAt(LocalDateTime.of(2026, 1, 1, 9, 0))
+                .lastCheckedAt(INITIAL_LAST_CHECKED_AT)
                 .build());
     }
 
@@ -135,7 +136,7 @@ class VerificationServiceTest extends PostgresContainerTest {
     class Apply {
 
         @Test
-        @DisplayName("수정안대로 가게 값을 바꾸고(정규화 포함), 확인일과 확인 기록을 같은 시각으로 남긴다")
+        @DisplayName("수정안대로 가게 값을 바꾸고(정규화 포함) 확인 기록을 남긴다")
         void appliesProposedChanges() {
             Task task = task(TaskClassification.PRIORITY_CHECK,
                     Map.of("status", "SUSPENDED", "addressRoad", "대구광역시 북구 대학로 79", "phone", "053-222-2222"));
@@ -156,7 +157,7 @@ class VerificationServiceTest extends PostgresContainerTest {
             assertThat(verification.getAppliedChanges())
                     .isEqualTo(Map.of("status", "SUSPENDED", "addressRoad", "대구광역시 북구 대학로 79", "phone", "053-222-2222"));
             assertThat(verification.getVerifiedBy()).isEqualTo("7");
-            assertThat(changed.getLastCheckedAt()).isEqualTo(verification.getVerifiedAt());
+            assertThat(changed.getLastCheckedAt()).isEqualTo(INITIAL_LAST_CHECKED_AT);
 
             // 화면이 카드 하나만 다시 그리도록, 바뀐 가게 값과 확인 기록이 담긴 카드 한 장을 돌려준다
             assertThat(result.taskId()).isEqualTo(task.getTaskId());
@@ -164,8 +165,22 @@ class VerificationServiceTest extends PostgresContainerTest {
             assertThat(result.storePhone()).isEqualTo("053-222-2222");
             assertThat(result.verification()).isNotNull();
             assertThat(result.verification().action()).isEqualTo(VerificationAction.UPDATE_INFO);
-            assertThat(result.lastCheckedAt()).isEqualTo(result.verification().verifiedAt());
+            assertThat(result.lastCheckedAt()).isEqualTo(INITIAL_LAST_CHECKED_AT);
             assertThat(result.proposedChanges()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("확인일은 올리지 않는다 — 조사가 찾은 값을 반영한 것이지 담당자가 가게를 직접 본 것이 아니다")
+        void doesNotBumpLastCheckedAt() {
+            Task task = task(TaskClassification.PRIORITY_CHECK, Map.of("status", "SUSPENDED"));
+
+            verificationService.apply(task.getTaskId(), ADMIN_ID);
+
+            /*
+              올리면 90일 재확인이 건너뛰어져, 아무도 확인하지 않은 가게가 90일 동안 조사에서 빠진다.
+              그 판정은 TaskService 가 lastCheckedAt 으로 한다.
+            */
+            assertThat(reloadStore().getLastCheckedAt()).isEqualTo(INITIAL_LAST_CHECKED_AT);
         }
 
         @Test
