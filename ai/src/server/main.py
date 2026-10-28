@@ -11,16 +11,18 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 import secrets
 from functools import lru_cache
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response, status
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from src.backend_client import (
     MAX_LIMIT,
@@ -34,6 +36,18 @@ from src.investigation import (
     InvestigatorUnavailable,
     StoreFinding,
     UnavailableInvestigator,
+)
+from src.biz_cert import (
+    ALLOWED_MIME_TYPES,
+    MAX_BYTES,
+    BizCertExtractionRequest,
+    BizCertExtractor,
+    BizCertFields,
+    ExtractionFailed,
+    ExtractorUnavailable,
+    MockBizCertExtractor,
+    UnavailableExtractor,
+    VertexBizCertExtractor,
 )
 from src.investigation.failure import failure_of
 from src.investigation.kakao_map import KakaoPlaceChecker
@@ -264,3 +278,106 @@ def investigate(
         requested=len(targets),
         succeeded=sum(1 for r in results if r.failure is None),
     )
+
+
+#: 사업자등록증 읽기 구현을 고르는 환경변수. 조사(`INVESTIGATOR`)와 따로 둔다 — 둘은 켜고 끌 이유가 다르다.
+#:   vertex — Vertex Gemini 로 읽는다. GOOGLE_CLOUD_PROJECT 가 있어야 한다
+#:   mock   — 정해진 가짜 값. **연동 흐름만** 확인할 때 (외부 호출 없음)
+#:   off    — 항상 503
+#: 비워 두면 GOOGLE_CLOUD_PROJECT 유무로 정한다.
+BIZ_CERT_EXTRACTOR_MODE = "BIZ_CERT_EXTRACTOR"
+
+
+@lru_cache(maxsize=1)
+def _vertex_biz_cert_extractor() -> BizCertExtractor:
+    """Vertex 클라이언트를 프로세스당 하나만 만든다."""
+    return VertexBizCertExtractor()
+
+
+def get_biz_cert_extractor() -> BizCertExtractor:
+    """사업자등록증 읽기 구현이 꽂히는 자리. 테스트에서 `app.dependency_overrides` 로 갈아 끼운다."""
+    mode = os.environ.get(BIZ_CERT_EXTRACTOR_MODE, "").strip().lower()
+    if mode == "off":
+        return UnavailableExtractor()
+    if mode == "mock":
+        return _mock_biz_cert_extractor()
+    if not mode and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return UnavailableExtractor()
+    try:
+        return _vertex_biz_cert_extractor()
+    except Exception as e:  # noqa: BLE001 - 자격증명·의존성 어느 쪽이 빠져도 503 이어야 한다
+        logger.warning("사업자등록증 읽기를 만들지 못했습니다: %s", e)
+        return UnavailableExtractor()
+
+
+@lru_cache(maxsize=1)
+def _mock_biz_cert_extractor() -> BizCertExtractor:
+    """mock 은 모든 점주에게 같은 가짜 값을 채운다 — 운영에 잘못 켜졌을 때 알아채게 처음 한 번 남긴다."""
+    logger.warning("사업자등록증 읽기가 mock 입니다 — 가짜 값을 돌려줍니다. 운영이면 %s 를 확인하세요", BIZ_CERT_EXTRACTOR_MODE)
+    return MockBizCertExtractor()
+
+
+BIZ_CERT_PATH = "/biz-cert-extractions"
+#: 읽기 요청 본문 상한 — base64(원본의 4/3)에 JSON 칸 이름 몫을 조금 더한다.
+MAX_BIZ_CERT_REQUEST_BYTES = (MAX_BYTES * 4) // 3 + 64 * 1024
+
+
+@app.middleware("http")
+async def limit_biz_cert_request_size(request: Request, call_next):
+    """읽기 요청은 본문을 읽기 전에 크기부터 본다.
+
+    FastAPI 는 키 검사(`require_api_key`)보다 본문 파싱을 먼저 한다. 크기를 여기서 막지 않으면 키 없는 요청도
+    큰 본문을 메모리에 올릴 수 있다. 길이를 밝히지 않은 요청(chunked)은 크기를 알 수 없어 받지 않는다.
+    """
+    if request.url.path == BIZ_CERT_PATH and request.method == "POST":
+        length = request.headers.get("content-length", "")
+        if not length.isdigit():
+            return JSONResponse(status_code=status.HTTP_411_LENGTH_REQUIRED, content={"detail": "Content-Length 가 필요합니다."})
+        if int(length) > MAX_BIZ_CERT_REQUEST_BYTES:
+            return JSONResponse(status_code=status.HTTP_413_CONTENT_TOO_LARGE, content={"detail": "파일이 너무 큽니다."})
+    return await call_next(request)
+
+
+@app.post(BIZ_CERT_PATH, response_model=BizCertFields)
+def extract_biz_cert(
+    request: BizCertExtractionRequest,
+    # 키 검사를 먼저 둔다 — 키가 틀린 요청에 읽기 구현(Vertex 클라이언트)을 만들지 않게
+    _: None = Depends(require_api_key),
+    extractor: BizCertExtractor = Depends(get_biz_cert_extractor),
+) -> BizCertFields:
+    """사업자등록증을 읽어 가입 form 에 채울 값을 돌려준다 — 백엔드가 부르는 자리.
+
+    파일은 base64 로 받는다(`contentBase64`, `mimeType`). 백엔드가 업로드 때 형식과 크기를 이미 검사했지만
+    여기서도 본다 — 이 주소는 모델 비용이 드는 호출이라 받을 것만 받는다.
+
+    못 읽은 칸은 `null` 이다. 읽기 자체를 못 하면(꺼져 있음) 503, 모델이 실패하면(시간 초과·오류·형식이 틀린 응답)
+    502 다. 백엔드는 어느 쪽이든 점주에게 "직접 입력" 으로 넘긴다. **응답·로그에 파일 내용과 읽은 값을 남기지 않는다.**
+    """
+    if request.mime_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="사업자등록증은 PDF·JPEG·PNG 만 읽습니다.",
+        )
+    # base64 는 원본의 4/3 이라, 풀기 전에 길이로 먼저 거른다 — 큰 문자열을 굳이 풀지 않게
+    if len(request.content_base64) > (MAX_BYTES * 4) // 3 + 4:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="파일이 너무 큽니다.")
+    try:
+        data = base64.b64decode(request.content_base64, validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="contentBase64 가 base64 가 아닙니다."
+        ) from e
+    if not data:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="빈 파일입니다.")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="파일이 너무 큽니다.")
+
+    try:
+        return extractor.extract(data, request.mime_type)
+    except ExtractorUnavailable as e:
+        logger.warning("사업자등록증 읽기를 쓸 수 없습니다: %s", e)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="지금 읽을 수 없습니다.") from e
+    except ExtractionFailed as e:
+        logger.warning("사업자등록증 읽기 실패: %s", e)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="읽지 못했습니다.") from e
+
