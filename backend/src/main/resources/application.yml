@@ -83,6 +83,10 @@ upload:
     max-uploads-per-day: ${UPLOAD_RATE_LIMIT_MAX_UPLOADS_PER_DAY:150}
 
 biz-cert-extraction:
+  # 서버 전체에서 하루에 모델을 부르는 횟수 — 비용의 마지막 방어선. 넘으면 그날은 읽지 않고 직접 입력으로 넘긴다(가입은 막지 않음)
+  max-calls-per-day: ${BIZ_CERT_EXTRACTION_MAX_CALLS_PER_DAY:300}
+  # 동시에 읽는 수. 한 건이 스레드를 최대 25초·메모리를 수십 MB 쓴다. 가득 차면 기다리지 않고 직접 입력으로 넘긴다
+  max-concurrent: ${BIZ_CERT_EXTRACTION_MAX_CONCURRENT:4}
   # 사업자등록증 읽기 횟수 제한. 넘으면 429 (BizCertReadRateLimitFilter). 부를 때마다 모델 비용이 들어 성공·실패를 가리지 않고 센다.
   # 같은 파일 ID 로 부르는 횟수도 센다 — 읽은 값을 남기지 않아 같은 파일을 다시 부르면 모델도 다시 불린다.
   rate-limit:
@@ -139,5 +143,7 @@ ai:
   # AI 는 가게 한 곳에 최대 60초를 쓰고, 그 안에 못 끝내면 200 + failure 로 답한다(멘토 Q4).
   # 그보다 넉넉히 기다려 "AI 가 아예 답하지 않음"(AiReadTimeout)만 여기에 걸리게 한다.
   read-timeout-ms: ${AI_READ_TIMEOUT_MS:75000}
+  # 사업자등록증 읽기는 점주가 가입 화면에서 기다린다. AI 가 모델을 20초까지 기다리므로 그보다 조금 넉넉히 둔다
+  biz-cert-read-timeout-ms: ${AI_BIZ_CERT_READ_TIMEOUT_MS:25000}
   # AI 일시 오류(5xx·연결 실패)를 다시 시도하기 전 기다리는 시간. 두 번째 시도 전 한 번만 기다린다.
   retry-backoff-ms: 2000
