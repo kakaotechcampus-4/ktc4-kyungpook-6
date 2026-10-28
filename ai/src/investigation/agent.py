@@ -15,7 +15,8 @@
 
 프레임워크 없이 함수 호출 루프를 직접 돈다 — 호출 횟수를 세고 단계마다 기록하려고.
 
-**판단 모델과 웹검색 모델은 따로다.** 웹검색은 구글 그라운딩이 필요해 늘 Vertex Gemini 로 부른다. 판단은
+**판단 모델과 웹검색 모델은 따로다.** 웹검색은 Vertex Gemini(구글 그라운딩) 또는 Claude 웹검색 도구로
+부른다(`WEB_SEARCH_PROVIDER`). 판단은
 기본으로 같은 Gemini 를 쓰고, `AGENT_MODEL` 을 주면 OpenAI 호환 API(카테캠 프록시 등)의 그 모델이 한다 —
 프록시는 그라운딩 같은 제공자 실행 도구를 거부하지만 우리가 실행하는 함수 도구는 쓸 수 있다. 판단은
 Responses API(`/v1/responses`)로 부른다 — gpt-6-luna 는 chat/completions 에서 함수 도구를 쓰려면 추론을 꺼야 한다.
@@ -42,6 +43,7 @@ from src.investigation.web import RATE_LIMIT_WAITS_SECONDS, MapObserver, PlaceCh
 from src.investigation.web_research import (
     LLM_TIMEOUT_SECONDS,
     build_research_prompt,
+    ClaudeResearchProvider,
     NOTHING_FOUND,
     Observation,
     ResearchParseError,
@@ -210,7 +212,7 @@ class Trace:
 class AgentInvestigator:
     def __init__(
         self,
-        research: VertexResearchProvider,
+        research: VertexResearchProvider | ClaudeResearchProvider,
         *,
         map_lookup: MapObserver | None = None,
         place_checker: PlaceChecker | None = None,
@@ -226,7 +228,7 @@ class AgentInvestigator:
         self._map_lookup = map_lookup
         self._place_checker = place_checker
         self._model = model
-        # Gemini 판단(decider 없음)일 때만 Vertex 클라이언트가 필요하다.
+        # Gemini 판단(decider 없음)일 때만 Vertex 클라이언트가 필요하다. 웹검색이 Claude 면 부르는 쪽이 따로 넘긴다.
         self._client = client if client is not None or decider is not None else research.client
         self._sleep = sleep
         self._clock = clock

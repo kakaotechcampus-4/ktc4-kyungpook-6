@@ -40,7 +40,7 @@ from src.investigation.kakao_map import KakaoPlaceChecker
 from src.investigation.agent import AgentInvestigator, OpenAIDecider
 from src.investigation.map_lookup import MapLookup
 from src.investigation.web import WebInvestigator, _is_rate_limited
-from src.investigation.web_research import VertexResearchProvider
+from src.investigation.web_research import ClaudeResearchProvider, VertexResearchProvider, web_search_provider
 
 #: 한 번에 받을 조사 대상 수. 백엔드가 한 페이지로 가져가는 양(100)과 맞춘다.
 MAX_TARGETS = MAX_LIMIT
@@ -82,11 +82,15 @@ def get_client() -> BackendClient:
 
 
 #: 조사 구현을 고르는 환경변수.
-#:   web   — 실제 웹검색 조사 (`WebInvestigator`). GOOGLE_CLOUD_PROJECT 가 있어야 한다
+#:   web   — 실제 웹검색 조사 (`WebInvestigator`). 검색 제공자의 자격증명이 있어야 한다
 #:   mock  — 알려진 사례만 답하는 가짜. **연동 흐름만** 확인할 때 (외부 호출 없음)
 #:   off   — 항상 503. 붙이기 전 상태를 일부러 유지할 때
-#: 비워 두면 GOOGLE_CLOUD_PROJECT 유무로 정한다 — 지금까지의 동작 그대로다.
+#: 비워 두면 검색 제공자(`WEB_SEARCH_PROVIDER`)의 자격증명 유무로 정한다 — vertex 는 GOOGLE_CLOUD_PROJECT,
+#: claude 는 ANTHROPIC_API_KEY.
 INVESTIGATOR_MODE = "INVESTIGATOR"
+
+#: 검색 제공자마다 있어야 하는 자격증명.
+_SEARCH_CREDENTIAL_ENV = {"vertex": "GOOGLE_CLOUD_PROJECT", "claude": "ANTHROPIC_API_KEY"}
 
 
 @lru_cache(maxsize=1)
@@ -96,22 +100,27 @@ def _web_investigator() -> Investigator:
     지도 대조(`NAVER_LOCAL_ENABLED`·`KAKAO_COMPARE_ENABLED`)는 기본으로 꺼져 있다 — 끄면 지금과 똑같이 돈다.
     카카오는 한 경로만 쓴다: 값 대조가 켜져 있으면 그것만, 꺼져 있으면 예전 "근처에 있다/없다" 확인만.
     `AGENT_ENABLED=true` 면 지도로 확정되지 않은 가게를 에이전트가 이어서 조사한다(혼합 방식, 기본 꺼짐).
+    웹검색은 `WEB_SEARCH_PROVIDER` 로 고른다. Claude 웹검색에 Gemini 판단(`AGENT_MODEL` 없음)을 쓰면 판단용 Vertex
+    클라이언트를 따로 만든다.
     """
     map_lookup = MapLookup.from_env()
     uses_kakao = map_lookup is not None and map_lookup.uses_kakao
     checker = KakaoPlaceChecker() if os.environ.get("KAKAO_REST_API_KEY") and not uses_kakao else None
-    research = VertexResearchProvider()
+    claude = web_search_provider() == "claude"
+    research = ClaudeResearchProvider() if claude else VertexResearchProvider()
     agent = None
     if os.environ.get("AGENT_ENABLED", "").lower() == "true":
-        agent = AgentInvestigator(research, decider=OpenAIDecider.from_env())
+        decider = OpenAIDecider.from_env()
+        client = VertexResearchProvider._build_client() if claude and decider is None else None
+        agent = AgentInvestigator(research, decider=decider, client=client)
     return WebInvestigator(research, place_checker=checker, map_lookup=map_lookup, agent=agent)
 
 
 def get_investigator() -> Investigator:
     """조사 구현이 꽂히는 자리 — 웹검색 2차 조사.
 
-    Vertex 를 쓸 GCP 프로젝트(`GOOGLE_CLOUD_PROJECT`)가 없으면 `UnavailableInvestigator` 가
-    503 을 만든다. 자격증명이 없다는 사실을 건별 실패 100개로 흩뿌리지 않는다.
+    검색 제공자의 자격증명(Vertex 는 `GOOGLE_CLOUD_PROJECT`, Claude 는 `ANTHROPIC_API_KEY`)이 없으면
+    `UnavailableInvestigator` 가 503 을 만든다. 자격증명이 없다는 사실을 건별 실패 100개로 흩뿌리지 않는다.
 
     PR #57 머지(08c5244)에서 이 분기가 빠져 GCP 설정이 있어도 항상 503 이었다 — 테스트가
     "없으면 503" 만 보고 "있으면 웹검색 조사" 는 보지 않아 못 잡았다.
@@ -127,7 +136,7 @@ def get_investigator() -> Investigator:
         from src.investigation.mock import MockInvestigator
 
         return MockInvestigator()
-    if not mode and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+    if not mode and not os.environ.get(_SEARCH_CREDENTIAL_ENV[web_search_provider()]):
         return UnavailableInvestigator()
     try:
         return _web_investigator()

@@ -13,6 +13,10 @@
 받으면 검색은 하면서도 그라운딩 결과가 거의 붙지 않았다(실측 9번 중 1번). 줄 형식은 6번 중
 6번 붙었다. 그라운딩과 스키마 강제는 어차피 같이 못 써서(`biz_number/vertex.py`) JSON 의
 이점도 없다.
+
+**검색 제공자는 둘이다**(`WEB_SEARCH_PROVIDER`). Vertex 구글 그라운딩, 또는 Claude 웹검색 도구.
+Claude 는 근거 구간마다 인용(`citations`)을 붙여 주므로 그라운딩의 support 와 같은 모양으로 옮겨
+같은 줄 파서·출처 잇기를 쓴다(`citations_of`).
 """
 
 from __future__ import annotations
@@ -20,8 +24,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field, replace
 from typing import Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -391,6 +397,142 @@ class VertexResearchProvider:
             replace(o, sources=tuple(replace(s, url=resolved.get(s.url, s.url)) for s in o.sources))
             for o in observations
         ]
+
+
+#: 검색 제공자를 고르는 환경변수 — `vertex`(기본) · `claude`.
+WEB_SEARCH_PROVIDER_ENV = "WEB_SEARCH_PROVIDER"
+
+#: Claude 웹검색 도구. 최신판(`web_search_20260209`)은 검색 결과를 코드 실행으로 걸러 쓰는데, 그러면 답에
+#: 인용이 하나도 붙지 않았다(실측) — 출처를 이을 수 없어 인용이 붙는 기본판을 쓴다.
+CLAUDE_WEB_SEARCH_TOOL = "web_search_20250305"
+#: 호출 한 번 안에서 모델이 검색할 수 있는 횟수. 실측에서 보통 1번이었다 — 늘리면 시간·비용이 같이 는다.
+CLAUDE_MAX_SEARCHES = 3
+#: Claude 웹검색 모델. `CLAUDE_RESEARCH_MODEL` 로 바꾼다.
+CLAUDE_MODEL_ENV = "CLAUDE_RESEARCH_MODEL"
+DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
+#: 서버 쪽 검색 루프가 멈추면(`pause_turn`) 이어서 부르는 횟수.
+CLAUDE_MAX_CONTINUATIONS = 2
+#: 검색 호출·결과 블록. 답은 이 뒤의 텍스트다.
+_CLAUDE_SEARCH_BLOCKS = frozenset({"server_tool_use", "web_search_tool_result"})
+
+
+def web_search_provider() -> str:
+    """`WEB_SEARCH_PROVIDER` — 모르는 값이면 기본(vertex)."""
+    return "claude" if os.environ.get(WEB_SEARCH_PROVIDER_ENV, "").strip().lower() == "claude" else "vertex"
+
+
+def citations_of(content: list) -> tuple[str, list[Source], list[Support]]:
+    """Claude 응답 블록에서 답 텍스트와 검색 결과(인용된 URL)·support 를 꺼낸다.
+
+    텍스트 블록을 이어 붙인 것이 답이고, 인용이 붙은 블록의 바이트 구간이 support 다 — 그라운딩과 같은 모양이라
+    `parse_observations` 가 그대로 줄마다 출처를 붙인다. 같은 URL 은 청크 하나로 모은다.
+
+    **마지막 검색 뒤의 텍스트만 답이다.** 검색 전·사이에 쓰는 말("검색해 보겠습니다.")까지 이으면 첫 답 줄 앞에 붙어
+    그 줄이 깨진다. 블록 사이에 줄바꿈을 넣어 가를 수는 없다 — 한 줄이 인용 구간마다 여러 블록으로 나뉘어 온다.
+    """
+    last_search = max((i for i, b in enumerate(content) if getattr(b, "type", None) in _CLAUDE_SEARCH_BLOCKS), default=-1)
+    text, offset = "", 0
+    chunks: list[Source] = []
+    index: dict[str, int] = {}
+    supports: list[Support] = []
+    for block in content[last_search + 1:]:
+        if getattr(block, "type", None) != "text":
+            continue
+        start, offset = offset, offset + len(block.text.encode("utf-8"))
+        text += block.text
+        indices = []
+        for c in getattr(block, "citations", None) or []:
+            url = getattr(c, "url", None)
+            if getattr(c, "type", None) != "web_search_result_location" or not url:
+                continue
+            if url not in index:
+                index[url] = len(chunks)
+                chunks.append(Source(domain=normalize_domain(urlparse(url).hostname or ""), url=url))
+            indices.append(index[url])
+        if indices:
+            supports.append(Support(start=start, end=offset, chunk_indices=tuple(dict.fromkeys(indices))))
+    return text, chunks, supports
+
+
+def claude_queries_of(content: list) -> tuple[str, ...]:
+    """Claude 응답에서 모델이 쓴 검색어를 꺼낸다."""
+    return tuple(
+        block.input["query"]
+        for block in content
+        if getattr(block, "type", None) == "server_tool_use"
+        and getattr(block, "name", None) == "web_search"
+        and isinstance(getattr(block, "input", None), dict)
+        and block.input.get("query")
+    )
+
+
+class ClaudeResearchProvider:
+    """Claude 웹검색 도구로 관측값을 모은다. 키는 `ANTHROPIC_API_KEY` 에서 읽는다.
+
+    재시도는 SDK 가 아니라 부르는 쪽(`web.py`·`agent.py`)이 한다 — 429 대기 간격을 Vertex 와 같이 쓰려고.
+    """
+
+    def __init__(self, model: str | None = None, *, client: object | None = None) -> None:
+        self._model = model or os.environ.get(CLAUDE_MODEL_ENV) or DEFAULT_CLAUDE_MODEL
+        self._client = client if client is not None else self._build_client()
+
+    @staticmethod
+    def _build_client() -> object:
+        import anthropic
+
+        return anthropic.Anthropic(timeout=LLM_TIMEOUT_SECONDS, max_retries=0)
+
+    def research(self, target: InvestigationTarget) -> ResearchResult:
+        return self.research_with_prompt(build_research_prompt(target))
+
+    def research_with_prompt(self, prompt: str) -> ResearchResult:
+        """`VertexResearchProvider.research_with_prompt` 와 같다 — 웹검색 → 줄 파싱 → 인용으로 출처 잇기."""
+        import anthropic
+
+        messages: list[dict] = [{"role": "user", "content": prompt}]
+        content: list = []
+        # 이어 부르기까지 합쳐 한 번의 웹검색으로 본다 — 호출마다 60초를 주면 3번에 180초라 가게당 예산(75초)을 넘는다
+        deadline = time.monotonic() + LLM_TIMEOUT_SECONDS
+        for _ in range(CLAUDE_MAX_CONTINUATIONS + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ResearchTimeout(f"LLM 응답이 {LLM_TIMEOUT_SECONDS:.0f}초 안에 끝나지 않았습니다")
+            try:
+                response = self._client.beta.messages.create(
+                    timeout=remaining,
+                    model=self._model,
+                    max_tokens=4096,
+                    # 안전 분류기가 거절하면 서버가 다른 모델로 다시 돌린다.
+                    betas=["server-side-fallback-2026-07-01"],
+                    fallbacks="default",
+                    output_config={"effort": "medium"},
+                    tools=[{
+                        "type": CLAUDE_WEB_SEARCH_TOOL,
+                        "name": "web_search",
+                        "max_uses": CLAUDE_MAX_SEARCHES,
+                        "user_location": {"type": "approximate", "country": "KR", "timezone": "Asia/Seoul"},
+                    }],
+                    messages=messages,
+                )
+            except anthropic.APITimeoutError as e:
+                raise ResearchTimeout(f"LLM 응답이 {LLM_TIMEOUT_SECONDS:.0f}초 안에 오지 않았습니다: {e}") from e
+            content += response.content
+            if response.stop_reason != "pause_turn":
+                break
+            # 서버 검색 루프가 멈춘 자리에서 잇는다 — 멈춘 응답을 그대로 되돌려 주면 서버가 이어 간다.
+            messages = [messages[0], {"role": "assistant", "content": list(content)}]
+        if response.stop_reason == "refusal":
+            raise ResearchParseError("모델이 응답을 거절했습니다")
+        # 덜 끝난 답을 읽으면 관측이 비거나 마지막 줄이 잘려 "찾은 것 없음"·틀린 값으로 조용히 나간다
+        if response.stop_reason == "pause_turn":
+            raise ResearchParseError(f"검색이 {CLAUDE_MAX_CONTINUATIONS}번 이어 불러도 끝나지 않았습니다")
+        if response.stop_reason == "max_tokens":
+            raise ResearchParseError("응답이 max_tokens 에서 잘렸습니다")
+        text, chunks, supports = citations_of(content)
+        observations = parse_observations(text, chunks, supports)
+        if observations and not chunks:
+            raise ResearchUngrounded(f"관측 {len(observations)}건에 인용된 검색 결과가 없습니다")
+        return ResearchResult(observations=observations, queries=claude_queries_of(content))
 
 
 class MockResearchProvider:
