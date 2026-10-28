@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.auth.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.ktc4.backend.domain.file.FileIdFormat;
 import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
 import com.ktc4.backend.domain.store.dto.MenuRequest;
@@ -8,14 +9,17 @@ import com.ktc4.backend.global.util.LogMasking;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import java.time.LocalDate;
 import java.util.List;
 
+import static com.ktc4.backend.global.util.TextPatterns.BLANK_OR_HAS_LETTER_OR_DIGIT;
 import static com.ktc4.backend.global.util.TextPatterns.HAS_LETTER_OR_DIGIT;
 import static com.ktc4.backend.global.util.TextPatterns.NO_INVISIBLE_CHARACTERS;
 import static com.ktc4.backend.global.util.TextPatterns.NO_STACKED_MARKS;
@@ -29,6 +33,11 @@ import static com.ktc4.backend.global.util.TextPatterns.NO_STACKED_MARKS;
  *
  * <p>상호명·대표자 이름은 글자 없는 이름과 보이지 않는 글자를 막는다 — 규칙과 이유는
  * {@link com.ktc4.backend.global.util.TextPatterns} 에 있다(메뉴 이름도 같은 규칙을 쓴다).
+ *
+ * <p>개업일·법인명·업태·종목은 <b>선택</b>이다. 앱이 사업자등록증 읽기 결과({@code BizCertExtractionResponse})로 채워 싣고,
+ * 관리자가 승인을 판단하는 참고 자료로만 신청서에 남는다(가게에 옮겨 적지 않는다). 칸 이름이 그 응답과 같다.
+ * 글자 칸이 비었거나 스페이스뿐이면 적지 않은 것으로 본다 — 앱 입력칸은 빈 값을 빈 문자열로 들고 있기 쉽다.
+ * 탭·줄바꿈은 다른 이름 칸처럼 보이지 않는 글자로 거절한다.
  *
  * <p>가게 정보(주소·가게 전화·영업시간·메뉴)는 관리자가 어느 가게인지 찾고 승인할지 판단하는 자료이고, 승인하면 그 가게에
  * 옮겨 적는다. 모두 필수다 — 메뉴가 있어야 주문을 받고, 영업시간은 가입 뒤 따로 채우지 않을 가능성이 크다.
@@ -83,6 +92,36 @@ public record OwnerSignupRequest(
         String phone,
 
         @Schema(description = """
+                개업일 (선택, yyyy-MM-dd — 0001-01-01 ~ 9999-12-31). 사업자등록증의 개업연월일.
+                형식이 틀리면 칸별 errors 없이 invalid-request, 연도가 네 자리가 아니면 errors 에 openDateInRange 가 실립니다""",
+                example = "2019-03-02", nullable = true)
+        LocalDate openDate,
+
+        @Schema(description = "법인명 (선택, 200자 이하). 법인 사업자만 있다. 비었거나 스페이스뿐이면 적지 않은 것으로 본다",
+                example = "주식회사 예시", nullable = true)
+        @Size(max = 200, message = "법인명은 {max}자를 넘을 수 없습니다")
+        @Pattern(regexp = BLANK_OR_HAS_LETTER_OR_DIGIT, message = "법인명에는 글자나 숫자가 하나 이상 있어야 합니다")
+        @Pattern(regexp = NO_INVISIBLE_CHARACTERS, message = "법인명에 줄바꿈이나 보이지 않는 글자를 넣을 수 없습니다")
+        @Pattern(regexp = NO_STACKED_MARKS, message = "법인명에 겹쳐 쓴 부호가 너무 많습니다")
+        String corpName,
+
+        @Schema(description = "업태 (선택, 200자 이하). 여러 개면 쉼표로 잇는다. 비었거나 스페이스뿐이면 적지 않은 것으로 본다",
+                example = "음식점업", nullable = true)
+        @Size(max = 200, message = "업태는 {max}자를 넘을 수 없습니다")
+        @Pattern(regexp = BLANK_OR_HAS_LETTER_OR_DIGIT, message = "업태에는 글자나 숫자가 하나 이상 있어야 합니다")
+        @Pattern(regexp = NO_INVISIBLE_CHARACTERS, message = "업태에 줄바꿈이나 보이지 않는 글자를 넣을 수 없습니다")
+        @Pattern(regexp = NO_STACKED_MARKS, message = "업태에 겹쳐 쓴 부호가 너무 많습니다")
+        String businessType,
+
+        @Schema(description = "종목 (선택, 200자 이하). 여러 개면 쉼표로 잇는다. 비었거나 스페이스뿐이면 적지 않은 것으로 본다",
+                example = "한식, 분식", nullable = true)
+        @Size(max = 200, message = "종목은 {max}자를 넘을 수 없습니다")
+        @Pattern(regexp = BLANK_OR_HAS_LETTER_OR_DIGIT, message = "종목에는 글자나 숫자가 하나 이상 있어야 합니다")
+        @Pattern(regexp = NO_INVISIBLE_CHARACTERS, message = "종목에 줄바꿈이나 보이지 않는 글자를 넣을 수 없습니다")
+        @Pattern(regexp = NO_STACKED_MARKS, message = "종목에 겹쳐 쓴 부호가 너무 많습니다")
+        String businessItem,
+
+        @Schema(description = """
                 가게 주소 (500자 이하). 관리자가 어느 가게인지 찾는 단서다. 가게 자료의 도로명 주소(addressRoad)와
                 자동으로 이어지지 않는다""", example = "대구광역시 북구 대학로 80")
         @NotBlank(message = "가게 주소를 입력해 주세요")
@@ -120,6 +159,17 @@ public record OwnerSignupRequest(
         @Pattern(regexp = FileIdFormat.PATTERN, message = FileIdFormat.MESSAGE)
         String bizCertFileId
 ) {
+
+    /**
+     * 개업일 연도가 네 자리(0001 ~ 9999)인지 — 문서에 적은 yyyy-MM-dd 와 맞춘다. 날짜를 읽는 단계는 {@code +999999999-12-31}
+     * 같은 값도 받아 주는데, DB 의 날짜 범위를 넘어 저장 단계에서 서버 오류가 난다. 개업일을 적지 않았으면 통과한다.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    @AssertTrue(message = "개업일은 0001-01-01 ~ 9999-12-31 사이여야 합니다")
+    public boolean isOpenDateInRange() {
+        return openDate == null || (openDate.getYear() >= 1 && openDate.getYear() <= 9999);
+    }
 
     // 로그에 요청 객체가 찍혀도 비밀번호·대표자 이름·휴대폰 번호가 새지 않고 이메일은 일부만 보이게 한다.
     // record 기본 toString 은 모든 필드를 그대로 출력한다. 가게 정보(주소·가게 전화·영업시간·메뉴)는 로그로

@@ -40,6 +40,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -245,7 +246,7 @@ class AuthServiceTest {
 
     private static OwnerSignupRequest signup(String email, String password, String bizNo, String phone) {
         return new OwnerSignupRequest(email, password, bizNo, " 예시분식 ", " 홍길동 ", phone,
-                "대구광역시 북구 대학로 80", "053-123-4567",
+                null, null, null, null, "대구광역시 북구 대학로 80", "053-123-4567",
                 List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")), List.of(new SignupMenuRequest("김치찌개", null)),
                 null, BIZ_CERT_FILE_ID);
     }
@@ -256,7 +257,7 @@ class AuthServiceTest {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         OwnerSignupRequest request = new OwnerSignupRequest(EMAIL, PASSWORD, "1234567890", "예시분식", "홍길동",
-                "010-0000-0000", "  대구광역시 북구 대학로 80 ", " 053-123-4567 ",
+                "010-0000-0000", null, null, null, null, "  대구광역시 북구 대학로 80 ", " 053-123-4567 ",
                 List.of(new BusinessHourRequest(BusinessDay.SUN, "21:00", "02:00"),
                         new BusinessHourRequest(BusinessDay.MON, "00:00", "24:00")),
                 List.of(new SignupMenuRequest(" 다슬기국 ", MENU_PHOTO_FILE_ID), new SignupMenuRequest("가락국수", null)),
@@ -273,6 +274,58 @@ class AuthServiceTest {
                 new SignupBusinessHour(BusinessDay.SUN, "21:00", "02:00"),
                 new SignupBusinessHour(BusinessDay.MON, "00:00", "24:00"));
         assertThat(info.getMenus()).containsExactly(new SignupMenu("다슬기국", MENU_PHOTO_FILE_ID), new SignupMenu("가락국수", null));
+    }
+
+    private OwnerInfo signupWithBizCertFields(LocalDate openDate, String corpName, String businessType, String businessItem) {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        authService.signupOwner(new OwnerSignupRequest(EMAIL, PASSWORD, "1234567890", "예시분식", "홍길동",
+                "010-0000-0000", openDate, corpName, businessType, businessItem,
+                "대구광역시 북구 대학로 80", "053-123-4567",
+                List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")), List.of(new SignupMenuRequest("김치찌개", null)),
+                null, BIZ_CERT_FILE_ID));
+
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(saved.capture());
+        return saved.getValue().getOwnerInfo();
+    }
+
+    @Test
+    @DisplayName("개업일·법인명·업태·종목을 각자 칸에 담는다 — 글자 칸은 앞뒤 공백을 지우고, 개업일은 그대로")
+    void storesBizCertFieldsOnApplication() {
+        OwnerInfo info = signupWithBizCertFields(LocalDate.of(2019, 3, 2), "  주식회사 예시 ", " 음식점업 ", "한식, 분식  ");
+
+        assertThat(info.getOpenDate()).isEqualTo(LocalDate.of(2019, 3, 2));
+        assertThat(info.getCorpName()).isEqualTo("주식회사 예시");
+        assertThat(info.getBusinessType()).isEqualTo("음식점업");
+        assertThat(info.getBusinessItem()).isEqualTo("한식, 분식");
+    }
+
+    @Test
+    @DisplayName("법인명·업태·종목이 비었거나 공백뿐이면 '안 적음'(null)으로 담는다")
+    void storesBlankBizCertTextsAsNull() {
+        OwnerInfo info = signupWithBizCertFields(null, "", "   ", " ");
+
+        assertThat(info.getCorpName()).isNull();
+        assertThat(info.getBusinessType()).isNull();
+        assertThat(info.getBusinessItem()).isNull();
+    }
+
+    @Test
+    @DisplayName("개업일·법인명·업태·종목을 보내지 않으면 신청서에도 비어 있다")
+    void leavesBizCertFieldsEmptyWhenNotSent() {
+        when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.signupOwner(signup(EMAIL, PASSWORD, "1234567890", "010-0000-0000"));
+
+        ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(saved.capture());
+        OwnerInfo info = saved.getValue().getOwnerInfo();
+        assertThat(info.getOpenDate()).isNull();
+        assertThat(info.getCorpName()).isNull();
+        assertThat(info.getBusinessType()).isNull();
+        assertThat(info.getBusinessItem()).isNull();
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\"")
@@ -373,7 +426,7 @@ class AuthServiceTest {
         when(memberRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(memberRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         OwnerSignupRequest request = new OwnerSignupRequest(EMAIL, PASSWORD, "1234567890", "예시분식", "홍길동",
-                "010-0000-0000", "대구광역시 북구 대학로 80", "053-123-4567",
+                "010-0000-0000", null, null, null, null, "대구광역시 북구 대학로 80", "053-123-4567",
                 List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00")),
                 List.of(new SignupMenuRequest("다슬기국", MENU_PHOTO_FILE_ID), new SignupMenuRequest("가락국수", null)),
                 STORE_IMAGE_FILE_ID, BIZ_CERT_FILE_ID);
