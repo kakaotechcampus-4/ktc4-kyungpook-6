@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
@@ -60,7 +61,8 @@ public class BizCertReaderClient {
         ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
                 .withConnectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .withReadTimeout(Duration.ofMillis(readTimeoutMs));
-        return ClientHttpRequestFactoryBuilder.jdk().build(settings);
+        // 본문을 모아 Content-Length 를 붙여 보낸다 — AI 서버는 길이를 밝히지 않은(chunked) 요청을 411 로 거절한다
+        return new BufferingClientHttpRequestFactory(ClientHttpRequestFactoryBuilder.jdk().build(settings));
     }
 
     /**
