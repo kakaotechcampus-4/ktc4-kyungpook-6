@@ -83,7 +83,7 @@ class ApiDocsSchemaIntegrationTest {
     }
 
     @Test
-    @DisplayName("사업자등록증 읽기는 아직 501 이어도 응답 모양(200)이 문서에 나오고, 토큰 없이 부른다고 적힌다")
+    @DisplayName("사업자등록증 읽기의 응답 모양(200)이 문서에 나오고, 토큰 없이 부른다고 적힌다")
     void bizCertExtractionPublishesItsShape() throws Exception {
         JsonNode docs = apiDocs();
         JsonNode operation = docs.at("/paths/~1api~1files~1{fileId}~1biz-cert-extraction/post");
@@ -102,17 +102,14 @@ class ApiDocsSchemaIntegrationTest {
         assertThat(schema.at("/properties/ntsVerification/enum")).extracting(JsonNode::asText)
                 .containsExactly("VERIFIED", "MISMATCH", "UNVERIFIED");
         assertThat(schema.at("/properties/openDate/format").asText()).isEqualTo("date");
-        // 아직 나오지 않는 실패 응답도 미리 문서에 적는다 — 앱이 실패 처리를 먼저 만들 수 있게
+        // 실패 응답도 문서에 적는다 — 앱이 실패 처리를 만들 수 있게
         assertThat(operation.get("responses").fieldNames())
                 .toIterable()
-                .containsExactlyInAnyOrder("200", "400", "429", "503", "501");
+                .containsExactlyInAnyOrder("200", "400", "429", "503");
 
         // 전역으로 걸린 토큰 요구를 이 API 에서는 지운다 — 앱이 토큰 없이 부르는 API 로 읽게
         assertThat(operation.get("security").isArray()).isTrue();
         assertThat(operation.get("security")).isEmpty();
-        // 501 은 본문이 없다 — 응답 DTO 가 501 의 모양으로 잘못 붙지 않게
-        assertThat(operation.at("/responses/501").isObject()).isTrue();
-        assertThat(operation.at("/responses/501/content").isMissingNode()).isTrue();
     }
 
     @Test

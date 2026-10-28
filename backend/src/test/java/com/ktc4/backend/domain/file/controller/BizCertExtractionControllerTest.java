@@ -1,8 +1,13 @@
 package com.ktc4.backend.domain.file.controller;
 
 import com.ktc4.backend.domain.member.enums.MemberRole;
+import com.ktc4.backend.global.error.CustomException;
+import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.JwtProvider;
 import com.ktc4.backend.global.security.SecurityConfig;
+import com.ktc4.backend.domain.file.dto.BizCertExtractionResponse;
+import com.ktc4.backend.domain.file.enums.NtsVerification;
+import com.ktc4.backend.domain.file.service.BizCertExtractionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,8 +15,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
 
@@ -20,14 +27,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 사업자등록증 읽기 API 의 진입점 확인. 실제 보안 규칙({@link SecurityConfig})으로 본다 — 가입 전이라 로그인 없이 부를 수
  * 있어야 하고, 열린 것은 POST 와 파일 ID 모양(소문자 UUID)뿐이어야 한다.
  *
- * <p>아직 구현 전이라 501 을 돌려준다. 읽기를 구현하면(PROMPT-172) 501 확인은 실제 응답 확인으로 바뀐다.
+ * <p>읽기 구현({@link BizCertExtractionService})은 가짜로 두고 진입점·권한만 본다. 읽기는 {@code BizCertExtractionServiceTest} 가 본다.
  *
  * <p>횟수 제한은 넉넉히 푼다 — 여기서는 진입점·권한만 본다. 횟수 제한은 {@code BizCertReadRateLimitFilterTest} 가 본다.
  */
@@ -45,6 +55,10 @@ class BizCertExtractionControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    // 읽기 구현은 가짜로 둔다 — 여기서는 앞의 규칙(권한·횟수)만 본다
+    @MockitoBean
+    private BizCertExtractionService bizCertExtractionService;
+
     @Autowired
     private JwtProvider jwtProvider;
 
@@ -53,11 +67,31 @@ class BizCertExtractionControllerTest {
     }
 
     @Test
-    @DisplayName("토큰 없이 부를 수 있고, 아직 구현 전이라 본문 없이 501 을 준다")
-    void opensWithoutTokenAndAnswersNotImplemented() throws Exception {
+    @DisplayName("토큰 없이 부를 수 있고, 읽은 값을 응답 모양 그대로 준다")
+    void opensWithoutTokenAndReturnsFields() throws Exception {
+        when(bizCertExtractionService.extract(FILE_ID)).thenReturn(new BizCertExtractionResponse("1234567890", "예시분식",
+                "홍길동", null, LocalDate.of(2019, 3, 2), null, null, null, NtsVerification.UNVERIFIED));
+
         mockMvc.perform(post(URL))
-                .andExpect(status().isNotImplemented())
-                .andExpect(content().string(""));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bizNo").value("1234567890"))
+                .andExpect(jsonPath("$.openDate").value("2019-03-02"))
+                .andExpect(jsonPath("$.storeAddress").value(nullValue()))
+                .andExpect(jsonPath("$.ntsVerification").value("UNVERIFIED"));
+    }
+
+    @Test
+    @DisplayName("서비스가 정한 실패를 팀 에러 규격으로 낸다 — 쓸 수 없는 파일 400, 읽지 못함 503")
+    void mapsServiceFailures() throws Exception {
+        when(bizCertExtractionService.extract(FILE_ID)).thenThrow(new CustomException(ErrorCode.INVALID_FILE_REFERENCE));
+        mockMvc.perform(post(URL))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_FILE_REFERENCE.getType().toString()));
+
+        doThrow(new CustomException(ErrorCode.BIZ_CERT_UNREADABLE)).when(bizCertExtractionService).extract(FILE_ID);
+        mockMvc.perform(post(URL))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.type").value(ErrorCode.BIZ_CERT_UNREADABLE.getType().toString()));
     }
 
     @Test
@@ -68,7 +102,7 @@ class BizCertExtractionControllerTest {
                 "Bearer not-a-jwt");
         for (String header : headers) {
             mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, header))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk());
         }
     }
 

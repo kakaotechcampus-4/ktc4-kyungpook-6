@@ -1,6 +1,7 @@
 package com.ktc4.backend.global.security;
 
 import com.ktc4.backend.domain.file.controller.BizCertExtractionController;
+import com.ktc4.backend.domain.file.service.BizCertExtractionService;
 import com.ktc4.backend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -22,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 사업자등록증 읽기의 하루 상한 확인. 10분 한도와 파일 한도를 넉넉히 풀고(100번) 하루 2번으로 낮춰 본다.
  *
  * <p>10분 한도·파일 한도는 {@link BizCertReadRateLimitFilterTest} 가 본다. 한도 값이 달라 컨텍스트를 따로 쓴다.
- * 읽기 API 는 아직 501 이라, 필터를 지나면 501 이다. IP 는 문서용 대역(RFC 5737)의 값이다.
+ * 읽기 구현은 가짜로 둔다 — 필터를 지나면 200 이다. IP 는 문서용 대역(RFC 5737)의 값이다.
  */
 @WebMvcTest(BizCertExtractionController.class)
 @Import(SecurityConfig.class)
@@ -37,6 +39,9 @@ class BizCertReadDailyLimitFilterTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockitoBean
+    private BizCertExtractionService bizCertExtractionService;
+
     private static MockHttpServletRequestBuilder read(String ip, int n) {
         return post("/api/files/" + String.format("3f2a9c1e-5b7d-4e8a-9c0f-%012d", n) + "/biz-cert-extraction")
                 .with(request -> {
@@ -46,10 +51,10 @@ class BizCertReadDailyLimitFilterTest {
     }
 
     @Test
-    @DisplayName("하루 상한을 넘으면 429 이다 — 10분 한도가 남아 있어도. 실패한 호출(지금은 501)도 센다")
+    @DisplayName("하루 상한을 넘으면 429 이다 — 10분 한도가 남아 있어도. 성공·실패를 가리지 않고 센다")
     void rejectsOverDailyLimit() throws Exception {
         for (int i = 0; i < 2; i++) {
-            mockMvc.perform(read("203.0.113.80", i)).andExpect(status().isNotImplemented());
+            mockMvc.perform(read("203.0.113.80", i)).andExpect(status().isOk());
         }
 
         String retryAfter = mockMvc.perform(read("203.0.113.80", 9))
@@ -68,6 +73,6 @@ class BizCertReadDailyLimitFilterTest {
         }
         mockMvc.perform(read("203.0.113.90", 5)).andExpect(status().isTooManyRequests());
 
-        mockMvc.perform(read("198.51.100.90", 6)).andExpect(status().isNotImplemented());
+        mockMvc.perform(read("198.51.100.90", 6)).andExpect(status().isOk());
     }
 }

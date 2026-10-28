@@ -3,6 +3,7 @@ package com.ktc4.backend.global.security;
 import com.ktc4.backend.domain.auth.controller.AuthController;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.domain.file.controller.BizCertExtractionController;
+import com.ktc4.backend.domain.file.service.BizCertExtractionService;
 import com.ktc4.backend.domain.file.controller.FileUploadController;
 import com.ktc4.backend.domain.file.dto.UploadResponse;
 import com.ktc4.backend.domain.file.enums.FileType;
@@ -41,7 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 사업자등록증 읽기 횟수 제한 확인. 한도를 낮춰(같은 곳 10분 4번, 같은 파일 2번) 실제 보안 필터 체인으로 본다.
  *
- * <p>읽기 API 는 아직 501 이다 — 필터를 지나면 501, 막히면 429 다. 하루 상한은 {@link BizCertReadDailyLimitFilterTest} 가 본다.
+ * <p>읽기 구현은 가짜로 둔다 — 필터를 지나면 200, 막히면 429 다. 하루 상한은 {@link BizCertReadDailyLimitFilterTest} 가 본다.
  * 횟수는 필터가 메모리에 들고 있어 테스트마다 컨텍스트를 새로 만든다. IP 는 문서용 대역(RFC 5737)의 값이다.
  */
 @WebMvcTest({BizCertExtractionController.class, FileUploadController.class, AuthController.class})
@@ -60,6 +61,9 @@ class BizCertReadRateLimitFilterTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private BizCertExtractionService bizCertExtractionService;
 
     @MockitoBean
     private UploadFileService uploadFileService;
@@ -93,7 +97,7 @@ class BizCertReadRateLimitFilterTest {
     @DisplayName("같은 곳에서 한도를 넘기면 429 too-many-requests 이고, 팀 에러 규격과 Retry-After 가 실린다 — 파일이 달라도")
     void rejectsOverLimitPerPlace() throws Exception {
         for (int i = 0; i < 4; i++) {
-            mockMvc.perform(read("203.0.113.10", file(i))).andExpect(status().isNotImplemented());
+            mockMvc.perform(read("203.0.113.10", file(i))).andExpect(status().isOk());
         }
 
         String retryAfter = mockMvc.perform(read("203.0.113.10", file(9)))
@@ -110,15 +114,15 @@ class BizCertReadRateLimitFilterTest {
     @Test
     @DisplayName("같은 파일 ID 는 어디서 부르든 함께 센다 — 곳을 바꿔 가며 같은 파일을 되풀이해 읽지 못하게")
     void countsSameFileFromAnyPlace() throws Exception {
-        mockMvc.perform(read("203.0.113.20", FILE)).andExpect(status().isNotImplemented());
-        mockMvc.perform(read("198.51.100.20", FILE)).andExpect(status().isNotImplemented());
+        mockMvc.perform(read("203.0.113.20", FILE)).andExpect(status().isOk());
+        mockMvc.perform(read("198.51.100.20", FILE)).andExpect(status().isOk());
 
         String retryAfter = mockMvc.perform(read("203.0.113.21", FILE))
                 .andExpect(status().isTooManyRequests())
                 .andReturn().getResponse().getHeader(HttpHeaders.RETRY_AFTER);
 
         assertThat(Long.parseLong(retryAfter)).isBetween(601L, 3 * 3600L);   // 10분 한도가 아니라 파일 한도에 걸렸다
-        mockMvc.perform(read("203.0.113.21", file(1))).andExpect(status().isNotImplemented());   // 다른 파일은 그대로
+        mockMvc.perform(read("203.0.113.21", file(1))).andExpect(status().isOk());   // 다른 파일은 그대로
     }
 
     @Test
@@ -131,8 +135,8 @@ class BizCertReadRateLimitFilterTest {
             mockMvc.perform(read("203.0.113.30", FILE)).andExpect(status().isTooManyRequests());
         }
 
-        mockMvc.perform(read("198.51.100.30", FILE)).andExpect(status().isNotImplemented());
-        mockMvc.perform(read("198.51.100.31", FILE)).andExpect(status().isNotImplemented());
+        mockMvc.perform(read("198.51.100.30", FILE)).andExpect(status().isOk());
+        mockMvc.perform(read("198.51.100.31", FILE)).andExpect(status().isOk());
     }
 
     @Test
@@ -150,7 +154,7 @@ class BizCertReadRateLimitFilterTest {
         }
 
         for (int i = 0; i < 4; i++) {
-            mockMvc.perform(read("203.0.113.35", file(i))).andExpect(status().isNotImplemented());
+            mockMvc.perform(read("203.0.113.35", file(i))).andExpect(status().isOk());
         }
     }
 
@@ -162,7 +166,7 @@ class BizCertReadRateLimitFilterTest {
         }
 
         mockMvc.perform(read("203.0.113.40", file(5))).andExpect(status().isTooManyRequests());
-        mockMvc.perform(read("198.51.100.40", file(6))).andExpect(status().isNotImplemented());
+        mockMvc.perform(read("198.51.100.40", file(6))).andExpect(status().isOk());
     }
 
     @Test
@@ -175,7 +179,7 @@ class BizCertReadRateLimitFilterTest {
         mockMvc.perform(read(PROXY, file(5)).header("X-Forwarded-For", "203.0.113.50"))
                 .andExpect(status().isTooManyRequests());
         mockMvc.perform(read(PROXY, file(6)).header("X-Forwarded-For", "198.51.100.50"))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -183,7 +187,7 @@ class BizCertReadRateLimitFilterTest {
     void countsEncodedPathToo() throws Exception {
         for (int i = 0; i < 4; i++) {
             mockMvc.perform(at("203.0.113.60", post(URI.create("/api/files/" + file(i) + "/biz-cert-extractio%6E"))))
-                    .andExpect(status().isNotImplemented());
+                    .andExpect(status().isOk());
         }
 
         mockMvc.perform(read("203.0.113.60", file(5))).andExpect(status().isTooManyRequests());
