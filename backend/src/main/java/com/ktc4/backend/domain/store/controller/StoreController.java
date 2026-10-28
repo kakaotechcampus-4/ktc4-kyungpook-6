@@ -101,15 +101,24 @@ public class StoreController {
     @Operation(
             summary = "가게 정보 수정",
             description = """
-                    담당자가 가게 기본 정보를 직접 고칩니다. 담아 보낸 필드만 바뀌고, 빠뜨린 필드는 기존 값을 유지합니다.
-                    바뀐 항목은 누가 무엇에서 무엇으로 바꿨는지 변경 기록에 남습니다.
+                    담당자가 가게 정보를 직접 고칩니다. 담아 보낸 필드만 바뀌고, 빠뜨린 필드는 기존 값을 유지합니다.
+                    바뀐 항목은 누가 무엇에서 무엇으로 바꿨는지 변경 기록에 남습니다 —
+                    다만 점주 개인 휴대폰(`ownerPhone`)과 업종·위경도는 기록하지 않습니다.
+
+                    **사업자등록번호(`bizNo`)** 는 하이픈이 있어도 숫자만 남겨 저장하며 **숫자 10자리여야 합니다**
+                    (아니면 400 `invalid-biz-no`). 번호가 실제로 바뀌면 그 가게의 **국세청 확인 결과가
+                    '아직 확인 안 됨' 으로 돌아갑니다** — 저장돼 있던 답은 옛 번호로 받은 것이라 다른 사업자의
+                    상태이기 때문입니다. 새 번호의 상태는 다음 배치(새벽 3시)가 채웁니다.
+
+                    위경도는 보내지 않으면 유지되며, 이 API 로는 지울 수 없습니다.
 
                     확인일 갱신은 이 API가 아니라 `POST /api/stores/{storeId}/confirm` 입니다.
                     """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "수정 성공 — 수정된 가게 정보를 반환합니다"),
             @ApiResponse(responseCode = "400",
-                    description = "필드 길이가 허용 범위를 벗어나거나 status 값이 잘못된 경우. "
+                    description = "필드 길이가 허용 범위를 벗어나거나, status 값이 잘못됐거나, "
+                            + "사업자등록번호가 숫자 10자리가 아닌 경우. "
                             + "어느 필드가 왜 틀렸는지는 errors 배열에 담깁니다",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),

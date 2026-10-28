@@ -11,7 +11,9 @@ import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
+import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
+import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
@@ -24,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -40,6 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,8 +65,21 @@ class StoreServiceTest {
     @Mock
     private StoreChangeHistoryService storeChangeHistoryService;
 
+    @Mock
+    private StoreNtsCheckRepository storeNtsCheckRepository;
+
     @InjectMocks
     private StoreService storeService;
+
+    /*
+      수정 경로가 앞뒤 스냅숏을 견줘 사업자등록번호가 바뀌었는지 본다. mock 이 null 을 주면
+      그 비교에서 터지므로 진짜 스냅숏을 만들어 준다. 영업시간·메뉴는 이 테스트의 관심이 아니라 비워 둔다.
+    */
+    @BeforeEach
+    void stubSnapshots() {
+        lenient().when(storeChangeHistoryService.snapshot(any()))
+                .thenAnswer(invocation -> StoreSnapshot.of(invocation.getArgument(0), List.of(), List.of()));
+    }
 
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
@@ -247,7 +265,7 @@ class StoreServiceTest {
             // 두 정규화 호출이 서로 뒤바뀌어도 통과해버리는 값(단순 공백 제거만으로 갈리는 값)은 쓰지 않는다.
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
             when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
-            StoreUpdateRequest request = new StoreUpdateRequest(
+            StoreUpdateRequest request = StoreUpdateRequest.ofBasic(
                     "새이름(주)", "대구광역시 북구 대학로 80-1", "010-9999-0000", StoreStatus.CLOSED);
 
             StoreResponse response = storeService.updateStore(1L, request, ADMIN_EDIT);
@@ -267,7 +285,7 @@ class StoreServiceTest {
         void keepsNameNormalizedWhenNameNotSent() {
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
             when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
-            StoreUpdateRequest request = new StoreUpdateRequest(null, null, "010-9999-0000", null);
+            StoreUpdateRequest request = StoreUpdateRequest.ofBasic(null, null, "010-9999-0000", null);
 
             storeService.updateStore(1L, request, ADMIN_EDIT);
 
@@ -280,7 +298,7 @@ class StoreServiceTest {
         void clearsPhoneWithEmptyString() {
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
             when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
-            StoreUpdateRequest request = new StoreUpdateRequest(null, null, "", null);
+            StoreUpdateRequest request = StoreUpdateRequest.ofBasic(null, null, "", null);
 
             storeService.updateStore(1L, request, ADMIN_EDIT);
 
@@ -291,12 +309,91 @@ class StoreServiceTest {
         @DisplayName("storeId 에 해당하는 가게가 없으면 STORE_NOT_FOUND 를 던진다")
         void throwsWhenStoreNotFound() {
             when(storeRepository.findByIdForUpdate(anyLong())).thenReturn(Optional.empty());
-            StoreUpdateRequest request = new StoreUpdateRequest("새이름", null, null, null);
+            StoreUpdateRequest request = StoreUpdateRequest.ofBasic("새이름", null, null, null);
 
             assertThatThrownBy(() -> storeService.updateStore(999L, request, ADMIN_EDIT))
                     .isInstanceOf(CustomException.class)
                     .extracting(e -> ((CustomException) e).getErrorCode())
                     .isEqualTo(ErrorCode.STORE_NOT_FOUND);
+        }
+
+        /*
+          여기부터 사업자등록번호 — 주입은 9칸을 받는데 수정은 네 칸뿐이라 오타를 고칠 길이 없었다(PROMPT-161).
+        */
+
+        private StoreUpdateRequest bizNoOnly(String bizNo) {
+            return new StoreUpdateRequest(null, null, null, null, null, null, null, null, bizNo);
+        }
+
+        private StoreNtsCheck confirmedClosed(Store store, String bizNo) {
+            return StoreNtsCheck.builder()
+                    .store(store).bizNo(bizNo)
+                    .checkResult(NtsLookupResult.CONFIRMED).ntsState(BusinessState.CLOSED)
+                    .lastAttemptAt(CHECKED_AT).lastSuccessAt(CHECKED_AT)
+                    .build();
+        }
+
+        @Test
+        @DisplayName("하이픈이 섞여 와도 숫자만 남겨 저장한다")
+        void normalizesBizNo() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
+
+            storeService.updateStore(1L, bizNoOnly("222-22-22222"), ADMIN_EDIT);
+
+            assertThat(store.getBizNo()).isEqualTo("2222222222");
+        }
+
+        @Test
+        @DisplayName("숫자 10자리가 아니면 INVALID_BIZ_NO — 가게 값은 하나도 바뀌지 않는다")
+        void rejectsBizNoThatIsNotTenDigits() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
+
+            assertThatThrownBy(() -> storeService.updateStore(1L, bizNoOnly("123-45"), ADMIN_EDIT))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_BIZ_NO);
+            assertThat(store.getBizNo()).isEqualTo("1234567890");
+        }
+
+        @Test
+        @DisplayName("번호를 바꾸면 국세청 확인 기록을 되돌린다 — 저장된 답은 옛 번호로 받은 것이다")
+        void resetsNtsCheckWhenBizNoChanged() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            StoreNtsCheck check = confirmedClosed(store, "1234567890");
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
+            when(storeNtsCheckRepository.findById(1L)).thenReturn(Optional.of(check));
+
+            storeService.updateStore(1L, bizNoOnly("2222222222"), ADMIN_EDIT);
+
+            assertThat(check.getNtsState()).isNull();
+            assertThat(check.getCheckResult()).isEqualTo(NtsLookupResult.UNCONFIRMED);
+            // 마지막 조회에 쓴 번호는 남긴다 — 배치가 이 값으로 "다른 사업자" 를 알아본다
+            assertThat(check.getBizNo()).isEqualTo("1234567890");
+        }
+
+        @Test
+        @DisplayName("같은 번호를 다시 보내면 국세청 확인 기록을 건드리지 않는다")
+        void keepsNtsCheckWhenBizNoUnchanged() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
+
+            storeService.updateStore(1L, bizNoOnly("123-45-67890"), ADMIN_EDIT);
+
+            verify(storeNtsCheckRepository, never()).findById(anyLong());
+        }
+
+        @Test
+        @DisplayName("한 번도 조회하지 않은 가게는 되돌릴 기록이 없어도 그냥 지나간다")
+        void toleratesMissingNtsCheck() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
+            when(storeNtsCheckRepository.findById(1L)).thenReturn(Optional.empty());
+
+            storeService.updateStore(1L, bizNoOnly("2222222222"), ADMIN_EDIT);
+
+            assertThat(store.getBizNo()).isEqualTo("2222222222");
         }
     }
 

@@ -289,7 +289,7 @@ class StoreControllerTest {
             // 실제로 파싱된 요청이 서비스까지 그대로 전달됐는지 인자 자체를 확인한다.
             // 누가 바꿨는지는 로그인한 관리자에서 꺼내 넘긴다 — 엉뚱한 값을 넘기면 변경 기록의 "누가"가 틀린다
             verify(storeService).updateStore(eq(1L),
-                    eq(new StoreUpdateRequest("맛나 치킨", null, null, StoreStatus.OPEN)),
+                    eq(StoreUpdateRequest.ofBasic("맛나 치킨", null, null, StoreStatus.OPEN)),
                     argThat(change -> change.source() == StoreChangeSource.STORE_EDIT
                             && change.changedBy() == ADMIN_ID && change.taskId() == null));
         }
