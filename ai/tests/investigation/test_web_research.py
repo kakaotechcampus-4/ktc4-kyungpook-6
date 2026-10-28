@@ -15,7 +15,9 @@ from src.investigation.models import (
 )
 from src.investigation.web import WebInvestigator
 from src.investigation.web_research import (
+    CLAUDE_WEB_SEARCH_TOOL,
     LLM_TIMEOUT_SECONDS,
+    ClaudeResearchProvider,
     MockResearchProvider,
     ResearchParseError,
     ResearchResult,
@@ -25,6 +27,7 @@ from src.investigation.web_research import (
     Support,
     VertexResearchProvider,
     build_research_prompt,
+    citations_of,
     normalize_date,
     grounding_of,
     parse_observations,
@@ -465,3 +468,109 @@ class TestWebInvestigator:
 )
 def test_날짜는_비교할_수_있는_모양으로_고친다(written, normalized):
     assert normalize_date(written) == normalized
+
+
+# ------------------------------------------------------------ Claude 웹검색
+
+
+def _text(text: str, *urls: str):
+    return SimpleNamespace(
+        type="text",
+        text=text,
+        citations=[SimpleNamespace(type="web_search_result_location", url=u, cited_text="") for u in urls] or None,
+    )
+
+
+def _search(query: str):
+    return SimpleNamespace(type="server_tool_use", name="web_search", input={"query": query})
+
+
+def _claude_response(*blocks, stop_reason: str = "end_turn"):
+    return SimpleNamespace(content=list(blocks), stop_reason=stop_reason)
+
+
+def _fake_claude(*responses):
+    calls = []
+    queue = list(responses)
+    create = lambda **kw: calls.append(kw) or queue.pop(0)  # noqa: E731
+    return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create))), calls
+
+
+class TestCitationsOf:
+    """Claude 는 근거 구간마다 텍스트 블록을 나눠 인용을 붙인다(실측) — 그 블록 구간이 support 다."""
+
+    def test_인용이_붙은_블록이_그_줄의_출처가_된다(self):
+        content = [
+            _text("phone | 053-111-2222 | "),
+            _text("전화 053-111-2222", "https://www.diningcode.com/p?rid=1"),
+            _text(" | \nstatus | CLOSED | "),
+            _text("폐업했습니다", "https://blog.naver.com/a", "https://www.diningcode.com/p?rid=1"),
+            _text(" |"),
+        ]
+
+        text, chunks, supports = citations_of(content)
+        observations = parse_observations(text, chunks, supports)
+
+        assert chunks == [
+            Source("diningcode.com", "https://www.diningcode.com/p?rid=1"),
+            Source("blog.naver.com", "https://blog.naver.com/a"),
+        ]
+        assert [o.sources for o in observations] == [(chunks[0],), (chunks[1], chunks[0])]
+
+    def test_텍스트가_아닌_블록과_다른_종류의_인용은_건너뛴다(self):
+        other = SimpleNamespace(type="char_location", url=None)
+        content = [_search("예시분식"), SimpleNamespace(type="web_search_tool_result", content=[]),
+                   SimpleNamespace(type="text", text="없음", citations=[other])]
+
+        assert citations_of(content) == ("없음", [], [])
+
+
+class TestClaudeResearchProvider:
+    def test_인용으로_출처를_잇고_검색어를_남긴다(self):
+        client, calls = _fake_claude(_claude_response(
+            _search("예시분식 동성로"),
+            _text("status | CLOSED | "),
+            _text("폐업 안내문이 붙어 있다", "https://blog.naver.com/real"),
+            _text(" |"),
+        ))
+
+        result = ClaudeResearchProvider(client=client).research(TARGET)
+
+        [o] = result.observations
+        assert o.sources == (Source("blog.naver.com", "https://blog.naver.com/real"),)
+        assert result.queries == ("예시분식 동성로",)
+        assert calls[0]["tools"][0]["type"] == CLAUDE_WEB_SEARCH_TOOL
+
+    def test_관측이_있는데_인용이_없으면_실패로_올린다(self):
+        """그대로 두면 관측이 전부 출처 없음으로 빠져 변화없음으로 조용히 나간다."""
+        client, _ = _fake_claude(_claude_response(_text("status | CLOSED | 폐업했다 |")))
+
+        with pytest.raises(ResearchUngrounded):
+            ClaudeResearchProvider(client=client).research(TARGET)
+
+    def test_검색_루프가_멈추면_멈춘_응답을_되돌려_이어_간다(self):
+        paused = _claude_response(_search("예시분식"), stop_reason="pause_turn")
+        done = _claude_response(_text("없음"))
+        client, calls = _fake_claude(paused, done)
+
+        result = ClaudeResearchProvider(client=client).research(TARGET)
+
+        assert result.observations == [] and len(calls) == 2
+        assert calls[1]["messages"][1] == {"role": "assistant", "content": paused.content}
+
+    def test_거절하면_형식_실패로_올린다(self):
+        client, _ = _fake_claude(_claude_response(_text(""), stop_reason="refusal"))
+
+        with pytest.raises(ResearchParseError):
+            ClaudeResearchProvider(client=client).research(TARGET)
+
+    def test_타임아웃은_재시도하지_않는_타임아웃으로_바꾼다(self):
+        import anthropic
+
+        def create(**kw):
+            raise anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com"))
+
+        client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)))
+
+        with pytest.raises(ResearchTimeout):
+            ClaudeResearchProvider(client=client).research(TARGET)
