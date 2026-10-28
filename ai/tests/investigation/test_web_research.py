@@ -13,8 +13,10 @@ from src.investigation.models import (
     PlaceCheck,
     PlaceStatus,
 )
+from src.investigation import web_research
 from src.investigation.web import WebInvestigator
 from src.investigation.web_research import (
+    CLAUDE_MAX_CONTINUATIONS,
     CLAUDE_WEB_SEARCH_TOOL,
     LLM_TIMEOUT_SECONDS,
     ClaudeResearchProvider,
@@ -425,6 +427,25 @@ class TestWebInvestigator:
 
         assert found.failure is None and slept == [1.0, 2.0] and provider.calls == 3
 
+    def test_Anthropic_과부하도_기다렸다_다시_부른다(self):
+        class Overloaded(Exception):
+            status_code = 529
+
+        class Busy:
+            calls = 0
+
+            def research(self, target):
+                self.calls += 1
+                if self.calls == 1:
+                    raise Overloaded("529 overloaded_error")
+                return ResearchResult()
+
+        slept = []
+        provider = Busy()
+        found = WebInvestigator(provider, rate_limit_waits=(1.0,), sleep=slept.append).investigate(TARGET)
+
+        assert found.failure is None and slept == [1.0] and provider.calls == 2
+
     def test_기다려도_한도에_걸리면_예외로_올린다(self):
         class RateLimited(Exception):
             code = 429
@@ -524,6 +545,13 @@ class TestCitationsOf:
 
         assert citations_of(content) == ("없음", [], [])
 
+    def test_검색_전에_쓴_말은_답에_붙이지_않는다(self):
+        """이어 붙이면 "검색해 보겠습니다.없음" 이 되어 없음도, 관측 줄도 아니게 된다."""
+        content = [_text("검색해 보겠습니다."), _search("예시분식"),
+                   SimpleNamespace(type="web_search_tool_result", content=[]), _text("없음")]
+
+        assert citations_of(content) == ("없음", [], [])
+
 
 class TestClaudeResearchProvider:
     def test_인용으로_출처를_잇고_검색어를_남긴다(self):
@@ -557,6 +585,34 @@ class TestClaudeResearchProvider:
 
         assert result.observations == [] and len(calls) == 2
         assert calls[1]["messages"][1] == {"role": "assistant", "content": paused.content}
+
+    def test_이어_불러도_검색이_끝나지_않으면_형식_실패로_올린다(self):
+        """덜 끝난 답을 읽으면 관측이 비어 "찾은 것 없음"으로 조용히 나간다."""
+        paused = [_claude_response(_search("예시분식"), stop_reason="pause_turn") for _ in range(CLAUDE_MAX_CONTINUATIONS + 1)]
+        client, calls = _fake_claude(*paused)
+
+        with pytest.raises(ResearchParseError):
+            ClaudeResearchProvider(client=client).research(TARGET)
+        assert len(calls) == CLAUDE_MAX_CONTINUATIONS + 1
+
+    def test_응답이_잘리면_형식_실패로_올린다(self):
+        client, _ = _fake_claude(_claude_response(
+            _search("예시분식"), _text("phone | 053-111-"), stop_reason="max_tokens"
+        ))
+
+        with pytest.raises(ResearchParseError):
+            ClaudeResearchProvider(client=client).research(TARGET)
+
+    def test_이어_부르기까지_합쳐_시간_상한을_건다(self, monkeypatch):
+        """호출마다 60초를 주면 3번에 180초다 — 남은 시간만 주고, 다 쓰면 타임아웃으로 올린다."""
+        now = iter([0.0, 0.0, LLM_TIMEOUT_SECONDS - 10, LLM_TIMEOUT_SECONDS + 1])
+        monkeypatch.setattr(web_research.time, "monotonic", lambda: next(now))
+        paused = _claude_response(_search("예시분식"), stop_reason="pause_turn")
+        client, calls = _fake_claude(paused, paused)
+
+        with pytest.raises(ResearchTimeout):
+            ClaudeResearchProvider(client=client).research(TARGET)
+        assert [c["timeout"] for c in calls] == [LLM_TIMEOUT_SECONDS, 10]
 
     def test_거절하면_형식_실패로_올린다(self):
         client, _ = _fake_claude(_claude_response(_text(""), stop_reason="refusal"))

@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 from urllib.parse import urlparse
@@ -411,6 +412,8 @@ CLAUDE_MODEL_ENV = "CLAUDE_RESEARCH_MODEL"
 DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
 #: 서버 쪽 검색 루프가 멈추면(`pause_turn`) 이어서 부르는 횟수.
 CLAUDE_MAX_CONTINUATIONS = 2
+#: 검색 호출·결과 블록. 답은 이 뒤의 텍스트다.
+_CLAUDE_SEARCH_BLOCKS = frozenset({"server_tool_use", "web_search_tool_result"})
 
 
 def web_search_provider() -> str:
@@ -423,12 +426,16 @@ def citations_of(content: list) -> tuple[str, list[Source], list[Support]]:
 
     텍스트 블록을 이어 붙인 것이 답이고, 인용이 붙은 블록의 바이트 구간이 support 다 — 그라운딩과 같은 모양이라
     `parse_observations` 가 그대로 줄마다 출처를 붙인다. 같은 URL 은 청크 하나로 모은다.
+
+    **마지막 검색 뒤의 텍스트만 답이다.** 검색 전·사이에 쓰는 말("검색해 보겠습니다.")까지 이으면 첫 답 줄 앞에 붙어
+    그 줄이 깨진다. 블록 사이에 줄바꿈을 넣어 가를 수는 없다 — 한 줄이 인용 구간마다 여러 블록으로 나뉘어 온다.
     """
+    last_search = max((i for i, b in enumerate(content) if getattr(b, "type", None) in _CLAUDE_SEARCH_BLOCKS), default=-1)
     text, offset = "", 0
     chunks: list[Source] = []
     index: dict[str, int] = {}
     supports: list[Support] = []
-    for block in content:
+    for block in content[last_search + 1:]:
         if getattr(block, "type", None) != "text":
             continue
         start, offset = offset, offset + len(block.text.encode("utf-8"))
@@ -484,9 +491,15 @@ class ClaudeResearchProvider:
 
         messages: list[dict] = [{"role": "user", "content": prompt}]
         content: list = []
+        # 이어 부르기까지 합쳐 한 번의 웹검색으로 본다 — 호출마다 60초를 주면 3번에 180초라 가게당 예산(75초)을 넘는다
+        deadline = time.monotonic() + LLM_TIMEOUT_SECONDS
         for _ in range(CLAUDE_MAX_CONTINUATIONS + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ResearchTimeout(f"LLM 응답이 {LLM_TIMEOUT_SECONDS:.0f}초 안에 끝나지 않았습니다")
             try:
                 response = self._client.beta.messages.create(
+                    timeout=remaining,
                     model=self._model,
                     max_tokens=4096,
                     # 안전 분류기가 거절하면 서버가 다른 모델로 다시 돌린다.
@@ -510,6 +523,11 @@ class ClaudeResearchProvider:
             messages = [messages[0], {"role": "assistant", "content": list(content)}]
         if response.stop_reason == "refusal":
             raise ResearchParseError("모델이 응답을 거절했습니다")
+        # 덜 끝난 답을 읽으면 관측이 비거나 마지막 줄이 잘려 "찾은 것 없음"·틀린 값으로 조용히 나간다
+        if response.stop_reason == "pause_turn":
+            raise ResearchParseError(f"검색이 {CLAUDE_MAX_CONTINUATIONS}번 이어 불러도 끝나지 않았습니다")
+        if response.stop_reason == "max_tokens":
+            raise ResearchParseError("응답이 max_tokens 에서 잘렸습니다")
         text, chunks, supports = citations_of(content)
         observations = parse_observations(text, chunks, supports)
         if observations and not chunks:
