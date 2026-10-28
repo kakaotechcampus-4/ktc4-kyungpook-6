@@ -285,11 +285,15 @@ function AgentSurveyResultCard({
             {verifiedLabel}
           </p>
         ) : null}
+        {/*
+          onPrimaryAction 이 없으면 눌러도 아무 일이 없다. 색까지 그대로면 먹통처럼 보이므로
+          아래 '직접 수정하기' 와 같게 비활성으로 둔다 — additional(메시지 보내기)이 그 경우다.
+        */}
         {primaryActionLabel && !verifiedLabel ? (
           <button
             type="button"
             onClick={onPrimaryAction}
-            disabled={isLoading || isProcessing}
+            disabled={isLoading || isProcessing || !onPrimaryAction}
             className={`${ACTION_BUTTON} bg-[#eab308] text-white focus-visible:outline-[#eab308] disabled:opacity-60`}
           >
             {primaryActionLabel}
