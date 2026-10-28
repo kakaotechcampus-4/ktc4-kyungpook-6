@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -24,6 +25,12 @@ import java.util.List;
  * JSON 칸에 둔다. 네 칸 모두 {@code updatable = false} 다 — 승인·거절 때 회원 행을 다시 쓰더라도 이 칸은 건드리지
  * 않아, 옛 코드가 모르는 칸을 무시하고 읽은 기록이 다시 쓰이며 지워지지 않는다.
  * 이 칸들이 생기기 전에 가입한 점주는 비어 있다(목록은 빈 목록으로 읽는다).
+ *
+ * <p>개업일·법인명·업태·종목도 <b>신청 당시 기록</b>이다(선택, 사업자등록증에서 읽은 값). 관리자가 승인을 판단하는 참고
+ * 자료일 뿐 가게에 옮겨 적지 않는다 — 가게의 분류({@code Store.category})는 업태·종목과 체계가 다르다. 위 기록 칸들과
+ * 같이 {@code updatable = false} 다. JSON 칸과 달리 다시 써도 잃는 값은 없지만, 가입 뒤 고치는 코드가 없다는 것을
+ * 매핑으로 적어 둔다. <b>나중에 이 칸을 고치는 기능을 만들면 이 표시를 같이 지워야 한다</b> — 남겨 두면 고친 값이
+ * 오류 없이 저장되지 않는다.
  */
 @Embeddable
 @Getter
@@ -67,6 +74,22 @@ public class OwnerInfo {
     @Column(name = "store_phone", length = 20, updatable = false)
     private String storePhone;
 
+    /** 개업일 — 사업자등록증의 개업연월일 */
+    @Column(name = "open_date", updatable = false)
+    private LocalDate openDate;
+
+    /** 법인명 — 법인 사업자만 있다 */
+    @Column(name = "corp_name", length = 200, updatable = false)
+    private String corpName;
+
+    /** 업태 — 여러 개면 쉼표로 이은 값 */
+    @Column(name = "business_type", length = 200, updatable = false)
+    private String businessType;
+
+    /** 종목 — 여러 개면 쉼표로 이은 값 */
+    @Column(name = "business_item", length = 200, updatable = false)
+    private String businessItem;
+
     /** 가입할 때 적은 영업시간 */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "store_business_hours", columnDefinition = "jsonb", updatable = false)
@@ -79,14 +102,20 @@ public class OwnerInfo {
 
     // 사업자등록번호는 BizNoNormalizer, 휴대폰 번호는 PhoneNormalizer 로 맞춘 값을 받는다.
     // 영업시간·메뉴가 null 이면 빈 목록으로 둔다(가게 정보 없이 만드는 기존 테스트·옛 신청자와 같은 모양).
+    // 개업일·법인명·업태·종목은 적지 않았으면 null 로 받는다(빈 문자열을 null 로 맞추는 것은 가입 서비스가 한다).
     @Builder
     private OwnerInfo(String bizNo, String storeName, String representativeName, String phone,
+                      LocalDate openDate, String corpName, String businessType, String businessItem,
                       String storeAddress, String storePhone,
                       List<SignupBusinessHour> businessHours, List<SignupMenu> menus) {
         this.bizNo = bizNo;
         this.storeName = storeName;
         this.representativeName = representativeName;
         this.phone = phone;
+        this.openDate = openDate;
+        this.corpName = corpName;
+        this.businessType = businessType;
+        this.businessItem = businessItem;
         this.storeAddress = storeAddress;
         this.storePhone = storePhone;
         this.businessHours = businessHours == null ? List.of() : List.copyOf(businessHours);

@@ -22,6 +22,10 @@ public final class TextPatterns {
 
     // 글자(L)나 숫자(N)가 최소 하나. (?s): 줄바꿈이 섞여도 . 이 매칭되게 한다(줄바꿈 자체는 아래 규칙이 막는다).
     public static final String HAS_LETTER_OR_DIGIT = "(?s).*[\\p{L}\\p{N}].*";
+    // 선택 칸용 — 비었거나 공백(ASCII)뿐이면 "안 적음"으로 통과시키고, 무언가 적었다면 글자나 숫자가 최소 하나.
+    // 전각 공백·NBSP 처럼 ASCII 가 아닌 공백만으로 된 값은 걸린다. 탭·줄바꿈은 여기서는 통과하지만
+    // 함께 붙이는 NO_INVISIBLE_CHARACTERS 가 막는다 — 결국 "안 적음"이 되는 것은 스페이스뿐이다.
+    public static final String BLANK_OR_HAS_LETTER_OR_DIGIT = "(?s)\\s*|.*[\\p{L}\\p{N}].*";
     // 제어(Cc)·서식(Cf) 문자, 사용자 정의 영역(Co), 배정 안 된 코드(Cn), 줄·문단 구분자(Zl, Zp),
     // 한글 채움 문자 4개, 점자 빈칸, 결합 글자 연결자(U+034F)를 막는다.
     public static final String NO_INVISIBLE_CHARACTERS =

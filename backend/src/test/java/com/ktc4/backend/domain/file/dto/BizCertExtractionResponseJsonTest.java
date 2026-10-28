@@ -76,6 +76,7 @@ class BizCertExtractionResponseJsonTest {
                 .map(RecordComponent::getName)
                 .collect(Collectors.toSet());
 
-        assertThat(signupFields).contains("bizNo", "storeName", "representativeName", "storeAddress");
+        assertThat(signupFields).contains("bizNo", "storeName", "representativeName", "storeAddress",
+                "openDate", "corpName", "businessType", "businessItem");
     }
 }

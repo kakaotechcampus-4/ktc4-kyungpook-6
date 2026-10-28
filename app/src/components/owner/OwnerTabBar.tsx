@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import homeActiveIcon from "../../assets/tab-home-active-icon.svg";
 import homeIcon from "../../assets/tab-home-icon.svg";
+import ordersActiveIcon from "../../assets/tab-orders-active-icon.svg";
 import ordersIcon from "../../assets/tab-orders-icon.svg";
 import qrIcon from "../../assets/tab-qr-icon.svg";
 import storeIcon from "../../assets/tab-store-icon.svg";
@@ -12,8 +13,8 @@ import storeInactiveIcon from "../../assets/tab-store-inactive-icon.svg";
   activeIcon 이 없는 탭은 화면을 만들 때 그 화면 시안의 선택된 아이콘을 받아 채운다.
 */
 const TABS: { label: string; icon: string; activeIcon?: string; path: string | null }[] = [
-  { label: "홈", icon: homeIcon, activeIcon: homeActiveIcon, path: "/home" },
-  { label: "주문", icon: ordersIcon, path: null },
+  { label: "홈", icon: homeIcon, path: "/" },
+  { label: "주문", icon: ordersIcon, activeIcon: ordersActiveIcon, path: "/owner/orders" },
   // QR 화면은 탭 바 없이 전체 화면으로 떠서 선택된 아이콘이 보일 일이 없다.
   { label: "QR 확인", icon: qrIcon, path: "/owner/qr" },
   { label: "가게 관리", icon: storeInactiveIcon, activeIcon: storeIcon, path: "/owner/store" },

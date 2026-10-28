@@ -12,6 +12,7 @@ import OwnerSignupMenusPage from "./pages/OwnerSignupMenusPage";
 import OwnerSignupCompletePage from "./pages/OwnerSignupCompletePage";
 import OwnerHomePage from "./pages/OwnerHomePage";
 import OwnerStorePage from "./pages/OwnerStorePage";
+import OwnerOrdersPage from "./pages/OwnerOrdersPage";
 import OwnerQrScanPage from "./pages/OwnerQrScanPage";
 import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
 
@@ -34,8 +35,7 @@ function App() {
           <Route path="store/menus" element={<OwnerSignupMenusPage />} />
           <Route path="complete" element={<OwnerSignupCompletePage />} />
         </Route>
-        {/* 임시: 체크인 결과의 "조리 시작하기"가 주문 화면으로 가는데, 주문 화면은 주문 PR 에 있다. 그 PR 이 머지되면 이 줄을 지운다. */}
-        <Route path="/owner/orders" element={<Navigate to="/home" replace />} />
+        <Route path="/owner/orders" element={<OwnerOrdersPage />} />
         <Route path="/owner/store" element={<OwnerStorePage />} />
         <Route path="/owner/qr" element={<OwnerQrScanPage />} />
         <Route path="/owner/qr/result" element={<OwnerCheckInResultPage />} />

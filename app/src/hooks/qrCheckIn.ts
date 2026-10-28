@@ -1,12 +1,14 @@
 import { useCallback, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getMe } from "../services/auth";
 import { checkIn } from "../services/checkIn";
 import type { CheckInResponse } from "../services/checkIn";
+import type { Order } from "../services/order";
+import type { CheckInResultState } from "./checkInResult";
 import { toCheckInErrorMessage } from "../utils/checkInError";
 
-/** 체크인이 끝나면 넘어갈 화면. 결과(CheckInResponse)를 location.state 로 넘긴다. */
+/** 체크인이 끝나면 넘어갈 화면. 결과(CheckInResultState)를 location.state 로 넘긴다. */
 export const CHECK_IN_RESULT_PATH = "/owner/qr/result";
 
 /** 실패한 QR 이 화면에 머물러 있어도 이 시간(ms) 동안은 다시 보내지 않는다. */
@@ -33,6 +35,8 @@ export type UseQrCheckInResult = {
  */
 export const useQrCheckIn = (): UseQrCheckInResult => {
   const navigate = useNavigate();
+  // 주문 화면의 "QR로 확인"으로 들어왔으면 그 주문을 결과 화면까지 넘긴다.
+  const order = (useLocation().state as { order?: Order } | null)?.order;
   const meQuery = useQuery({ queryKey: ["me"], queryFn: () => getMe() });
   const storeId = meQuery.data?.stores[0]?.storeId;
 
@@ -46,7 +50,8 @@ export const useQrCheckIn = (): UseQrCheckInResult => {
       return checkIn(storeId, qrPayload);
     },
     onSuccess: (result: CheckInResponse) => {
-      navigate(CHECK_IN_RESULT_PATH, { replace: true, state: result });
+      const state: CheckInResultState = { checkedInAt: result.checkedInAt, order };
+      navigate(CHECK_IN_RESULT_PATH, { replace: true, state });
     },
     onError: (_error, qrPayload) => {
       lastFailedRef.current = { qrPayload, at: Date.now() };

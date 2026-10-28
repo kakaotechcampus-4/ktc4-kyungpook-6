@@ -28,6 +28,10 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
+    // 스키마는 db/migration 의 SQL 로만 바꾼다. ddl-auto 는 validate 로 두어 엔티티와 어긋나면 기동이 멈춘다.
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+
     runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

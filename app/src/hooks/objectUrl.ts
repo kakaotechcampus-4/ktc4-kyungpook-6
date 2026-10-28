@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 /**
- * 고른 사진 파일을 <img src> 로 미리 보여 줄 주소. 파일이 바뀌거나 화면이 사라지면 주소를 풀어 메모리를 돌려준다.
- * 파일이 없으면 null.
+ * 고른 사진 파일(또는 서버에서 받아 온 Blob)을 <img src> 로 보여 줄 주소.
+ * 파일이 바뀌거나 화면이 사라지면 주소를 풀어 메모리를 돌려준다. 파일이 없으면 null.
  */
-export const useObjectUrl = (file: File | null) => {
-  const [preview, setPreview] = useState<{ file: File; url: string } | null>(null);
+export const useObjectUrl = (file: Blob | null) => {
+  const [preview, setPreview] = useState<{ file: Blob; url: string } | null>(null);
 
   useEffect(() => {
     if (!file) return;
