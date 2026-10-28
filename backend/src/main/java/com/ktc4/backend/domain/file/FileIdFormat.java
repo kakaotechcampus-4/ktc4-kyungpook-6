@@ -7,10 +7,11 @@ package com.ktc4.backend.domain.file;
  */
 public final class FileIdFormat {
 
-    public static final String PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
-    public static final String MESSAGE = "파일 ID 형식이 올바르지 않습니다";
     /** 경로 변수에 쓰는 모양 — {@code SecurityConfig} 의 경로 규칙이 같은 모양만 받는다. */
     public static final String PATH_REGEX = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+    // 경로 규칙과 같은 모양에서 만든다 — 따로 적으면 한쪽만 바뀌어, 보안 규칙은 열어 주는데 검사·횟수 제한은 다르게 보는 틈이 생긴다
+    public static final String PATTERN = "^" + PATH_REGEX + "$";
+    public static final String MESSAGE = "파일 ID 형식이 올바르지 않습니다";
 
     private FileIdFormat() {
     }

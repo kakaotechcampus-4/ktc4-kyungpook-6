@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -27,9 +28,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 있어야 하고, 열린 것은 POST 와 파일 ID 모양(소문자 UUID)뿐이어야 한다.
  *
  * <p>아직 구현 전이라 501 을 돌려준다. 읽기를 구현하면(PROMPT-172) 501 확인은 실제 응답 확인으로 바뀐다.
+ *
+ * <p>횟수 제한은 넉넉히 푼다 — 여기서는 진입점·권한만 본다. 횟수 제한은 {@code BizCertReadRateLimitFilterTest} 가 본다.
  */
 @WebMvcTest(BizCertExtractionController.class)
 @Import(SecurityConfig.class)
+@TestPropertySource(properties = {"biz-cert-extraction.rate-limit.max-attempts=1000",
+        "biz-cert-extraction.rate-limit.max-attempts-per-day=1000",
+        "biz-cert-extraction.rate-limit.max-attempts-per-file=1000"})
 @DisplayName("사업자등록증 읽기 API")
 class BizCertExtractionControllerTest {
 

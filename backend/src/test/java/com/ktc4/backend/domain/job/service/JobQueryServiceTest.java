@@ -161,10 +161,14 @@ class JobQueryServiceTest extends PostgresContainerTest {
         assertThat(result.tasks()).extracting(TaskResultResponse::taskId).containsExactlyElementsOf(taskIds);
         TaskResultResponse first = result.tasks().get(0);
         assertThat(first.verification().action()).isEqualTo(VerificationAction.CHANGE_STATUS);
-        assertThat(first.verification().verifiedAt()).isEqualTo(first.lastCheckedAt());
+        // 반영(apply)은 확인일을 올리지 않는다 — 조사가 찾은 값이지 담당자가 가게를 직접 본 것이 아니다
+        assertThat(first.lastCheckedAt()).isEqualTo(NOW.minusDays(3));
         assertThat(first.storeStatus()).isEqualTo(StoreStatus.CLOSED);
         assertThat(result.tasks().get(1).verification()).isNull();
-        assertThat(result.tasks().get(2).verification().action()).isEqualTo(VerificationAction.NO_ACTION);
+        TaskResultResponse third = result.tasks().get(2);
+        assertThat(third.verification().action()).isEqualTo(VerificationAction.NO_ACTION);
+        // 자체 확인(confirm)은 담당자가 직접 본 것이라 확인일을 올린다
+        assertThat(third.lastCheckedAt()).isEqualTo(third.verification().verifiedAt());
     }
 
     @Test

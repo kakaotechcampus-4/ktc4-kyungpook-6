@@ -130,6 +130,22 @@ class SignupRateLimiterTest {
     }
 
     @Test
+    @DisplayName("가득 차면 통과시키는 카운터는 처음 보는 값을 세지 않고 받는다 — 이미 세던 값은 계속 자기 한도대로 센다")
+    void passingWhenFullLetsNewKeysThrough() {
+        SignupRateLimiter passing = SignupRateLimiter.passingWhenFull(3, WINDOW, clock);
+        for (int i = 0; i <= 10_000; i++) {
+            assertThat(passing.acquire("key-" + i)).isZero();
+        }
+
+        for (int i = 0; i < 5; i++) {
+            assertThat(passing.acquire("one-more")).isZero();   // 기록에 남지 않으니 몇 번이든 통과
+        }
+        passing.acquire("key-0");
+        passing.acquire("key-0");
+        assertThat(passing.acquire("key-0")).isPositive();   // 세던 값은 그대로 막힌다
+    }
+
+    @Test
     @DisplayName("수없이 되풀이해도 구간이 지나면 풀린다 — 넘친 횟수가 다음 구간으로 이어지지 않는다")
     void floodDoesNotCarryOver() {
         for (int i = 0; i < 1_000; i++) {
