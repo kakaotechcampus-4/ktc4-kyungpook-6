@@ -269,6 +269,7 @@ class InvestigationFlowIntegrationTest {
     @DisplayName("조사 결과 카드에서 즉시 반영하면 가게 값이 바뀌고, 다시 불러온 결과에서 그 카드가 확인 완료로 나온다")
     void appliesTaskFromResultCard() throws Exception {
         Long closedByNts = store("폐업가게", BusinessState.CLOSED);
+        LocalDateTime checkedBefore = storeRepository.findById(closedByNts).orElseThrow().getLastCheckedAt();
         long jobId = startJob(closedByNts);
         await().atMost(WAIT).until(() -> "DONE".equals(job(jobId).path("status").asText()));
         long taskId = job(jobId).path("tasks").get(0).path("taskId").asLong();
@@ -279,8 +280,10 @@ class InvestigationFlowIntegrationTest {
         JsonNode card = job(jobId).path("tasks").get(0);
         assertThat(card.path("storeStatus").asText()).isEqualTo("CLOSED");
         assertThat(card.path("verification").path("action").asText()).isEqualTo("CHANGE_STATUS");
-        assertThat(card.path("verification").path("verifiedAt").asText()).isEqualTo(card.path("lastCheckedAt").asText());
-        assertThat(storeRepository.findById(closedByNts)).get().extracting(Store::getStatus).isEqualTo(StoreStatus.CLOSED);
+        // 반영은 확인일을 올리지 않는다 — 그 가게는 90일 재확인 대상에 그대로 남는다
+        assertThat(storeRepository.findById(closedByNts)).get()
+                .extracting(Store::getStatus, Store::getLastCheckedAt)
+                .containsExactly(StoreStatus.CLOSED, checkedBefore);
         // 같은 카드를 다시 눌러도 두 번 반영하지 않는다
         mockMvc.perform(post("/api/tasks/" + taskId + "/confirm").header(HttpHeaders.AUTHORIZATION, adminToken()))
                 .andExpect(status().isConflict());

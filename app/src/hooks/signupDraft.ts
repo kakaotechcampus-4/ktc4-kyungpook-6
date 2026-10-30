@@ -20,7 +20,7 @@ export type SignupStore = {
   storeName: string;
   storeAddress: string;
   storePhone: string;
-  /** 대표 사진. 서버가 아직 받지 않아 들고만 있다(hooks/signupStore.ts TODO). */
+  /** 대표 사진(선택). 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts). */
   storePhoto: File | null;
 };
 
@@ -39,7 +39,7 @@ export type SignupMenu = {
   /** 화면에서 메뉴를 구분하는 키. 서버로 보내지 않는다. */
   id: string;
   name: string;
-  /** 메뉴 사진. 서버가 아직 받지 않아 들고만 있다(hooks/signupMenus.ts TODO). */
+  /** 메뉴 사진(선택). 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts). */
   photo: File | null;
 };
 

@@ -13,11 +13,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -83,6 +85,43 @@ class OwnerInfoStoreInfoColumnTest extends PostgresContainerTest {
         assertThat(read.getBusinessHours()).hasSize(21).containsExactlyElementsOf(hours);
         assertThat(read.getBusinessHours().get(2).close()).isEqualTo("24:00");
         assertThat(read.getMenus()).hasSize(50).containsExactlyElementsOf(menus);
+    }
+
+    @Test
+    @DisplayName("법인명·업태·종목은 요청이 받는 200자까지 실제 칸에 들어가 그대로 읽힌다 — 칸마다 다른 값")
+    void roundTripsBizCertTextsAtMaxLength() {
+        Long memberId = persistOwner(ownerInfo()
+                .corpName("가".repeat(200)).businessType("나".repeat(200)).businessItem("다".repeat(200)).build());
+
+        OwnerInfo read = memberRepository.findById(memberId).orElseThrow().getOwnerInfo();
+        assertThat(read.getCorpName()).isEqualTo("가".repeat(200));
+        assertThat(read.getBusinessType()).isEqualTo("나".repeat(200));
+        assertThat(read.getBusinessItem()).isEqualTo("다".repeat(200));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"2019-03-02", "0001-01-01", "9999-12-31"})
+    @DisplayName("개업일은 요청이 받는 범위의 처음과 끝까지 실제 날짜 칸에 들어가 그대로 읽힌다")
+    void roundTripsOpenDate(String value) {
+        Long memberId = persistOwner(ownerInfo().openDate(LocalDate.parse(value)).build());
+
+        assertThat(memberRepository.findById(memberId).orElseThrow().getOwnerInfo().getOpenDate())
+                .isEqualTo(LocalDate.parse(value));
+    }
+
+    @Test
+    @DisplayName("이 칸들이 생기기 전 기록(SQL NULL)은 비어 있는 채로 읽힌다")
+    void readsOldRowsWithoutBizCertFields() {
+        Long memberId = persistOwner(ownerInfo().corpName("주식회사 예시").build());
+        jdbcTemplate.update("update member set open_date = null, corp_name = null, business_type = null,"
+                + " business_item = null where member_id = ?", memberId);
+        entityManager.clear();
+
+        OwnerInfo read = memberRepository.findByEmail(EMAIL).orElseThrow().getOwnerInfo();
+        assertThat(read.getOpenDate()).isNull();
+        assertThat(read.getCorpName()).isNull();
+        assertThat(read.getBusinessType()).isNull();
+        assertThat(read.getBusinessItem()).isNull();
     }
 
     static Stream<Arguments> storedRows() {

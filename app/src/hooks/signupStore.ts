@@ -21,7 +21,7 @@ export type UseSignupStoreResult = {
   setStorePhone: (value: string) => void;
   storePhoto: File | null;
   setStorePhoto: (file: File | null) => void;
-  /** 세 칸이 모두 맞을 때만 true. 대표 사진은 서버가 받지 않아 검사하지 않는다(아래 TODO). */
+  /** 세 칸이 모두 맞을 때만 true. 대표 사진은 선택이라 검사하지 않는다. */
   canProceed: boolean;
   goNext: () => void;
 };
@@ -34,10 +34,7 @@ export const useSignupStore = (): UseSignupStoreResult => {
   const [storeName, setStoreName] = useState(store?.storeName ?? "");
   const [storeAddress, setStoreAddress] = useState(store?.storeAddress ?? "");
   const [storePhone, setStorePhone] = useState(store?.storePhone ?? "");
-  /*
-    TODO(백엔드 가게 사진 업로드): 가입 요청(OwnerSignupRequest)에 사진 칸이 없어 고른 파일을 들고만 있다.
-    업로드 API 가 생기면 보내고, 필수라면 canProceed 조건에 넣는다.
-  */
+  // 선택이다. 고른 파일은 들고 있다가 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts).
   const [storePhoto, setStorePhoto] = useState<File | null>(store?.storePhoto ?? null);
 
   const canProceed = [

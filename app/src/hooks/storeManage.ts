@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe } from "../services/auth";
+import { getImageBlob, getStoreImages } from "../services/file";
 import type { BusinessDay, BusinessHour, StoreDetailResponse } from "../services/store";
-import {
-  getStoreDetail,
-  isNotImplemented,
-  mockStoreDetail,
-  saveOperatingInfo,
-} from "../services/store";
+import { getStoreDetail, mockStoreDetail, saveOperatingInfo } from "../services/store";
 import {
   MAX_MENU_COUNT,
   MAX_MENU_NAME_LENGTH,
@@ -16,10 +12,11 @@ import {
   toSaveErrorMessage,
   validateOperatingInfo,
 } from "../utils/storeManage";
+import { useObjectUrl } from "./objectUrl";
 
 /*
   VITE_STORE_MOCK=true 로 띄우면 백엔드 없이 목업만으로 화면을 본다(로그인도 필요 없다).
-  화면을 다듬을 때만 쓴다. 꺼져 있어도 백엔드가 501(구현 전)을 주면 조회는 목업으로 채운다(services/store.ts).
+  화면을 다듬을 때만 쓴다.
 */
 const USE_STORE_MOCK = import.meta.env.VITE_STORE_MOCK === "true";
 const MOCK_LINKED_STORE = { storeId: 0, name: "맛나 치킨" };
@@ -57,7 +54,7 @@ export type UseStoreManageResult = {
   isLoading: boolean;
   /** 불러오지 못했을 때의 문구. 연결된 가게가 없을 때도 여기 담긴다. */
   loadErrorMessage: string | null;
-  /** 목업으로 채운 화면인지. 백엔드가 구현되면 항상 false 다. */
+  /** VITE_STORE_MOCK 목업으로 채운 화면인지. */
   isMock: boolean;
   name: string;
   addressRoad: string;
@@ -75,7 +72,7 @@ export type UseStoreManageResult = {
   menus: MenuDraft[];
   toggleMenuOnSale: (key: number) => void;
   removeMenu: (key: number) => void;
-  /** 고른 대표 사진의 미리보기 주소. 고르지 않았으면 null. */
+  /** 대표 사진 주소. 새로 고른 사진이 있으면 그 미리보기, 없으면 가입 때 올린 사진. 둘 다 없으면 null. */
   photoUrl: string | null;
   selectPhoto: (file: File) => void;
   removePhoto: () => void;
@@ -89,6 +86,7 @@ export type UseStoreManageResult = {
  * 가게 관리 화면. 내 정보(GET /api/auth/me)의 첫 번째 가게를 불러와(GET /api/stores/{storeId})
  * 전화번호·영업시간·메뉴를 고치고 "저장"(PUT /api/stores/{storeId}/operating-info)으로 한 번에 보낸다.
  * 메뉴 등록·삭제·판매 토글도 "저장"을 눌러야 반영된다(백엔드 API 설명과 같다). 상호명·주소는 점주가 바꿀 수 없다.
+ * 대표 사진은 가입 때 올린 것을 보여 준다(GET /api/stores/{storeId}/images → GET /api/files/{fileId}).
  */
 export const useStoreManage = (): UseStoreManageResult => {
   const queryClient = useQueryClient();
@@ -107,14 +105,23 @@ export const useStoreManage = (): UseStoreManageResult => {
     queryFn: async (): Promise<StoreDetailResult> => {
       const { storeId, name } = linkedStore!;
       if (USE_STORE_MOCK) return { store: mockStoreDetail(storeId, name), isMock: true };
-      try {
-        return { store: await getStoreDetail(storeId), isMock: false };
-      } catch (error) {
-        if (isNotImplemented(error)) return { store: mockStoreDetail(storeId, name), isMock: true };
-        throw error;
-      }
+      return { store: await getStoreDetail(storeId), isMock: false };
     },
   });
+
+  // 가입 때 올린 대표 사진. 토큰이 필요한 주소라 Blob 으로 받아 띄운다. 못 받아도 화면은 그대로 쓸 수 있게 빈 자리로 둔다.
+  const storeImageQuery = useQuery({
+    queryKey: ["store-image", linkedStore?.storeId],
+    enabled: linkedStore !== undefined && !USE_STORE_MOCK,
+    queryFn: async () => {
+      const images = await getStoreImages(linkedStore!.storeId);
+      const storeImage = images.find((image) => image.kind === "STORE_IMAGE");
+      return storeImage ? getImageBlob(storeImage.fileId) : null;
+    },
+  });
+  const serverPhotoUrl = useObjectUrl(storeImageQuery.data ?? null);
+  // 서버 사진을 X 로 지웠는지. 아직 서버에 반영할 API 가 없어 이 화면에서만 숨긴다.
+  const [serverPhotoHidden, setServerPhotoHidden] = useState(false);
 
   const loaded = storeQuery.data;
   // 고치기 전에는 불러온 값을 그대로 보여 주고, 처음 고칠 때 복사해서 draft 를 만든다.
@@ -126,8 +133,8 @@ export const useStoreManage = (): UseStoreManageResult => {
   const [notice, setNotice] = useState<Notice | null>(null);
 
   /*
-    대표 사진. TODO(백엔드 대표 사진 API): 백엔드에 사진 칸·업로드 API 가 아직 없어 고른 사진은 서버로 보내지 않고
-    이 화면에서 미리보기만 한다. API 가 생기면 저장할 때 같이 보낸다.
+    새로 고른 대표 사진. TODO(백엔드 대표 사진 변경 API): 가게 관리 저장(operating-info)에 사진 칸이 없어
+    고른 사진은 서버로 보내지 않고 이 화면에서 미리보기만 한다. API 가 생기면 저장할 때 같이 보낸다.
     미리보기 주소(blob:)는 바꾸거나 화면을 떠날 때 풀어 준다. 안 풀면 사진을 바꿀 때마다 메모리에 남는다.
   */
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -155,7 +162,6 @@ export const useStoreManage = (): UseStoreManageResult => {
         businessHours: target.businessHours.map(({ day, open, close }) => ({ day, open, close })),
         menus: target.menus.map(({ menuId, name, onSale }) => ({ menuId, name, onSale })),
       };
-      // 501 로 목업을 채운 화면은 실제로 보내 본다 — 백엔드가 구현되기 전이면 "준비 중" 문구가 뜬다.
       if (USE_STORE_MOCK) throw new MockSaveError();
       return saveOperatingInfo(linkedStore!.storeId, payload);
     },
@@ -164,7 +170,8 @@ export const useStoreManage = (): UseStoreManageResult => {
       setDraft(null);
       setNotice({
         tone: "success",
-        text: photoUrlRef.current ? "저장했어요. 대표 사진은 아직 저장되지 않아요." : "저장했어요.",
+        text:
+          photoUrlRef.current || serverPhotoHidden ? "저장했어요. 대표 사진은 아직 저장되지 않아요." : "저장했어요.",
       });
     },
     onError: (error) => {
@@ -234,9 +241,12 @@ export const useStoreManage = (): UseStoreManageResult => {
         menus: prev.menus.map((menu) => (menu.key === key ? { ...menu, onSale: !menu.onSale } : menu)),
       })),
     removeMenu: (key) => update((prev) => ({ ...prev, menus: prev.menus.filter((menu) => menu.key !== key) })),
-    photoUrl,
+    photoUrl: photoUrl ?? (serverPhotoHidden ? null : serverPhotoUrl),
     selectPhoto: (file) => replacePhotoUrl(URL.createObjectURL(file)),
-    removePhoto: () => replacePhotoUrl(null),
+    removePhoto: () => {
+      replacePhotoUrl(null);
+      setServerPhotoHidden(true);
+    },
     isSaving: saveMutation.isPending,
     save: () => {
       if (!current || saveMutation.isPending) return;

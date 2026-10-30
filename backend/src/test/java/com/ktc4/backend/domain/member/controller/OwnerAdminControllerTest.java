@@ -30,6 +30,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -66,7 +67,8 @@ class OwnerAdminControllerTest {
 
     private static OwnerApplicationResponse sample(MemberStatus status) {
         return new OwnerApplicationResponse(3L, "owner@example.com", "1234567890", "예시분식", "홍길동",
-                "01000000000", "대구광역시 북구 대학로 80", "053-123-4567",
+                "01000000000", LocalDate.of(2019, 3, 2), "주식회사 예시", "음식점업", "한식, 분식",
+                "대구광역시 북구 대학로 80", "053-123-4567",
                 List.of(new BusinessHourResponse(BusinessDay.SAT, "21:00", "02:00")),
                 List.of(new SignupMenuResponse("김치찌개", null)),
                 status, LocalDateTime.of(2026, 9, 29, 9, 0), null);
@@ -100,7 +102,12 @@ class OwnerAdminControllerTest {
                 .andExpect(jsonPath("$.content[0].businessHours[0].day").value("SAT"))
                 .andExpect(jsonPath("$.content[0].businessHours[0].open").value("21:00"))
                 .andExpect(jsonPath("$.content[0].businessHours[0].close").value("02:00"))
-                .andExpect(jsonPath("$.content[0].menus[0].name").value("김치찌개"));
+                .andExpect(jsonPath("$.content[0].menus[0].name").value("김치찌개"))
+                // 사업자등록증에서 읽어 가입 때 실은 값 — 개업일은 yyyy-MM-dd
+                .andExpect(jsonPath("$.content[0].openDate").value("2019-03-02"))
+                .andExpect(jsonPath("$.content[0].corpName").value("주식회사 예시"))
+                .andExpect(jsonPath("$.content[0].businessType").value("음식점업"))
+                .andExpect(jsonPath("$.content[0].businessItem").value("한식, 분식"));
 
         verify(ownerApprovalService).getApplications(MemberStatus.PENDING, 0, 20);
     }

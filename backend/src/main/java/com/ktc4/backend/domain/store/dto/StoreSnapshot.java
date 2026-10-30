@@ -27,9 +27,10 @@ import java.util.List;
  * @param status        영업 상태 (JSON 문자열)
  * @param businessHours 영업시간 {@code [{"day","open","close"}]}
  * @param menus         지우지 않은 메뉴 {@code [{"menuId","name","onSale"}]}
+ * @param bizNo         사업자등록번호 (JSON 문자열, 하이픈 없는 숫자). 없으면 {@code null}
  */
 public record StoreSnapshot(String name, String addressRoad, String phone, String status,
-                            String businessHours, String menus) {
+                            String businessHours, String menus, String bizNo) {
 
     // 기록 값은 이 모양 그대로 DB 에 남는다 — 스프링 설정이 바뀌어도 모양이 흔들리지 않게 기본 설정을 따로 쓴다
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -48,6 +49,7 @@ public record StoreSnapshot(String name, String addressRoad, String phone, Strin
      */
     public static StoreSnapshot of(Store store, List<BusinessHourMinutes> businessHours, List<StoreMenu> liveMenus) {
         String phone = store.getPhone() == null || store.getPhone().isBlank() ? null : toJson(store.getPhone());
+        String bizNo = store.getBizNo() == null || store.getBizNo().isBlank() ? null : toJson(store.getBizNo());
         List<HourValue> hours = businessHours.stream()
                 .sorted(WEEK_ORDER)
                 .map(hour -> new HourValue(hour.day().name(),
@@ -58,7 +60,7 @@ public record StoreSnapshot(String name, String addressRoad, String phone, Strin
                 .map(menu -> new MenuValue(menu.getMenuId(), menu.getName(), menu.isOnSale()))
                 .toList();
         return new StoreSnapshot(toJson(store.getName()), toJson(store.getAddressRoad()), phone,
-                toJson(store.getStatus().name()), toJson(hours), toJson(menus));
+                toJson(store.getStatus().name()), toJson(hours), toJson(menus), bizNo);
     }
 
     /**
@@ -75,6 +77,7 @@ public record StoreSnapshot(String name, String addressRoad, String phone, Strin
             case STATUS -> status;
             case BUSINESS_HOURS -> businessHours;
             case MENUS -> menus;
+            case BIZ_NO -> bizNo;
         };
     }
 

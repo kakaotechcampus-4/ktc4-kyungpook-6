@@ -1,6 +1,32 @@
 # prod 오버라이드. base 위에 병합합니다 — scripts/deploy.sh prod up -d --build
 #
 # 값은 서버 .env 로 관리합니다(EC2 에 직접 접속해 수정하는 정책).
-# base 와 차이가 없어 비어 있습니다. prod 전용 설정이 필요해지면 여기에 추가하세요.
+# Caddy 를 두는 이유와 caddy-data 볼륨을 지우면 안 되는 이유는 docs/배포환경에서_작업하는_방법.md 에 있습니다.
 
-services: {}
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: ktc4-caddy
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN 이 없으면 인증서를 받을 수 없습니다}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - db-net
+    depends_on:
+      - backend
+      - frontend
+
+  frontend:
+    networks:
+      - db-net
+
+volumes:
+  caddy-data:
+  caddy-config:
