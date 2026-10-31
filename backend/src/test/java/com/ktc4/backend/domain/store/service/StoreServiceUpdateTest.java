@@ -10,6 +10,7 @@ import com.ktc4.backend.domain.store.enums.BusinessDay;
 import com.ktc4.backend.domain.store.enums.StoreChangeField;
 import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
+import com.ktc4.backend.domain.store.event.StoreBizNoChanged;
 import com.ktc4.backend.support.PostgresContainerTest;
 import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +21,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
@@ -35,6 +38,7 @@ import static org.assertj.core.api.Assertions.tuple;
  */
 // 가게 관리 테스트와 같은 빈 묶음 — 스프링 테스트 컨텍스트(와 DB 연결 풀)를 함께 쓴다
 @Import({StoreManagementService.class, StoreAccessService.class, StoreService.class, StoreChangeHistoryService.class})
+@RecordApplicationEvents
 @DisplayName("StoreService.updateStore 변경 기록")
 class StoreServiceUpdateTest extends PostgresContainerTest {
 
@@ -48,6 +52,9 @@ class StoreServiceUpdateTest extends PostgresContainerTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ApplicationEvents events;
 
     private Store store;
 
@@ -94,6 +101,41 @@ class StoreServiceUpdateTest extends PostgresContainerTest {
             assertThat(row.before()).isNull();
             assertThat(row.after()).isEqualTo(json("\"2222222222\""));
         });
+    }
+
+    /*
+      번호가 바뀌면 저장해 둔 국세청 확인 결과는 다른 사업자의 것이라 되돌린다. 다시 채우는 것이
+      새벽 배치뿐이면 고친 결과를 하루 뒤에야 보게 되므로, 그 한 건만 즉시 다시 묻도록 알린다.
+      실제 조회는 커밋된 뒤에 돈다(StoreBizNoChangedListener).
+    */
+
+    @Test
+    @DisplayName("사업자등록번호를 바꾸면 다시 조회하라고 알린다 — 하이픈을 뗀 값으로")
+    void announcesBizNoChange() {
+        updateDetails(null, null, "222-22-22222");
+
+        assertThat(events.stream(StoreBizNoChanged.class)).singleElement().satisfies(event -> {
+            assertThat(event.storeId()).isEqualTo(store.getStoreId());
+            assertThat(event.bizNo()).isEqualTo("2222222222");
+        });
+    }
+
+    @Test
+    @DisplayName("번호를 지우면 알리지 않는다 — 물어볼 대상이 없다")
+    void doesNotAnnounceWhenBizNoCleared() {
+        updateDetails(null, null, "222-22-22222");
+        updateDetails(null, null, "");
+
+        assertThat(events.stream(StoreBizNoChanged.class)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("같은 번호를 다시 저장하면 알리지 않는다 — 바뀐 것이 아니다")
+    void doesNotAnnounceWhenBizNoUnchanged() {
+        updateDetails(null, null, "222-22-22222");
+        updateDetails(null, null, "2222222222");
+
+        assertThat(events.stream(StoreBizNoChanged.class)).hasSize(1);
     }
 
     @Test
