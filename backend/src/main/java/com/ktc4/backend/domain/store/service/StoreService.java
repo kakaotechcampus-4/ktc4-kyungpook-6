@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.store.service;
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
+import com.ktc4.backend.domain.store.dto.StoreLastChange;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
@@ -13,6 +14,7 @@ import com.ktc4.backend.domain.store.event.StoreBizNoChanged;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
+import com.ktc4.backend.domain.store.repository.StoreChangeHistoryRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
@@ -33,9 +35,10 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -57,6 +60,7 @@ public class StoreService {
     private final StoreRepository storeRepository;
     private final StoreChangeHistoryService storeChangeHistoryService;
     private final StoreNtsCheckRepository storeNtsCheckRepository;
+    private final StoreChangeHistoryRepository storeChangeHistoryRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     /**
@@ -72,7 +76,24 @@ public class StoreService {
         Page<Store> stores = storeRepository.findAll(
                 PageRequest.of(page, limit, Sort.by(Sort.Direction.ASC, "storeId")));
 
-        return PageResponse.of(stores, StoreResponse::from);
+        /*
+          화면이 "마지막 확인" 과 "최근 변경" 을 따로 보여줄 수 있게 변경 시각을 같이 내려준다.
+          수정안을 반영해도 확인일은 오르지 않는데(그건 사람이 직접 본 날이다), 날짜가 하나뿐이면
+          담당자에게 "반영했는데 왜 그대로지" 로 보인다(11주차 멘토 리뷰).
+
+          이 쪽(20건)을 쿼리 한 번으로 가져온다 — 가게마다 따로 물으면 N+1 이다.
+        */
+        Map<Long, LocalDateTime> lastChanges = lastChangedAt(stores.getContent());
+        return PageResponse.of(stores, store -> StoreResponse.of(store, lastChanges.get(store.getStoreId())));
+    }
+
+    private Map<Long, LocalDateTime> lastChangedAt(List<Store> stores) {
+        if (stores.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> storeIds = stores.stream().map(Store::getStoreId).toList();
+        return storeChangeHistoryRepository.findLastChangedAtByStoreIds(storeIds).stream()
+                .collect(Collectors.toMap(StoreLastChange::storeId, StoreLastChange::lastChangedAt));
     }
 
     /**

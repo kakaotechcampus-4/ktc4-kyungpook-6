@@ -41,10 +41,29 @@ public record StoreResponse(
         String bizNo,
 
         @Schema(description = "마지막으로 정보가 확인된 시각", example = "2026-09-01T10:00:00")
-        LocalDateTime lastCheckedAt
+        LocalDateTime lastCheckedAt,
+
+        @Schema(description = """
+                마지막으로 값이 바뀐 시각. 한 번도 바뀌지 않았으면 비어 있습니다.
+                위의 lastCheckedAt(사람이 직접 본 날)과 다릅니다 — 수정안을 반영해도 확인일은 오르지 않습니다.""",
+                example = "2026-09-02T14:30:00")
+        LocalDateTime lastChangedAt
 ) {
 
+    /**
+     * 변경 시각을 아직 모를 때 쓴다. {@code lastChangedAt} 은 비어 나간다.
+     *
+     * <p>화면에 날짜 둘을 보여주는 목록 조회에서는 {@link #of(Store, LocalDateTime)} 로 채워 보낸다.
+     */
     public static StoreResponse from(Store store) {
+        return of(store, null);
+    }
+
+    /**
+     * @param store         가게
+     * @param lastChangedAt 그 가게가 마지막으로 바뀐 시각. 바뀐 적이 없으면 {@code null}
+     */
+    public static StoreResponse of(Store store, LocalDateTime lastChangedAt) {
         return new StoreResponse(
                 store.getStoreId(),
                 store.getName(),
@@ -55,7 +74,8 @@ public record StoreResponse(
                 store.getCategory(),
                 store.getPhone(),
                 store.getBizNo(),
-                store.getLastCheckedAt()
+                store.getLastCheckedAt(),
+                lastChangedAt
         );
     }
 }
