@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.store.service;
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
+import com.ktc4.backend.domain.store.dto.StoreLastChange;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
@@ -14,6 +15,7 @@ import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
+import com.ktc4.backend.domain.store.repository.StoreChangeHistoryRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
@@ -47,6 +49,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 // DB 조회를 가짜(Mockito)로 바꿔 조립·필터 선택 로직만 검증한다. 가게 정보는 모두 가짜 값이다.
@@ -57,6 +61,7 @@ class StoreServiceTest {
     private static final LocalDateTime CHECKED_AT = LocalDateTime.of(2026, 9, 22, 3, 0);
 
     private static final StoreChange ADMIN_EDIT = StoreChange.storeEdit(1L);
+    private static final LocalDateTime CHANGED_AT = LocalDateTime.of(2026, 9, 2, 14, 30);
 
     @Mock
     private StoreRepository storeRepository;
@@ -67,6 +72,9 @@ class StoreServiceTest {
 
     @Mock
     private StoreNtsCheckRepository storeNtsCheckRepository;
+
+    @Mock
+    private StoreChangeHistoryRepository storeChangeHistoryRepository;
 
     @InjectMocks
     private StoreService storeService;
@@ -115,6 +123,73 @@ class StoreServiceTest {
 
     private static Page<StoreWithNtsCheck> page(StoreWithNtsCheck... rows) {
         return new PageImpl<>(List.of(rows), PageRequest.of(0, 20), rows.length);
+    }
+
+    /*
+      화면이 "마지막 확인"(사람이 직접 본 날)과 "최근 변경"(값이 바뀐 날)을 따로 보여주기 위한 값이다.
+      수정안을 반영해도 확인일은 오르지 않아서, 날짜가 하나뿐이면 "반영했는데 왜 그대로지" 로 보인다.
+    */
+
+    @Nested
+    @DisplayName("getStores — 최근 변경 시각")
+    class LastChangedAt {
+
+        private Page<Store> storePage(Store... stores) {
+            return new PageImpl<>(List.of(stores), PageRequest.of(0, 20), stores.length);
+        }
+
+        @Test
+        @DisplayName("바뀐 적이 있으면 그 시각을 함께 내려준다")
+        void fillsLastChangedAt() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage(store));
+            when(storeChangeHistoryRepository.findLastChangedAtByStoreIds(List.of(1L)))
+                    .thenReturn(List.of(new StoreLastChange(1L, CHANGED_AT)));
+
+            PageResponse<StoreResponse> response = storeService.getStores(0, 20);
+
+            assertThat(response.content()).singleElement()
+                    .extracting(StoreResponse::lastChangedAt).isEqualTo(CHANGED_AT);
+        }
+
+        @Test
+        @DisplayName("바뀐 적이 없는 가게는 비워 둔다 — 날짜를 지어내지 않는다")
+        void leavesLastChangedAtEmpty() {
+            Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage(store));
+            when(storeChangeHistoryRepository.findLastChangedAtByStoreIds(List.of(1L)))
+                    .thenReturn(List.of());
+
+            PageResponse<StoreResponse> response = storeService.getStores(0, 20);
+
+            assertThat(response.content()).singleElement()
+                    .extracting(StoreResponse::lastChangedAt).isNull();
+        }
+
+        @Test
+        @DisplayName("한 쪽을 한 번에 묻는다 — 가게마다 따로 물으면 N+1 이다")
+        void asksOnceForThePage() {
+            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage(
+                    store(1L, StoreStatus.OPEN, "1234567890"),
+                    store(2L, StoreStatus.OPEN, "2234567890"),
+                    store(3L, StoreStatus.OPEN, "3234567890")));
+            when(storeChangeHistoryRepository.findLastChangedAtByStoreIds(List.of(1L, 2L, 3L)))
+                    .thenReturn(List.of(new StoreLastChange(2L, CHANGED_AT)));
+
+            storeService.getStores(0, 20);
+
+            verify(storeChangeHistoryRepository, times(1)).findLastChangedAtByStoreIds(anyCollection());
+        }
+
+        @Test
+        @DisplayName("가게가 없으면 아예 묻지 않는다")
+        void asksNothingWhenPageIsEmpty() {
+            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage());
+
+            storeService.getStores(0, 20);
+
+            verify(storeChangeHistoryRepository, never()).findLastChangedAtByStoreIds(anyCollection());
+        }
     }
 
     @Test
