@@ -116,8 +116,11 @@ GitHub Secrets (GCP_SA_KEY)  →  deploy-dev.yml 이 ~/.ktc4/vertex.json 으로 
 | `AGENT_API_KEY` | Secret | 판단 모델이 Vertex 로 떨어집니다 |
 | `AI_NAVER_LOCAL_ENABLED` · `AI_KAKAO_COMPARE_ENABLED` · `AI_AGENT_ENABLED` · `AI_AGENT_MODEL` | Variable | 전부 꺼짐 |
 
-⚠️ **지도 대조 스위치를 켜기 전에** `ai/src/investigation/classify.py:84` 를 고쳐야 합니다 —
-`"대구왕갈비본점" → "왕갈비본점"` 으로 잘려서 같은 구 안의 **다른 가게** 정보를 끌어옵니다.
+지도 대조를 막던 상호 자르기 버그는 `3e541c6`(2026-10-09)에서 고쳐졌습니다 —
+`"대구왕갈비본점"` 은 그대로 두고 `"크라운호프대구수성못점"` 의 지점명 앞 지역어만 뗍니다.
+
+⚠️ **네이버는 켜지 않습니다.** 장소 페이지 자동 접근이 막혀 있고 약관상 저장도 안 됩니다
+(12곳 모두 차단 — `#120` 측정). 카카오만 쓰되 **실시간 비교 후 폐기**합니다.
 
 배포는 `main`·`develop` 푸시에 `.github/workflows/deploy-main.yml`·`deploy-dev.yml` 이 돕니다.
 **main 쪽은 `workflow_dispatch` 로 손으로도 돌릴 수 있습니다** — 그게 없으면 주간 멘토 리뷰 PR 이
