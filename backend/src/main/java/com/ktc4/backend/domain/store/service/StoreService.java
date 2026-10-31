@@ -9,6 +9,7 @@ import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
+import com.ktc4.backend.domain.store.event.StoreBizNoChanged;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
@@ -20,6 +21,7 @@ import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.util.BizNoNormalizer;
 import com.ktc4.backend.global.util.PhoneNormalizer;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -55,6 +57,7 @@ public class StoreService {
     private final StoreRepository storeRepository;
     private final StoreChangeHistoryService storeChangeHistoryService;
     private final StoreNtsCheckRepository storeNtsCheckRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 가게 목록을 storeId 오름차순으로 페이지 단위 조회한다.
@@ -141,11 +144,19 @@ public class StoreService {
 
         /*
           사업자등록번호가 실제로 바뀌었으면 국세청 확인 기록을 되돌린다. 저장된 답은 옛 번호로 받은
-          것이라 다른 사업자의 상태다 — 다음 배치(새벽 3시)까지 그대로 두면 오타를 고쳤는데도 멀쩡한
-          가게가 "폐업" 으로 남는다. 같은 값을 다시 저장한 경우는 바뀐 것이 아니므로 건드리지 않는다.
+          것이라 다른 사업자의 상태다 — 그대로 두면 오타를 고쳤는데도 멀쩡한 가게가 "폐업" 으로 남는다.
+          같은 값을 다시 저장한 경우는 바뀐 것이 아니므로 건드리지 않는다.
+
+          되돌리기만 하면 다시 채우는 것은 새벽 배치뿐이라 고친 결과를 하루 뒤에야 본다. 그래서
+          커밋된 뒤에 그 한 건만 다시 묻도록 알린다(StoreBizNoChangedListener). 번호를 지운 경우는
+          물을 대상이 없으므로 알리지 않는다 — 되돌린 채로 둔다.
         */
         if (!Objects.equals(before.bizNo(), after.bizNo())) {
             storeNtsCheckRepository.findById(storeId).ifPresent(StoreNtsCheck::resetForBizNoChange);
+            String changedBizNo = store.getBizNo();
+            if (changedBizNo != null && !changedBizNo.isBlank()) {
+                eventPublisher.publishEvent(new StoreBizNoChanged(storeId, changedBizNo));
+            }
         }
         return StoreResponse.from(store);
     }
