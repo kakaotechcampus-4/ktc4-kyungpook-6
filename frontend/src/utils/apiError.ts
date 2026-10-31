@@ -27,3 +27,13 @@ export function messageOf(error: unknown): string {
 export function isUnauthorized(error: unknown): boolean {
   return isAxiosError(error) && error.response?.status === 401;
 }
+
+/**
+ * 찾는 것이 아직 없다는 응답인가.
+ *
+ * 서버에 닿지 못한 것과 **다르다.** 둘을 같이 묶으면 "아직 조사한 적이 없다"가 "서버가 죽었다"로
+ * 보이고, 그 자리에 목업을 깔면 담당자가 가짜 자료를 진짜로 읽는다.
+ */
+export function isNotFound(error: unknown): boolean {
+  return isAxiosError(error) && error.response?.status === 404;
+}

@@ -22,7 +22,7 @@ services:
       dockerfile: Dockerfile
     container_name: ktc4-backend
     ports:
-      - "0.0.0.0:${BACKEND_PORT:-8080}:8080"
+      - "${BIND_HOST:-0.0.0.0}:${BACKEND_PORT:-8080}:8080"
     environment:
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/ktc4}
       DB_USERNAME: ${DB_USERNAME:-ktc4}
@@ -99,7 +99,7 @@ services:
         VITE_BACKEND_URL: ${PUBLIC_BACKEND_URL:-${BACKEND_BASE_URL:-http://localhost:${BACKEND_PORT:-8080}}}
     container_name: ktc4-frontend
     ports:
-      - "0.0.0.0:${FRONTEND_PORT:-3000}:80"
+      - "${BIND_HOST:-0.0.0.0}:${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
 
