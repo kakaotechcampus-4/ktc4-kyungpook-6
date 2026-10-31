@@ -28,6 +28,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -67,6 +68,10 @@ class StoreServiceTest {
 
     @Mock
     private StoreNtsCheckRepository storeNtsCheckRepository;
+
+    // 번호가 바뀌면 커밋 뒤 재조회를 알린다. 실제로 내보내는지는 StoreServiceUpdateTest 가 본다
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private StoreService storeService;
