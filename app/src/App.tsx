@@ -18,6 +18,7 @@ import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
 import ChildStoreListPage from "./pages/ChildStoreListPage";
 import ChildStoreDetailPage from "./pages/ChildStoreDetailPage";
 import ChildOrderPage from "./pages/ChildOrderPage";
+import ChildOrderCompletePage from "./pages/ChildOrderCompletePage";
 
 function App() {
   return (
@@ -46,6 +47,7 @@ function App() {
         <Route path="/child/stores" element={<ChildStoreListPage />} />
         <Route path="/child/stores/:storeId" element={<ChildStoreDetailPage />} />
         <Route path="/child/stores/:storeId/order" element={<ChildOrderPage />} />
+        <Route path="/child/order/complete" element={<ChildOrderCompletePage />} />
       </Routes>
     </BrowserRouter>
   );

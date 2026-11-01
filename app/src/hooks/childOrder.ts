@@ -7,11 +7,10 @@ import { getChildStoreOpenStatus } from "../utils/childStoreStatus";
 import { useNow } from "./childStoreList";
 
 /*
-  주문한 뒤 넘어갈 화면.
-  주문 API 와 주문 완료 화면이 아직 없어서, 주문하기를 누르면 서버를 부르지 않고 아동 홈으로 넘긴다.
-  API·화면이 생기면 submit 과 AFTER_ORDER_PATH 만 바꾼다.
+  주문한 뒤 넘어갈 주문 완료 화면.
+  주문 API 가 아직 없어서, 주문하기를 누르면 서버를 부르지 않고 바로 넘긴다. API 가 생기면 submit 만 바꾼다.
 */
-const AFTER_ORDER_PATH = "/child/home";
+const AFTER_ORDER_PATH = "/child/order/complete";
 
 export type UseChildOrderResult = {
   /** 주소의 번호에 맞는 가게. 없는 번호면 null — 화면은 가게 목록으로 돌려보낸다. */
