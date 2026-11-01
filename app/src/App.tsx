@@ -17,6 +17,7 @@ import OwnerQrScanPage from "./pages/OwnerQrScanPage";
 import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
 import ChildStoreListPage from "./pages/ChildStoreListPage";
 import ChildStoreDetailPage from "./pages/ChildStoreDetailPage";
+import ChildOrderPage from "./pages/ChildOrderPage";
 
 function App() {
   return (
@@ -44,6 +45,7 @@ function App() {
         {/* 아동 화면 */}
         <Route path="/child/stores" element={<ChildStoreListPage />} />
         <Route path="/child/stores/:storeId" element={<ChildStoreDetailPage />} />
+        <Route path="/child/stores/:storeId/order" element={<ChildOrderPage />} />
       </Routes>
     </BrowserRouter>
   );
