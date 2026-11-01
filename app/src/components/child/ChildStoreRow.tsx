@@ -1,10 +1,7 @@
 import chevronIcon from "../../assets/child-chevron-right-icon.svg";
 import type { ChildStoreListItem } from "../../hooks/childStoreList";
+import { formatDistance } from "../../utils/childStoreStatus";
 import { ChildCompanionBadge, ChildStoreStatusBadge } from "./ChildStoreBadges";
-
-/** 1km 미만은 m, 이상은 소수 한 자리 km("350m", "1.2km"). */
-const formatDistance = (meters: number) =>
-  meters < 1000 ? `${meters}m` : `${(meters / 1000).toFixed(1)}km`;
 
 type ChildStoreRowProps = {
   store: ChildStoreListItem;

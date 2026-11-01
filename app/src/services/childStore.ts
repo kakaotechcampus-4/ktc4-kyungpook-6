@@ -18,14 +18,33 @@ export type ChildStore = {
   /** 가게 사진. 점주가 사진을 정하지 않은 가게는 기본 사진(마스코트)이 온다. */
   photoUrl: string;
   takeoutAvailable: boolean;
+  dineInAvailable: boolean;
   companion: CompanionPolicy;
   /** 점주 홈의 영업 상태 방식. MANUAL 이면 manualOpen 대로, SCHEDULE 이면 영업시간대로. */
   openMode: "SCHEDULE" | "MANUAL";
   manualOpen: boolean;
   businessHours: BusinessHour[];
-  /** 검색에 쓰는 메뉴 이름. */
-  menus: string[];
+  /** 가게 전화번호. */
+  phone: string;
+  /** 사장님 한마디. 점주가 적지 않았으면 null — 가게 정보에 칸을 그리지 않는다. */
+  ownerNote: string | null;
+  menus: ChildStoreMenu[];
 };
+
+/** 가게 메뉴. 판매하지 않는 메뉴는 "오늘은 안 돼요"로 흐리게 보인다. */
+export type ChildStoreMenu = {
+  menuId: number;
+  name: string;
+  onSale: boolean;
+};
+
+/** 메뉴 이름 목록을 메뉴로 만든다. 이름 앞에 "-" 를 붙이면 오늘 판매하지 않는 메뉴. */
+const menusOf = (storeId: number, ...names: string[]): ChildStoreMenu[] =>
+  names.map((name, index) => ({
+    menuId: storeId * 100 + index + 1,
+    name: name.replace(/^-/, ""),
+    onSale: !name.startsWith("-"),
+  }));
 
 const EVERY_DAY = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
 const WEEKDAYS_AND_SAT = ["MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
@@ -46,11 +65,18 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 350,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
+    dineInAvailable: true,
     companion: "ONE",
     openMode: "SCHEDULE",
     manualOpen: false,
-    businessHours: hoursOf(EVERY_DAY, ["00:00", "24:00"]),
-    menus: ["후라이드 치킨", "양념 치킨"],
+    // 피그마 시안의 영업시간. 일요일은 휴무.
+    businessHours: [
+      ...hoursOf(["MON", "TUE", "WED", "THU", "FRI"], ["11:00", "15:00"], ["17:00", "21:00"]),
+      ...hoursOf(["SAT"], ["12:00", "20:00"]),
+    ],
+    phone: "053-107-4561",
+    ownerNote: "브레이크타임 15:00 – 17:00, 하루 5명까지 제공해요",
+    menus: menusOf(1, "후라이드 치킨", "-치킨마요 덮밥"),
   },
   {
     storeId: 2,
@@ -59,11 +85,14 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 450,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: false,
+    dineInAvailable: true,
     companion: "TWO",
     openMode: "SCHEDULE",
     manualOpen: false,
     businessHours: hoursOf(EVERY_DAY, ["00:00", "24:00"]),
-    menus: ["닭강정", "치킨마요 덮밥"],
+    phone: "053-114-4562",
+    ownerNote: null,
+    menus: menusOf(2, "닭강정", "치킨마요 덮밥"),
   },
   {
     storeId: 3,
@@ -72,11 +101,14 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 520,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
+    dineInAvailable: false,
     companion: "NONE",
     openMode: "MANUAL",
     manualOpen: true,
     businessHours: hoursOf(WEEKDAYS_AND_SAT, ["10:00", "20:00"]),
-    menus: ["떡볶이", "김밥", "라면"],
+    phone: "053-121-4563",
+    ownerNote: null,
+    menus: menusOf(3, "떡볶이", "김밥", "라면"),
   },
   {
     storeId: 4,
@@ -85,12 +117,15 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 610,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
+    dineInAvailable: true,
     companion: "NONE",
     openMode: "SCHEDULE",
     manualOpen: false,
     // 자정을 넘겨 다음 날 새벽에 닫는다.
     businessHours: hoursOf(EVERY_DAY, ["17:00", "03:00"]),
-    menus: ["후라이드 치킨", "치킨 너겟"],
+    phone: "053-128-4564",
+    ownerNote: null,
+    menus: menusOf(4, "후라이드 치킨", "치킨 너겟"),
   },
   {
     storeId: 5,
@@ -99,12 +134,15 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 780,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
+    dineInAvailable: true,
     companion: "ONE",
     // 점주가 직접 꺼 둔 가게. 영업시간 안이어도 쉬는중이다.
     openMode: "MANUAL",
     manualOpen: false,
     businessHours: hoursOf(EVERY_DAY, ["00:00", "24:00"]),
-    menus: ["제육 도시락", "돈가스 도시락"],
+    phone: "053-135-4565",
+    ownerNote: "재료 준비 중이라 잠시 쉬어요",
+    menus: menusOf(5, "제육 도시락", "돈가스 도시락"),
   },
   {
     storeId: 6,
@@ -113,12 +151,15 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 940,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: false,
+    dineInAvailable: true,
     companion: "TWO",
     openMode: "SCHEDULE",
     manualOpen: false,
     // 브레이크타임이 있다.
     businessHours: hoursOf(WEEKDAYS_AND_SAT, ["11:00", "14:00"], ["17:00", "22:00"]),
-    menus: ["반반 치킨", "치킨 덮밥"],
+    phone: "053-142-4566",
+    ownerNote: null,
+    menus: menusOf(6, "반반 치킨", "치킨 덮밥"),
   },
   {
     storeId: 7,
@@ -127,11 +168,14 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 1200,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
+    dineInAvailable: false,
     companion: "NONE",
     openMode: "SCHEDULE",
     manualOpen: false,
     businessHours: hoursOf(EVERY_DAY, ["10:00", "22:00"]),
-    menus: ["치즈버거", "감자튀김"],
+    phone: "053-149-4567",
+    ownerNote: null,
+    menus: menusOf(7, "치즈버거", "감자튀김"),
   },
   {
     storeId: 8,
@@ -140,12 +184,15 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 1300,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
+    dineInAvailable: true,
     companion: "NONE",
     openMode: "SCHEDULE",
     manualOpen: false,
     // 주말에만 연다. 평일에는 오늘 휴무.
     businessHours: hoursOf(["SAT", "SUN"], ["11:00", "21:00"]),
-    menus: ["순살 치킨"],
+    phone: "053-156-4568",
+    ownerNote: null,
+    menus: menusOf(8, "순살 치킨"),
   },
   {
     storeId: 9,
@@ -154,12 +201,15 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 1500,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: false,
+    dineInAvailable: true,
     companion: "NONE",
     openMode: "SCHEDULE",
     manualOpen: false,
     // 아침에만 연다. 이른 아침에는 영업 전, 그 뒤로는 영업종료.
     businessHours: hoursOf(EVERY_DAY, ["06:00", "09:00"]),
-    menus: ["김치찌개", "된장찌개"],
+    phone: "053-163-4569",
+    ownerNote: null,
+    menus: menusOf(9, "김치찌개", "된장찌개"),
   },
   {
     storeId: 10,
@@ -169,10 +219,16 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     distanceMeters: 2400,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
+    dineInAvailable: true,
     companion: "NONE",
     openMode: "SCHEDULE",
     manualOpen: false,
     businessHours: hoursOf(EVERY_DAY, ["00:00", "24:00"]),
-    menus: ["돼지국밥"],
+    phone: "053-170-4570",
+    ownerNote: null,
+    menus: menusOf(10, "돼지국밥"),
   },
 ];
+
+/** 가게 정보 화면에서 쓰는 가게 하나. 없는 번호면 undefined. */
+export const findMockChildStore = (storeId: number) => MOCK_CHILD_STORES.find((store) => store.storeId === storeId);

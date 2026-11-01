@@ -1,4 +1,4 @@
-import type { BusinessDay } from "../services/store";
+import type { BusinessDay, BusinessHour } from "../services/store";
 import type { ChildStore } from "../services/childStore";
 import { isOpenAt } from "./openStatus";
 
@@ -42,4 +42,34 @@ export const getChildStoreOpenStatus = (
 
   const now = at.getHours() * 60 + at.getMinutes();
   return todayHours.some(({ open }) => toMinutes(open) > now) ? "BEFORE_OPEN" : "ENDED";
+};
+
+/** 1km 미만은 m, 이상은 소수 한 자리 km("350m", "1.2km"). */
+export const formatDistance = (meters: number) =>
+  meters < 1000 ? `${meters}m` : `${(meters / 1000).toFixed(1)}km`;
+
+/** 가게 정보의 영업시간 목록 순서(월요일부터). */
+export const WEEK_DAYS: { day: BusinessDay; label: string; short: string }[] = [
+  { day: "MON", label: "월요일", short: "월" },
+  { day: "TUE", label: "화요일", short: "화" },
+  { day: "WED", label: "수요일", short: "수" },
+  { day: "THU", label: "목요일", short: "목" },
+  { day: "FRI", label: "금요일", short: "금" },
+  { day: "SAT", label: "토요일", short: "토" },
+  { day: "SUN", label: "일요일", short: "일" },
+];
+
+/** 그 시각의 요일. */
+export const dayOf = (at: Date): BusinessDay => DAYS_BY_INDEX[at.getDay()];
+
+/**
+ * 그 요일의 영업시간 한 줄("11:00 – 21:00"). 여러 줄이면 쉼표로 잇고(브레이크타임), 없으면 "휴무".
+ * 자정을 넘기는 줄은 적힌 그대로 보인다("17:00 – 03:00").
+ */
+export const formatDayHours = (businessHours: BusinessHour[], day: BusinessDay) => {
+  const ranges = businessHours
+    .filter((hour) => hour.day === day)
+    .sort((a, b) => toMinutes(a.open) - toMinutes(b.open))
+    .map(({ open, close }) => `${open} – ${close}`);
+  return ranges.length > 0 ? ranges.join(", ") : "휴무";
 };

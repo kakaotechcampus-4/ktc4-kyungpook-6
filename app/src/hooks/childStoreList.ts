@@ -26,8 +26,8 @@ export type UseChildStoreListResult = {
   openStore: (storeId: number) => void;
 };
 
-/** 기기 시각. 시간이 지나면 영업 상태가 바뀌도록 주기적으로 새로 읽는다. */
-const useNow = () => {
+/** 기기 시각. 시간이 지나면 영업 상태가 바뀌도록 주기적으로 새로 읽는다. 가게 정보 화면도 같이 쓴다. */
+export const useNow = () => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), CLOCK_TICK_MS);
@@ -41,7 +41,7 @@ const matchesQuery = (store: ChildStore, query: string) => {
   const normalize = (text: string) => text.replace(/\s/g, "").toLowerCase();
   const keyword = normalize(query);
   if (keyword === "") return true;
-  return [store.name, ...store.menus].some((text) => normalize(text).includes(keyword));
+  return [store.name, ...store.menus.map((menu) => menu.name)].some((text) => normalize(text).includes(keyword));
 };
 
 /**
