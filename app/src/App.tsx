@@ -5,6 +5,8 @@ import RoleSelectPage from "./pages/RoleSelectPage";
 import OwnerLoginPage from "./pages/OwnerLoginPage";
 import OwnerSignupLayout from "./pages/OwnerSignupLayout";
 import OwnerSignupAccountPage from "./pages/OwnerSignupAccountPage";
+import OwnerSignupBizCertPage from "./pages/OwnerSignupBizCertPage";
+import OwnerSignupBizCertResultPage from "./pages/OwnerSignupBizCertResultPage";
 import OwnerSignupInfoPage from "./pages/OwnerSignupInfoPage";
 import OwnerSignupStorePage from "./pages/OwnerSignupStorePage";
 import OwnerSignupHoursPage from "./pages/OwnerSignupHoursPage";
@@ -36,6 +38,8 @@ function App() {
         <Route path="/owner/login" element={<OwnerLoginPage />} />
         <Route path="/owner/signup" element={<OwnerSignupLayout />}>
           <Route index element={<OwnerSignupAccountPage />} />
+          <Route path="biz-cert" element={<OwnerSignupBizCertPage />} />
+          <Route path="biz-cert/result" element={<OwnerSignupBizCertResultPage />} />
           <Route path="info" element={<OwnerSignupInfoPage />} />
           <Route path="store" element={<OwnerSignupStorePage />} />
           <Route path="store/hours" element={<OwnerSignupHoursPage />} />

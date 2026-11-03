@@ -12,8 +12,8 @@ import {
 
 type AccountField = "email" | "password" | "passwordConfirm";
 
-/** 계정 단계 다음 화면(기본 정보). */
-const NEXT_PATH = "/owner/signup/info";
+/** 계정 단계 다음 화면(사업자등록증 올리기). */
+const NEXT_PATH = "/owner/signup/biz-cert";
 
 export type UseSignupAccountResult = {
   email: string;

@@ -53,6 +53,20 @@ export const toLocalDateTime = (date: Date) => {
   );
 };
 
+/** 개업일을 입력하는 대로 YYYY.MM.DD 로 나눈다. 최대 8자리. */
+export const formatOpenDate = (value: string) => {
+  const digits = toDigits(value).slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}.${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6)}`;
+};
+
+/** 화면의 개업일("2021.03.15")을 백엔드 LocalDate 모양("2021-03-15")으로. */
+export const openDateToIso = (openDate: string) => openDate.replaceAll(".", "-");
+
+/** 백엔드 LocalDate("2021-03-15")를 화면의 개업일("2021.03.15")로. */
+export const isoToOpenDate = (isoDate: string) => isoDate.replaceAll("-", ".");
+
 /** 사업자등록번호를 입력하는 대로 XXX-XX-XXXXX 로 나눈다. 최대 10자리. */
 export const formatBizNo = (value: string) => {
   const digits = toDigits(value).slice(0, 10);

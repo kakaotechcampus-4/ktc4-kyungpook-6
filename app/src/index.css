@@ -24,3 +24,11 @@
     }
   }
 }
+
+/* 가입 화면은 기본 스크롤바를 숨기고 내용 위에 겹치는 막대를 따로 그린다(components/signup/ScrollIndicator.tsx). */
+.signup-scroll {
+  scrollbar-width: none;
+}
+.signup-scroll::-webkit-scrollbar {
+  display: none;
+}

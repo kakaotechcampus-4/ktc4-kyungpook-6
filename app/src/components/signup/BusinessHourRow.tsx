@@ -1,6 +1,7 @@
 import chevronDownIcon from "../../assets/chevron-down-icon.svg";
 import removeIcon from "../../assets/remove-icon.svg";
 import type { SignupBusinessHour } from "../../hooks/signupDraft";
+import { FOCUS_RING_CLASS_NAME } from "../ui/TextField";
 import { BUSINESS_DAYS, CLOSE_TIME_OPTIONS, OPEN_TIME_OPTIONS } from "../../utils/businessHours";
 
 type BusinessHourRowProps = {
@@ -9,8 +10,8 @@ type BusinessHourRowProps = {
   onRemove: () => void;
 };
 
-const SELECT_BASE =
-  "h-11 appearance-none rounded-xl bg-[#f1f4f8] text-[15px] leading-[normal] outline-none focus-visible:ring-2 focus-visible:ring-[#e3b23c]";
+/* 고르는 중인 칸은 입력 칸(TextField)과 같은 노란 테두리·그림자. focus-within 은 자기 자신에도 걸린다. */
+const SELECT_BASE = `h-11 appearance-none rounded-xl border border-transparent bg-[#f1f4f8] text-[15px] leading-[normal] outline-none ${FOCUS_RING_CLASS_NAME}`;
 
 /** 아직 고르지 않은 칸은 연한 글자로 보여 준다. */
 const valueColor = (value: string) => (value === "" ? "text-[#a9afbb]" : "text-[#1f2937]");
