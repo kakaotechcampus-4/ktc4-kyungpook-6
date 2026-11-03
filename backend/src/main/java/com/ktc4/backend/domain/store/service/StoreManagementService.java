@@ -4,6 +4,8 @@ import com.ktc4.backend.domain.member.service.StoreAccessService;
 import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
 import com.ktc4.backend.domain.store.dto.MenuRequest;
 import com.ktc4.backend.domain.store.dto.MenuResponse;
+import com.ktc4.backend.domain.store.dto.OpenSettingRequest;
+import com.ktc4.backend.domain.store.dto.OpenSettingResponse;
 import com.ktc4.backend.domain.store.dto.OperatingInfoRequest;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
@@ -46,7 +48,8 @@ import java.util.stream.Collectors;
 public class StoreManagementService {
 
     // 영업시간은 요일 순(월 → 일), 같은 요일은 여는 시간 순. DB 의 요일 칸은 이름이라 DB 정렬은 알파벳순이 된다.
-    private static final Comparator<StoreBusinessHour> WEEK_ORDER = Comparator
+    // 주변 가게(NearbyStoreService)도 같은 순서로 내려준다.
+    static final Comparator<StoreBusinessHour> WEEK_ORDER = Comparator
             .comparing((StoreBusinessHour hour) -> hour.getDay().ordinal())
             .thenComparingInt(StoreBusinessHour::getOpenMinute);
 
@@ -126,6 +129,34 @@ public class StoreManagementService {
         return toDetail(store);
     }
 
+    /**
+     * 점주가 고른 영업 상태 방식과 켜고 끈 값을 저장한다 — 점주 앱 홈의 "영업시간대로 / 직접 켜고 끄기".
+     *
+     * <p>변경 기록에는 남기지 않는다. 점주가 하루에도 여러 번 켜고 끄는 운영 조작이라, 남기면 가게 정보가 바뀐 기록이
+     * 이 줄로 덮인다.
+     *
+     * <p>가게를 잠그는 이유는 {@link #save} 와 같다 — 잠그기 전에 본 연결이 그 사이 끊겼을 수 있어 잠근 뒤 한 번 더 본다.
+     *
+     * @param storeId    가게 ID
+     * @param request    방식과 켜고 끈 값 (요청 검증을 통과한 값)
+     * @param authMember 로그인한 사용자
+     * @return 저장한 뒤의 방식과 켜고 끈 값
+     * @throws CustomException 로그인 정보가 없으면 {@code UNAUTHORIZED},
+     *                         관리자도 아니고 이 가게에 연결된 점주도 아니면(없는 가게 포함) {@code FORBIDDEN},
+     *                         관리자가 없는 가게를 부르면 {@code STORE_NOT_FOUND}
+     */
+    @Transactional
+    public OpenSettingResponse saveOpenSetting(Long storeId, OpenSettingRequest request, AuthMember authMember) {
+        storeAccessService.requireAccessTo(storeId, authMember);
+        Store store = storeService.findStoreForUpdate(storeId);
+        storeAccessService.requireAccessTo(storeId, authMember);
+
+        store.changeOpenSetting(request.mode(), request.manualOpen());
+        log.info("가게 영업 상태 저장 - storeId={}, memberId={}, mode={}, manualOpen={}",
+                storeId, authMember.memberId(), request.mode(), request.manualOpen());
+        return new OpenSettingResponse(store.getOpenMode(), store.isManualOpen());
+    }
+
     private static void requireOwnMenus(Long storeId, List<MenuRequest> menus, Map<Long, StoreMenu> liveMenus) {
         for (MenuRequest menu : menus) {
             if (menu.menuId() != null && !liveMenus.containsKey(menu.menuId())) {
@@ -173,6 +204,7 @@ public class StoreManagementService {
                 .toList();
         // 관리자 수정은 가게 전화를 빈 문자열로 지울 수 있다 — 화면에는 "없음" 하나로 보낸다
         String phone = store.getPhone() == null || store.getPhone().isBlank() ? null : store.getPhone();
-        return new StoreDetailResponse(store.getStoreId(), store.getName(), store.getAddressRoad(), phone, hours, menus);
+        return new StoreDetailResponse(store.getStoreId(), store.getName(), store.getAddressRoad(), phone, hours, menus,
+                store.getOpenMode(), store.isManualOpen());
     }
 }

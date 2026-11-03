@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.store.dto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.OpenMode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,12 +33,17 @@ class StoreDetailResponseJsonTest {
         StoreDetailResponse response = new StoreDetailResponse(12L, "예시분식", "대구광역시 북구 대학로 80", "053-123-4567",
                 List.of(new BusinessHourResponse(BusinessDay.MON, "00:00", "24:00")),
                 List.of(new MenuResponse(3L, "김치찌개", false, null),
-                        new MenuResponse(4L, "라면", true, "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")));
+                        new MenuResponse(4L, "라면", true, "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")),
+                OpenMode.MANUAL, false);
 
         JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(response));
 
         assertThat(json.properties()).extracting(Map.Entry::getKey)
-                .containsExactlyInAnyOrder("storeId", "name", "addressRoad", "phone", "businessHours", "menus");
+                .containsExactlyInAnyOrder("storeId", "name", "addressRoad", "phone", "businessHours", "menus",
+                        "openMode", "manualOpen");
+        // 점주 앱 홈이 그대로 읽는 이름과 값 — "MANUAL"/"SCHEDULE" 과 불리언
+        assertThat(json.get("openMode").asText()).isEqualTo("MANUAL");
+        assertThat(json.get("manualOpen").isBoolean()).isTrue();
         assertThat(json.get("businessHours").get(0).toString())
                 .isEqualTo("{\"day\":\"MON\",\"open\":\"00:00\",\"close\":\"24:00\"}");
         assertThat(json.get("menus").get(0).toString())

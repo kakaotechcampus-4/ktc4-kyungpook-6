@@ -9,12 +9,15 @@ import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
 import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
 import com.ktc4.backend.domain.store.dto.MenuRequest;
 import com.ktc4.backend.domain.store.dto.MenuResponse;
+import com.ktc4.backend.domain.store.dto.OpenSettingRequest;
+import com.ktc4.backend.domain.store.dto.OpenSettingResponse;
 import com.ktc4.backend.domain.store.dto.OperatingInfoRequest;
 import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.OpenMode;
 import com.ktc4.backend.domain.store.enums.StoreChangeField;
 import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -141,6 +144,51 @@ class StoreManagementServiceTest extends PostgresContainerTest {
         @DisplayName("관리자는 어느 가게든 상세를 본다")
         void adminSeesAnyStore() {
             assertThat(storeManagementService.getDetail(otherStore.getStoreId(), adminMember).name()).isEqualTo("다른가게");
+        }
+    }
+
+    @Nested
+    @DisplayName("영업 상태 저장 (PROMPT-185)")
+    class OpenSetting {
+
+        @Test
+        @DisplayName("연결된 점주가 바꾸면 저장되고, 가게 상세에 그 값이 나온다 — 처음 값은 영업시간대로·켜짐")
+        void linkedOwnerSavesAndDetailShowsIt() {
+            assertThat(storeManagementService.getDetail(store.getStoreId(), owner))
+                    .extracting("openMode", "manualOpen").containsExactly(OpenMode.SCHEDULE, true);
+
+            OpenSettingResponse saved = storeManagementService.saveOpenSetting(store.getStoreId(),
+                    new OpenSettingRequest(OpenMode.MANUAL, false), owner);
+            entityManager.flush();
+            entityManager.clear();
+
+            assertThat(saved).isEqualTo(new OpenSettingResponse(OpenMode.MANUAL, false));
+            assertThat(storeManagementService.getDetail(store.getStoreId(), owner))
+                    .extracting("openMode", "manualOpen").containsExactly(OpenMode.MANUAL, false);
+        }
+
+        @Test
+        @DisplayName("연결되지 않은 점주는 403, 관리자는 없는 가게에 404, 로그인이 없으면 401")
+        void rejectsLikeOperatingInfo() {
+            OpenSettingRequest request = new OpenSettingRequest(OpenMode.MANUAL, false);
+            assertRejectedWith(() -> storeManagementService.saveOpenSetting(otherStore.getStoreId(), request, owner),
+                    ErrorCode.FORBIDDEN);
+            assertRejectedWith(() -> storeManagementService.saveOpenSetting(MISSING_STORE_ID, request, adminMember),
+                    ErrorCode.STORE_NOT_FOUND);
+            assertRejectedWith(() -> storeManagementService.saveOpenSetting(store.getStoreId(), request, null),
+                    ErrorCode.UNAUTHORIZED);
+        }
+
+        @Test
+        @DisplayName("변경 기록에는 남기지 않는다 — 하루에도 여러 번 켜고 끄는 운영 조작이다")
+        void doesNotRecordHistory() {
+            Integer before = jdbcTemplate.queryForObject("select count(*) from store_change_history", Integer.class);
+
+            storeManagementService.saveOpenSetting(store.getStoreId(), new OpenSettingRequest(OpenMode.MANUAL, false), owner);
+            entityManager.flush();
+
+            assertThat(jdbcTemplate.queryForObject("select count(*) from store_change_history", Integer.class))
+                    .isEqualTo(before);
         }
     }
 

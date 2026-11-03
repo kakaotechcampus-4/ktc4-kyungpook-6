@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.store.entity;
 
+import com.ktc4.backend.domain.store.enums.OpenMode;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.global.entity.BaseTimeEntity;
 import jakarta.persistence.*;
@@ -32,7 +33,9 @@ import java.util.Objects;
         indexes = {
                 @Index(name = "idx_store_status_last_checked_at", columnList = "status, last_checked_at"),
                 @Index(name = "idx_store_name_normalized", columnList = "name_normalized"),
-                @Index(name = "idx_store_last_checked_at", columnList = "last_checked_at")
+                @Index(name = "idx_store_last_checked_at", columnList = "last_checked_at"),
+                // 주변 가게 찾기가 위경도 사각형으로 먼저 거른다(V7)
+                @Index(name = "idx_store_lat_lng", columnList = "lat, lng")
         }
 )
 @DynamicUpdate
@@ -99,6 +102,15 @@ public class Store extends BaseTimeEntity {
     @Column(name = "last_checked_at")
     private LocalDateTime lastCheckedAt;
 
+    /** 점주가 고른 영업 상태 방식 — 영업시간대로(기본) 또는 직접 켜고 끄기 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "open_mode", nullable = false, length = 20)
+    private OpenMode openMode;
+
+    /** 직접 켜고 끄기({@link OpenMode#MANUAL})일 때 켜 두었는지. 영업시간대로일 때는 보지 않는다 */
+    @Column(name = "manual_open", nullable = false)
+    private boolean manualOpen;
+
     @Builder
     private Store(String name, String nameNormalized,
                   String addressRoad, String addressNormalized,
@@ -118,6 +130,9 @@ public class Store extends BaseTimeEntity {
         this.ownerPhone = ownerPhone;
         this.bizNo = bizNo;
         this.lastCheckedAt = lastCheckedAt;
+        // 점주 앱의 기본값과 같다 — 영업시간대로, 직접 켜고 끄기로 바꾸면 켜진 채로 시작
+        this.openMode = OpenMode.SCHEDULE;
+        this.manualOpen = true;
     }
 
     /**
@@ -267,5 +282,18 @@ public class Store extends BaseTimeEntity {
      */
     public void confirm(LocalDateTime confirmedAt) {
         this.lastCheckedAt = confirmedAt;
+    }
+
+    /**
+     * 점주가 고른 영업 상태 방식과 켜고 끈 값을 바꾼다. 점주 앱 홈에서 방식을 고르거나 켜고 끌 때 부른다.
+     *
+     * <p>영업시간대로일 때도 {@code manualOpen} 을 그대로 받아 둔다 — 다시 직접 켜고 끄기로 바꿨을 때 마지막 값으로 돌아가게.
+     *
+     * @param openMode   영업 상태 방식
+     * @param manualOpen 직접 켜고 끄기에서 켜 두었는지
+     */
+    public void changeOpenSetting(OpenMode openMode, boolean manualOpen) {
+        this.openMode = openMode;
+        this.manualOpen = manualOpen;
     }
 }
