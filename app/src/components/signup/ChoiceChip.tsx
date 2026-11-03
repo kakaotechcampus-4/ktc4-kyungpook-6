@@ -4,7 +4,7 @@ type ChoiceChipProps = {
   onClick: () => void;
 };
 
-/** 가게 등록 2 의 고르기 칩(함께 올 수 있는 인원·식사 방법). 고르면 노랗게 채운다. */
+/** 가게 등록 2 의 고르기 칩(아이와 함께 올 수 있는 인원·아이가 이용할 수 있는 방법). 고르면 노랗게 채운다. */
 function ChoiceChip({ label, selected, onClick }: ChoiceChipProps) {
   return (
     <button

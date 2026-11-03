@@ -14,20 +14,23 @@ import { STORE_PHONE_MAX_LENGTH } from "../utils/signupValidation";
 import SignupBottomBar from "../components/signup/SignupBottomBar";
 
 const LABEL_CLASS_NAME = "font-semibold";
-const SECTION_TITLE_CLASS_NAME = "pb-3 text-sm leading-[normal] font-semibold text-[#6b7280]";
+/* 제목 옆 설명은 짧으면 같은 줄에, 길면 다음 줄로 넘어간다. */
+const SECTION_HEADER_CLASS_NAME = "flex flex-wrap items-baseline gap-x-1.5 gap-y-1 pb-3";
+const SECTION_TITLE_CLASS_NAME = "text-sm leading-[normal] font-semibold text-[#6b7280]";
+const SECTION_DESCRIPTION_CLASS_NAME = "text-xs leading-[normal] text-[#a9afbb]";
 
 const COMPANION_CHOICES: { value: SignupStore["companionLimit"]; label: string }[] = [
-  { value: 0, label: "아이 혼자" },
-  { value: 1, label: "1명 동반" },
-  { value: 2, label: "2명 동반" },
+  { value: 0, label: "아이 혼자만" },
+  { value: 1, label: "1명까지 함께" },
+  { value: 2, label: "2명까지 함께" },
 ];
 
 const RECEIVE_TYPE_CHOICES: { value: OrderReceiveType; label: string }[] = [
-  { value: "TAKEOUT", label: "포장" },
-  { value: "DINE_IN", label: "매장 식사" },
+  { value: "TAKEOUT", label: "포장해 가기" },
+  { value: "DINE_IN", label: "매장에서 이용하기" },
 ];
 
-/** 가게 등록 1: 대표 사진·가게 전화번호·사장님 전화번호·함께 올 수 있는 인원·식사 방법. */
+/** 가게 등록 1: 대표 사진·가게 전화번호·사장님 전화번호·아이와 함께 올 수 있는 인원·아이가 이용할 수 있는 방법. */
 function OwnerSignupStorePage() {
   const { account, bizCert, info } = useSignupDraft();
   const {
@@ -87,7 +90,10 @@ function OwnerSignupStorePage() {
         />
 
         <section className="pb-4">
-          <h2 className={SECTION_TITLE_CLASS_NAME}>함께 올 수 있는 인원</h2>
+          <div className={SECTION_HEADER_CLASS_NAME}>
+            <h2 className={SECTION_TITLE_CLASS_NAME}>아이와 함께 올 수 있는 인원</h2>
+            <p className={SECTION_DESCRIPTION_CLASS_NAME}>아이와 같이 와서 함께 이용할 수 있는 인원을 골라 주세요.</p>
+          </div>
           <div className="flex gap-2">
             {COMPANION_CHOICES.map(({ value, label }) => (
               <ChoiceChip
@@ -101,7 +107,10 @@ function OwnerSignupStorePage() {
         </section>
 
         <section>
-          <h2 className={SECTION_TITLE_CLASS_NAME}>식사 방법</h2>
+          <div className={SECTION_HEADER_CLASS_NAME}>
+            <h2 className={SECTION_TITLE_CLASS_NAME}>아이가 이용할 수 있는 방법</h2>
+            <p className={SECTION_DESCRIPTION_CLASS_NAME}>여러 개 고를 수 있어요.</p>
+          </div>
           <div className="flex gap-2">
             {RECEIVE_TYPE_CHOICES.map(({ value, label }) => (
               <ChoiceChip
