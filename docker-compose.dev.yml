@@ -17,6 +17,7 @@ services:
     environment:
       AI_BASE_URL: ${AI_BASE_URL:-http://ai:8000}
       JWT_SECRET: ${JWT_SECRET}
+      CARD_HASH_SECRET: ${CARD_HASH_SECRET}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}

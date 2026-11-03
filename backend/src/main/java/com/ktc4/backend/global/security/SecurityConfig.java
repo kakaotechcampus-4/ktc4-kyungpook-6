@@ -102,6 +102,15 @@ public class SecurityConfig {
     @Value("${biz-cert-extraction.rate-limit.file-window-hours:3}")
     private long bizCertReadFileWindowHours;
 
+    @Value("${child.card-auth.rate-limit.max-attempts:20}")
+    private int childCardAuthMaxAttempts;
+
+    @Value("${child.card-auth.rate-limit.window-minutes:10}")
+    private long childCardAuthWindowMinutes;
+
+    @Value("${child.card-auth.rate-limit.max-attempts-per-day:100}")
+    private int childCardAuthMaxPerDay;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtProvider jwtProvider,
@@ -126,6 +135,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/ping").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
+                        // 아동 급식카드 인증 — 로그인 없이 받는다. 같은 곳에서 되풀이하면 아래 필터가 거절한다
+                        .requestMatchers(HttpMethod.POST, "/api/auth/children/card").permitAll()
                         // 가입 신청에 붙일 파일. 가입 전이라 계정이 없다 — 횟수는 UploadRateLimitFilter 가 막는다
                         .requestMatchers(HttpMethod.POST, "/api/files").permitAll()
                         // 올린 사업자등록증을 읽어 가입 form 을 채운다. 가입 전이라 계정이 없다 — 횟수는 BizCertReadRateLimitFilter 가 막는다.
@@ -191,6 +202,13 @@ public class SecurityConfig {
                                 new SignupRateLimiter(bizCertReadMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
                                 SignupRateLimiter.passingWhenFull(bizCertReadMaxPerFile,
                                         Duration.ofHours(bizCertReadFileWindowHours), Clock.systemUTC()),
+                                signupTrustedProxies, problemWriter),
+                        UsernamePasswordAuthenticationFilter.class)
+                // 아동 카드 인증도 로그인 없이 받는다 — 실제 카드를 확인하지 않아, 같은 곳에서 번호를 바꿔 가며 되풀이하면 거절한다
+                .addFilterBefore(new ChildCardAuthRateLimitFilter(
+                                new SignupRateLimiter(childCardAuthMaxAttempts, Duration.ofMinutes(childCardAuthWindowMinutes),
+                                        Clock.systemUTC()),
+                                new SignupRateLimiter(childCardAuthMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
                                 signupTrustedProxies, problemWriter),
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new ApiKeyAuthenticationFilter(internalApiKey),
