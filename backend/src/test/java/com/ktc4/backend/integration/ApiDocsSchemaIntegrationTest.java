@@ -14,6 +14,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -141,6 +142,35 @@ class ApiDocsSchemaIntegrationTest {
 
         assertThat(paths.at("/~1api~1children~1me~1qr-token/post").isObject()).isTrue();
         assertThat(paths.has("/api/children/{childId}/qr-token")).isFalse();
+    }
+
+    @Test
+    @DisplayName("주문 응답 칸이 문서에 그대로 나오고(아동 번호 없음), 체크인 응답에 주문 칸이 생겼다")
+    void orderShapesArePublished() throws Exception {
+        JsonNode docs = apiDocs();
+
+        assertThat(docs.at("/components/schemas/OrderResponse").get("properties").fieldNames())
+                .toIterable()
+                .containsExactlyInAnyOrder("orderId", "storeId", "storeName", "menuName", "receiveType", "status",
+                        "orderedAt", "cookingStartedAt", "completedAt", "canceledAt");
+        assertThat(docs.at("/components/schemas/OrderResponse/properties/status/enum")).extracting(JsonNode::asText)
+                .containsExactly("RECEIVED", "COOKING", "DONE", "CANCELED");
+        assertThat(docs.at("/components/schemas/ActiveOrderResponse").get("properties").fieldNames())
+                .toIterable().containsExactly("order");
+        assertThat(docs.at("/components/schemas/CheckInResponse").get("properties").fieldNames())
+                .toIterable().containsExactlyInAnyOrder("checkInId", "checkedInAt", "order");
+
+        JsonNode paths = docs.at("/paths");
+        for (String path : List.of("/api/children/me/orders", "/api/children/me/orders/{orderId}/cancel",
+                "/api/stores/{storeId}/orders/{orderId}/start-cooking", "/api/stores/{storeId}/orders/{orderId}/complete",
+                "/api/stores/{storeId}/orders/{orderId}/cancel")) {
+            assertThat(paths.get(path)).as(path).isNotNull();
+            assertThat(paths.get(path).has("post")).as(path).isTrue();
+        }
+        for (String path : List.of("/api/children/me/orders/active", "/api/stores/{storeId}/orders", "/api/admin/orders")) {
+            assertThat(paths.get(path)).as(path).isNotNull();
+            assertThat(paths.get(path).has("get")).as(path).isTrue();
+        }
     }
 
     @Test
