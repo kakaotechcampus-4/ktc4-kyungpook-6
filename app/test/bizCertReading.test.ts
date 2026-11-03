@@ -3,14 +3,11 @@ import type { BizCertReading } from "../src/services/file";
 import {
   fillBlank,
   fillInfoBlanks,
-  fillStoreBlanks,
   hasAnyReading,
-  joinBusinessValues,
-  splitBusinessPairs,
   toAutofillItems,
 } from "../src/utils/bizCertReading";
 import { formatOpenDate, isoToOpenDate, openDateToIso } from "../src/utils/format";
-import { isValidOptionalBizText, validateOpenDate } from "../src/utils/signupValidation";
+import { validateOpenDate } from "../src/utils/signupValidation";
 
 const reading = (overrides: Partial<BizCertReading> = {}): BizCertReading => ({
   bizNo: "1234567890",
@@ -78,39 +75,19 @@ describe("toAutofillItems", () => {
     expect(items.map((item) => item.label)).toEqual([
       "대표자명",
       "사업자등록번호",
-      "개업일",
-      "업태 · 종목",
+      "상호명",
       "사업장 주소",
+      "개업일",
     ]);
     expect(items.every((item) => !item.read)).toBe(true);
   });
 
   it("읽은 칸만 true, 공백뿐인 값은 못 읽은 것으로 본다", () => {
     const items = toAutofillItems(
-      reading({ businessType: null, businessItem: "치킨 전문점", storeAddress: "  " }),
+      reading({ storeName: null, storeAddress: "  " }),
     );
-    expect(items.map((item) => item.read)).toEqual([true, true, true, true, false]);
+    expect(items.map((item) => item.read)).toEqual([true, true, false, false, true]);
   });
-});
-
-describe("splitBusinessPairs", () => {
-  it("쉼표로 이은 업태·종목을 순서대로 짝짓는다", () =>
-    expect(splitBusinessPairs("음식점업, 도소매", "치킨 전문점,가공식품")).toEqual([
-      { type: "음식점업", item: "치킨 전문점" },
-      { type: "도소매", item: "가공식품" },
-    ]));
-  it("개수가 다르면 모자란 쪽은 빈 칸", () =>
-    expect(splitBusinessPairs("음식점업", "한식, 분식")).toEqual([
-      { type: "음식점업", item: "한식" },
-      { type: "", item: "분식" },
-    ]));
-  it("못 읽었으면 빈 줄 하나", () =>
-    expect(splitBusinessPairs(null, null)).toEqual([{ type: "", item: "" }]));
-});
-
-describe("joinBusinessValues", () => {
-  it("빈 칸을 빼고 쉼표로 잇는다", () => expect(joinBusinessValues(["한식", " ", " 분식 "])).toBe("한식, 분식"));
-  it("모두 비면 undefined 라 싣지 않는다", () => expect(joinBusinessValues(["", "  "])).toBeUndefined());
 });
 
 describe("개업일", () => {
@@ -132,45 +109,21 @@ describe("개업일", () => {
     expect(validateOpenDate(value)).toBe("개업일을 확인해주세요"));
 });
 
-describe("isValidOptionalBizText (백엔드 BLANK_OR_HAS_LETTER_OR_DIGIT·200자)", () => {
-  it.each(["", "   ", "(주)맛나푸드", "음식점업"])("%s 는 통과", (value) =>
-    expect(isValidOptionalBizText(value)).toBe(true));
-  it.each(["---", "a".repeat(201), "맛나\n푸드"])("%s 는 오류", (value) =>
-    expect(isValidOptionalBizText(value)).toBe(false));
-});
-
 describe("fillInfoBlanks (기본 정보를 적고 돌아와 다시 올렸을 때)", () => {
-  let id = 0;
-  const newId = () => `t${++id}`;
-  const info = {
-    representativeName: "김철수",
-    corpName: "",
-    bizNo: "",
-    openDate: "",
-    businessPairs: [{ id: "p1", type: "", item: "" }],
-  };
+  const info = { representativeName: "김철수", bizNo: "", storeName: "", storeAddress: "", openDate: "" };
 
   it("적은 값은 두고 빈 칸만 채운다", () => {
-    const filled = fillInfoBlanks(info, reading(), newId);
-    expect(filled.representativeName).toBe("김철수");
-    expect(filled.bizNo).toBe("123-45-67890");
-    expect(filled.openDate).toBe("2019.03.02");
-    expect(filled.businessPairs.map(({ type, item }) => ({ type, item }))).toEqual([
-      { type: "음식점업", item: "한식" },
-      { type: "", item: "분식" },
-    ]);
+    expect(fillInfoBlanks(info, reading())).toEqual({
+      representativeName: "김철수",
+      bizNo: "123-45-67890",
+      storeName: "예시분식",
+      storeAddress: "대구광역시 북구 대학로 80",
+      openDate: "2019.03.02",
+    });
   });
 
-  it("업태·종목을 한 줄이라도 적었으면 그대로 둔다", () => {
-    const pairs = [{ id: "p1", type: "도소매", item: "" }];
-    expect(fillInfoBlanks({ ...info, businessPairs: pairs }, reading(), newId).businessPairs).toBe(pairs);
-  });
-});
-
-describe("fillStoreBlanks", () => {
   it("법인 등록증(상호 null)이면 상호명은 비워 두고 주소만 채운다", () => {
-    const store = { storeName: "", storeAddress: "", storePhone: "", phone: "", storePhoto: null };
-    expect(fillStoreBlanks(store, reading({ storeName: null }))).toMatchObject({
+    expect(fillInfoBlanks(info, reading({ storeName: null }))).toMatchObject({
       storeName: "",
       storeAddress: "대구광역시 북구 대학로 80",
     });
