@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSignupDraft } from "./signupDraft";
+import { fillBlank } from "../utils/bizCertReading";
 import { formatStorePhone } from "../utils/format";
 import {
   validateStoreAddress,
@@ -29,10 +30,14 @@ export type UseSignupStoreResult = {
 /** 가게 등록 1: 상호명·주소·가게 전화번호·대표 사진. */
 export const useSignupStore = (): UseSignupStoreResult => {
   const navigate = useNavigate();
-  const { store, setStore } = useSignupDraft();
+  const { info, store, setStore } = useSignupDraft();
 
-  const [storeName, setStoreName] = useState(store?.storeName ?? "");
-  const [storeAddress, setStoreAddress] = useState(store?.storeAddress ?? "");
+  // 처음 들어오면 사업자 등록증에서 읽은 상호·소재지를 채워 둔다. 한 번 적고 넘어간 뒤에는 적은 값을 쓴다.
+  const reading = info?.bizCertReading ?? null;
+  const [storeName, setStoreName] = useState(store?.storeName ?? fillBlank("", reading?.storeName ?? null));
+  const [storeAddress, setStoreAddress] = useState(
+    store?.storeAddress ?? fillBlank("", reading?.storeAddress ?? null),
+  );
   const [storePhone, setStorePhone] = useState(store?.storePhone ?? "");
   // 선택이다. 고른 파일은 들고 있다가 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts).
   const [storePhoto, setStorePhoto] = useState<File | null>(store?.storePhoto ?? null);

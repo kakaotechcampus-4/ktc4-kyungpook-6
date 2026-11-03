@@ -105,7 +105,8 @@ class StoreControllerTest {
     private static StoreResponse sampleResponse() {
         return new StoreResponse(1L, "맛나 치킨", "대구광역시 북구 대학로 80",
                 12.3456, 123.4567, StoreStatus.OPEN, "치킨",
-                "010-1234-5678", "1234567890", LocalDateTime.of(2026, 9, 23, 10, 0));
+                "010-1234-5678", "1234567890",
+                LocalDateTime.of(2026, 9, 23, 10, 0), LocalDateTime.of(2026, 9, 24, 15, 0));
     }
 
     /**
