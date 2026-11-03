@@ -10,21 +10,18 @@ type TextFieldProps = ComponentPropsWithoutRef<"input"> & {
   /** 값이 틀렸을 때 빨간 테두리를 그린다. */
   invalid?: boolean;
   labelClassName?: string;
-  /** 라벨 옆의 작은 회색 안내("선택", "법인사업자만 입력" 등). */
-  labelHint?: string;
-  /** 라벨을 화면에서 숨기고 화면 낭독기에만 읽힌다. 여러 칸이 머리글 하나를 같이 쓸 때. */
-  hideLabel?: boolean;
 };
 
 const BOX_BASE = "flex h-13 items-center gap-2 rounded-xl border px-4";
 
+/** 입력 중인 칸은 노란 테두리와 그림자. 두 모양 모두 같다(영업시간 고르기 칸도 같은 값을 쓴다). */
+export const FOCUS_RING_CLASS_NAME =
+  "focus-within:border-[#e3b23c] focus-within:shadow-[0px_2px_4px_0px_rgba(0,0,0,0.25)]";
+
 const boxClassName = (variant: "filled" | "outlined", invalid: boolean) => {
   if (invalid) return `${BOX_BASE} border-[#e5484d] bg-white`;
-  if (variant === "outlined") {
-    // 입력 중인 칸은 노란 테두리와 그림자.
-    return `${BOX_BASE} border-[#a9afbb] bg-white focus-within:border-[#e3b23c] focus-within:shadow-[0px_2px_4px_0px_rgba(0,0,0,0.25)]`;
-  }
-  return `${BOX_BASE} border-transparent bg-[#f1f4f8]`;
+  if (variant === "outlined") return `${BOX_BASE} border-[#a9afbb] bg-white ${FOCUS_RING_CLASS_NAME}`;
+  return `${BOX_BASE} border-transparent bg-[#f1f4f8] ${FOCUS_RING_CLASS_NAME}`;
 };
 
 /** 라벨이 위에 붙은 입력 칸. */
@@ -35,8 +32,6 @@ function TextField({
   variant = "filled",
   invalid = false,
   labelClassName,
-  labelHint,
-  hideLabel = false,
   className,
   ...props
 }: TextFieldProps) {
@@ -44,16 +39,11 @@ function TextField({
     <div className={className}>
       <label
         htmlFor={id}
-        className={
-          hideLabel
-            ? "sr-only"
-            : ["block pb-2 text-sm leading-[normal] text-[#6b7280]", labelClassName].filter(Boolean).join(" ")
-        }
+        className={["block pb-2 text-sm leading-[normal] text-[#6b7280]", labelClassName]
+          .filter(Boolean)
+          .join(" ")}
       >
         {label}
-        {labelHint && (
-          <span className="pl-1 text-[11px] leading-[13px] font-normal text-[#a0a7b2]">{labelHint}</span>
-        )}
       </label>
       <div className={boxClassName(variant, invalid)}>
         <input
