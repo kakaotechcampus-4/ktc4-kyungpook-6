@@ -1,6 +1,8 @@
 package com.ktc4.backend.global.security;
 
 import com.ktc4.backend.domain.member.enums.MemberRole;
+import com.ktc4.backend.global.error.CustomException;
+import com.ktc4.backend.global.error.ErrorCode;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
@@ -61,6 +63,21 @@ public record AuthMember(Long memberId, MemberRole role, TokenScope scope, Long 
     /** 아동 토큰의 사용자 — 회원 번호·역할이 없고 아동 번호만 있다. */
     public static AuthMember child(Long childId) {
         return new AuthMember(null, null, TokenScope.CHILD, childId);
+    }
+
+    /**
+     * 아동 번호를 꺼낸다. 아동 API 는 보안 규칙이 아동 토큰만 들여보내지만, 규칙이 바뀌어 다른 토큰이 들어와도 아동 번호 없이
+     * 진행하지 않게 한 번 더 막는다(아동 API 마다 같은 확인을 따로 적지 않도록 여기 둔다).
+     *
+     * @param member 로그인한 사용자. null 일 수 있다
+     * @return 아동 번호
+     * @throws CustomException 아동 토큰이 아니면 {@code FORBIDDEN}
+     */
+    public static Long requireChildId(AuthMember member) {
+        if (member == null || member.childId() == null) {
+            throw new CustomException(ErrorCode.FORBIDDEN);
+        }
+        return member.childId();
     }
 
     /**

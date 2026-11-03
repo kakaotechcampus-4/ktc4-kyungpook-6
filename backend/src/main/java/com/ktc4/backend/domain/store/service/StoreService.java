@@ -8,10 +8,12 @@ import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
+import com.ktc4.backend.domain.store.repository.StoreMenuRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
@@ -55,6 +57,7 @@ public class StoreService {
     private final StoreRepository storeRepository;
     private final StoreChangeHistoryService storeChangeHistoryService;
     private final StoreNtsCheckRepository storeNtsCheckRepository;
+    private final StoreMenuRepository storeMenuRepository;
 
     /**
      * 가게 목록을 storeId 오름차순으로 페이지 단위 조회한다.
@@ -181,6 +184,21 @@ public class StoreService {
     public Store findStore(Long storeId) {
         return storeRepository.findById(storeId)
                 .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+    }
+
+    /**
+     * 그 가게의 지우지 않은 메뉴를 찾는다 — 아동 주문에서 고른 메뉴를 확인할 때 쓴다.
+     *
+     * <p>없는 가게·다른 가게의 메뉴·지운 메뉴·없는 메뉴를 구분하지 않는다. 구분해서 알려 줄 화면이 없고, 셋 다 "주문할 수 없는 메뉴"다.
+     *
+     * @param storeId 가게 ID
+     * @param menuId  메뉴 ID
+     * @return 그 메뉴(판매 여부는 부르는 쪽이 본다)
+     * @throws CustomException 그 가게의 지우지 않은 메뉴가 아니면 {@code MENU_NOT_FOUND}
+     */
+    public StoreMenu findMenu(Long storeId, Long menuId) {
+        return storeMenuRepository.findByMenuIdAndStore_StoreIdAndDeletedAtIsNull(menuId, storeId)
+                .orElseThrow(() -> new CustomException(ErrorCode.MENU_NOT_FOUND));
     }
 
     /**

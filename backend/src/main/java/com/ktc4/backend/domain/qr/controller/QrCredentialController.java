@@ -3,8 +3,6 @@ package com.ktc4.backend.domain.qr.controller;
 import com.ktc4.backend.domain.qr.dto.QrTokenResponse;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.global.error.ApiProblemDetail;
-import com.ktc4.backend.global.error.CustomException;
-import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.security.AuthMember;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -51,10 +49,6 @@ public class QrCredentialController {
     })
     @PostMapping("/me/qr-token")
     public QrTokenResponse issueMine(@AuthenticationPrincipal AuthMember child) {
-        // 보안 규칙이 아동 토큰만 들여보낸다. 규칙이 바뀌어 다른 토큰이 들어와도 아동 번호 없이 발급하지 않게 한 번 더 막는다
-        if (child == null || child.childId() == null) {
-            throw new CustomException(ErrorCode.FORBIDDEN);
-        }
-        return qrCredentialService.issue(child.childId());
+        return qrCredentialService.issue(AuthMember.requireChildId(child));
     }
 }

@@ -7,12 +7,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface StoreMenuRepository extends JpaRepository<StoreMenu, Long> {
 
     boolean existsByStoreStoreIdAndDeletedAtIsNull(Long storeId);
 
     List<StoreMenu> findByStoreStoreIdAndDeletedAtIsNullOrderByMenuIdAsc(Long storeId);
+
+    Optional<StoreMenu> findByMenuIdAndStore_StoreIdAndDeletedAtIsNull(Long menuId, Long storeId);
 
     /**
      * 그 가게의 메뉴를 한 번의 {@code delete} 문으로 지운다 — 가게를 지울 때 부른다.
