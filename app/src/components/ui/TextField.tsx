@@ -10,6 +10,10 @@ type TextFieldProps = ComponentPropsWithoutRef<"input"> & {
   /** 값이 틀렸을 때 빨간 테두리를 그린다. */
   invalid?: boolean;
   labelClassName?: string;
+  /** 라벨 옆의 작은 회색 안내("선택", "법인사업자만 입력" 등). */
+  labelHint?: string;
+  /** 라벨을 화면에서 숨기고 화면 낭독기에만 읽힌다. 여러 칸이 머리글 하나를 같이 쓸 때. */
+  hideLabel?: boolean;
 };
 
 const BOX_BASE = "flex h-13 items-center gap-2 rounded-xl border px-4";
@@ -31,6 +35,8 @@ function TextField({
   variant = "filled",
   invalid = false,
   labelClassName,
+  labelHint,
+  hideLabel = false,
   className,
   ...props
 }: TextFieldProps) {
@@ -38,11 +44,16 @@ function TextField({
     <div className={className}>
       <label
         htmlFor={id}
-        className={["block pb-2 text-sm leading-[normal] text-[#6b7280]", labelClassName]
-          .filter(Boolean)
-          .join(" ")}
+        className={
+          hideLabel
+            ? "sr-only"
+            : ["block pb-2 text-sm leading-[normal] text-[#6b7280]", labelClassName].filter(Boolean).join(" ")
+        }
       >
         {label}
+        {labelHint && (
+          <span className="pl-1 text-[11px] leading-[13px] font-normal text-[#a0a7b2]">{labelHint}</span>
+        )}
       </label>
       <div className={boxClassName(variant, invalid)}>
         <input
