@@ -13,6 +13,7 @@ services:
       - "0.0.0.0:443:443"
     environment:
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN 이 없으면 인증서를 받을 수 없습니다}
+      PUBLIC_DOMAIN_PREVIOUS: ${PUBLIC_DOMAIN_PREVIOUS:-localhost}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
