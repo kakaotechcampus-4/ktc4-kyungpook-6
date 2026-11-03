@@ -41,6 +41,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
     groups,
     isPending,
     isError,
+    noJobYet,
     progressLabel,
     processingTaskId,
     actionErrorMessage,
@@ -88,6 +89,12 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
             </p>
           </nav>
         </div>
+
+        {noJobYet && (
+          <p role="status" className="px-3.5 pt-3.5 text-sm text-[#64748b]">
+            아직 조사한 기록이 없습니다. 가게 목록에서 조사를 시작해 주세요.
+          </p>
+        )}
 
         {isError && (
           <p role="status" className="px-3.5 pt-3.5 text-sm text-[#64748b]">
