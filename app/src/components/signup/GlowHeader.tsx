@@ -11,15 +11,18 @@ type GlowHeaderProps = {
   description: ReactNode;
 };
 
-/** 노란 빛 위의 큰 로고와 가운데 정렬 제목·설명. 사업자등록증 올리기·결과, 가입 완료 화면이 같이 쓴다. */
+/**
+ * 노란 빛 위의 큰 로고와 가운데 정렬 제목·설명. 사업자등록증 올리기·결과, 가입 완료 화면이 같이 쓴다.
+ * 키 작은 화면(높이 760px 이하)에서는 로고를 줄여 한 화면에 들어가게 한다.
+ */
 function GlowHeader({ title, description }: GlowHeaderProps) {
   return (
     <header className="flex flex-col items-center">
       <div
-        className="mb-6 flex size-[140px] items-center justify-center rounded-full"
+        className="mb-6 flex size-[140px] items-center justify-center rounded-full [@media(max-height:760px)]:mb-3 [@media(max-height:760px)]:size-20"
         style={{ background: GLOW_BACKGROUND }}
       >
-        <img src={logo} alt="" className="size-20" />
+        <img src={logo} alt="" className="size-20 [@media(max-height:760px)]:size-14" />
       </div>
       <h1 className="pb-2 text-center text-[22px] leading-[normal] font-bold text-[#1f2937]">{title}</h1>
       <p className="text-center text-[15px] leading-6 text-[#6b7280]">{description}</p>
