@@ -24,6 +24,9 @@ services:
       - frontend
 
   frontend:
+    build:
+      args:
+        VITE_BACKEND_URL: ${PUBLIC_BACKEND_URL:?PUBLIC_BACKEND_URL 이 없으면 번들에 옛 주소가 박힙니다}
     networks:
       - db-net
 

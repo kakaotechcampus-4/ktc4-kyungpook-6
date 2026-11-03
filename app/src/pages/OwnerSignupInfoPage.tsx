@@ -21,6 +21,7 @@ function OwnerSignupInfoPage() {
     setBizNo,
     bizRegistrationFile,
     setBizRegistrationFile,
+    bizCertStatus,
     canProceed,
     goNext,
   } = useSignupInfo();
@@ -72,6 +73,7 @@ function OwnerSignupInfoPage() {
           id="signup-biz-registration"
           file={bizRegistrationFile}
           onChange={setBizRegistrationFile}
+          status={bizCertStatus}
         />
 
         <div className="flex-1 pb-6" />
