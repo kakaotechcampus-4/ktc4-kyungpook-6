@@ -7,6 +7,9 @@ import type { BusinessHour } from "./store";
  */
 export type CompanionPolicy = "NONE" | "ONE" | "TWO";
 
+/** 위치를 받지 못했을 때 지도의 기준점(경북대 근처). 목업 가게 거리도 이 점에서 잰 값이다. */
+export const DEFAULT_CHILD_LOCATION = { lat: 35.8906, lng: 128.612 };
+
 /** 아동 가게 목록의 가게 한 곳. */
 export type ChildStore = {
   storeId: number;
@@ -15,6 +18,9 @@ export type ChildStore = {
   addressShort: string;
   /** 아동 위치에서 가게까지 거리(m). */
   distanceMeters: number;
+  /** 지도에 핀을 꽂을 위치(위도·경도). */
+  lat: number;
+  lng: number;
   /** 가게 사진. 점주가 사진을 정하지 않은 가게는 기본 사진(마스코트)이 온다. */
   photoUrl: string;
   takeoutAvailable: boolean;
@@ -55,6 +61,7 @@ const hoursOf = (days: readonly BusinessHour["day"][], ...ranges: [string, strin
 /*
   백엔드에 아동용 가게 목록 API 가 아직 없어서 피그마 시안의 가게로 화면을 채운다.
   영업 상태가 골고루 보이도록 영업시간을 다르게 두었다(24시간, 자정 넘김, 브레이크타임, 주말만, 직접 끔).
+  위치(lat·lng)는 경북대 북문(DEFAULT_CHILD_LOCATION) 둘레에 거리와 대략 맞게 두었다.
   TODO(가게 목록 API 가 생기면): 이 목업을 지우고 API 를 부른다. 거리도 서버가 계산해 준다.
 */
 export const MOCK_CHILD_STORES: ChildStore[] = [
@@ -63,6 +70,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "맛나 치킨",
     addressShort: "북구 대학로 80",
     distanceMeters: 350,
+    lat: 35.8926,
+    lng: 128.6145,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
     dineInAvailable: true,
@@ -83,6 +92,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "행복 닭강정",
     addressShort: "북구 대학로 112",
     distanceMeters: 450,
+    lat: 35.8871,
+    lng: 128.6145,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: false,
     dineInAvailable: true,
@@ -99,6 +110,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "행복분식",
     addressShort: "북구 산격동 45",
     distanceMeters: 520,
+    lat: 35.8936,
+    lng: 128.608,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
     dineInAvailable: false,
@@ -115,6 +128,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "바삭 치킨",
     addressShort: "북구 대현동 33",
     distanceMeters: 610,
+    lat: 35.8866,
+    lng: 128.6075,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
     dineInAvailable: true,
@@ -132,6 +147,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "엄마손 도시락",
     addressShort: "북구 복현동 21",
     distanceMeters: 780,
+    lat: 35.8856,
+    lng: 128.618,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
     dineInAvailable: true,
@@ -149,6 +166,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "동네 치킨집",
     addressShort: "북구 복현동 58",
     distanceMeters: 940,
+    lat: 35.8976,
+    lng: 128.6175,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: false,
     dineInAvailable: true,
@@ -166,6 +185,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "버거 스테이션",
     addressShort: "북구 대현동 16",
     distanceMeters: 1200,
+    lat: 35.8826,
+    lng: 128.603,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
     dineInAvailable: false,
@@ -182,6 +203,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "치킨플러스",
     addressShort: "북구 산격동 71",
     distanceMeters: 1300,
+    lat: 35.8886,
+    lng: 128.598,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
     dineInAvailable: true,
@@ -199,6 +222,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     name: "김치찌개 하우스",
     addressShort: "북구 산격동 12",
     distanceMeters: 1500,
+    lat: 35.9026,
+    lng: 128.606,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: false,
     dineInAvailable: true,
@@ -217,6 +242,8 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     addressShort: "북구 태전동 9",
     // 적정 거리 밖이라 목록에 나오지 않는다.
     distanceMeters: 2400,
+    lat: 35.9106,
+    lng: 128.622,
     photoUrl: defaultStorePhoto,
     takeoutAvailable: true,
     dineInAvailable: true,
