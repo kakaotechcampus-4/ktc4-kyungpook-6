@@ -27,8 +27,9 @@ const MESSAGES: Record<string, string> = {
 const NETWORK_ERROR_MESSAGE = "서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.";
 const DEFAULT_MESSAGE = "가입 요청을 보내지 못했어요. 잠시 후 다시 시도해 주세요.";
 
-export function toSignupError(error: unknown): SignupError {
-  if (!isAxiosError(error)) return { kind: "message", message: DEFAULT_MESSAGE };
+/** fallbackMessage: 알려진 에러가 아닐 때의 문구. 가입 신청 말고 사업자등록증 올리기처럼 다른 자리에서 부를 때 바꾼다. */
+export function toSignupError(error: unknown, fallbackMessage: string = DEFAULT_MESSAGE): SignupError {
+  if (!isAxiosError(error)) return { kind: "message", message: fallbackMessage };
   if (!error.response) return { kind: "message", message: NETWORK_ERROR_MESSAGE };
 
   const { type, title } = (error.response.data ?? {}) as { type?: unknown; title?: unknown };
@@ -37,5 +38,5 @@ export function toSignupError(error: unknown): SignupError {
   if (typeName === "duplicate-email") return { kind: "duplicate-email" };
   if (typeName && MESSAGES[typeName]) return { kind: "message", message: MESSAGES[typeName] };
   if (typeof title === "string" && title) return { kind: "message", message: title };
-  return { kind: "message", message: DEFAULT_MESSAGE };
+  return { kind: "message", message: fallbackMessage };
 }

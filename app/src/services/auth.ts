@@ -38,6 +38,14 @@ export type OwnerSignupRequest = {
   storeName: string;
   representativeName: string;
   phone: string;
+  /** 개업일(선택). "yyyy-MM-dd". */
+  openDate?: string;
+  /** 법인명(선택). 법인사업자만. */
+  corpName?: string;
+  /** 업태(선택). 여러 개면 쉼표로 잇는다. */
+  businessType?: string;
+  /** 종목(선택). 여러 개면 쉼표로 잇는다. */
+  businessItem?: string;
   storeAddress: string;
   storePhone: string;
   /** 1~21줄. 같은 요일 여러 줄 가능, 줄이 없는 요일은 휴무. */
@@ -48,11 +56,6 @@ export type OwnerSignupRequest = {
   storeImageFileId?: string;
   /** 사업자등록증의 파일 ID. POST /api/files 에 BIZ_CERT 로 올리고 받은 값. */
   bizCertFileId: string;
-  /** 아래 넷은 선택이다. 가입 화면에 칸이 없어 사업자등록증에서 읽은 값만 싣는다. 개업일은 "yyyy-MM-dd". */
-  openDate?: string;
-  corpName?: string;
-  businessType?: string;
-  businessItem?: string;
 };
 
 /** 백엔드 LinkedStoreResponse. 점주에게 연결된 가게 한 곳. 이 storeId 로 체크인 API 를 부른다. */
