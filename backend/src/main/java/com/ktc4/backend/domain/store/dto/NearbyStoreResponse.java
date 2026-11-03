@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.store.dto;
 
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
 import com.ktc4.backend.domain.store.enums.OpenMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -25,10 +26,12 @@ public record NearbyStoreResponse(
         @Schema(description = "영업시간. 요일 순(월 → 일), 같은 요일은 여는 시간 순. 줄이 없는 요일은 휴무")
         List<BusinessHourResponse> businessHours,
         @Schema(description = "메뉴. 등록한 순서이고, 삭제한 메뉴는 빠진다") List<NearbyStoreMenuResponse> menus,
-        @Schema(description = "함께 올 수 있는 동반 인원 — NONE·ONE·TWO. 점주가 정하는 곳이 아직 없어 지금은 늘 NONE",
-                example = "NONE", allowableValues = {"NONE", "ONE", "TWO"})
-        String companion
+        @Schema(description = "동반 인원 — NONE(아이 본인만)·ONE(1인 동반)·TWO(2인 동반). 점주가 정하기 전에는 NONE",
+                example = "ONE")
+        CompanionPolicy companion,
+        @Schema(description = "포장 가능", example = "true") boolean takeoutAvailable,
+        @Schema(description = "매장 식사 가능", example = "true") boolean dineInAvailable,
+        @Schema(description = "사장님 한마디. 점주가 적지 않았으면 비어 있다", example = "브레이크타임 15:00 – 17:00, 하루 5명까지 제공해요")
+        String ownerNote
 ) {
-    /** 점주가 동반 인원을 정하는 곳이 생기기 전까지 내려주는 값 — 아이 본인만. */
-    public static final String COMPANION_NONE = "NONE";
 }

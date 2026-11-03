@@ -5,6 +5,7 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
 import com.ktc4.backend.domain.store.enums.OpenMode;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.support.PostgresContainerTest;
@@ -75,7 +76,7 @@ class NearbyStoreServiceTest extends PostgresContainerTest {
         assertThat(result.get(0).distanceMeters()).isBetween(299, 301);
         assertThat(result.get(1).distanceMeters()).isBetween(1499, 1501);
         assertThat(result.get(0).lat()).isEqualTo(north(300));
-        assertThat(result.get(0).companion()).isEqualTo("NONE");
+        assertThat(result.get(0).companion()).isEqualTo(CompanionPolicy.NONE);
     }
 
     @Test
@@ -111,6 +112,21 @@ class NearbyStoreServiceTest extends PostgresContainerTest {
 
         assertThat(result.openMode()).isEqualTo(OpenMode.SCHEDULE);
         assertThat(result.manualOpen()).isTrue();
+        assertThat(result).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                .containsExactly(CompanionPolicy.NONE, true, true, null);
+    }
+
+    @Test
+    @DisplayName("점주가 정한 방문 조건(동반 인원·식사 방법·사장님 한마디)이 그대로 나간다")
+    void includesVisitInfo() {
+        Store store = store("예시분식", north(200), LNG, StoreStatus.OPEN);
+        store.changeVisitInfo(CompanionPolicy.TWO, false, true, "브레이크타임 15:00 – 17:00");
+        entityManager.flush();
+
+        NearbyStoreResponse result = find(2000, null).get(0);
+
+        assertThat(result).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                .containsExactly(CompanionPolicy.TWO, false, true, "브레이크타임 15:00 – 17:00");
     }
 
     @Test

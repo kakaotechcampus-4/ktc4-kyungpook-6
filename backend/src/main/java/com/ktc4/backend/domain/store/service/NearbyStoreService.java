@@ -128,7 +128,7 @@ public class NearbyStoreService {
         return new NearbyStoreResponse(store.getStoreId(), store.getName(), store.getAddressRoad(),
                 store.getLat(), store.getLng(), candidate.distanceMeters(), phone,
                 store.getOpenMode(), store.isManualOpen(), businessHours, menuResponses,
-                NearbyStoreResponse.COMPANION_NONE);
+                store.getCompanion(), store.isTakeoutAvailable(), store.isDineInAvailable(), store.getOwnerNote());
     }
 
     private record Found(Store store, int distanceMeters) {

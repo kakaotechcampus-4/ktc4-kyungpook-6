@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.store.entity;
 
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
 import com.ktc4.backend.domain.store.enums.OpenMode;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.global.entity.BaseTimeEntity;
@@ -111,6 +112,23 @@ public class Store extends BaseTimeEntity {
     @Column(name = "manual_open", nullable = false)
     private boolean manualOpen;
 
+    /** 점주가 정한 동반 인원 — 아이 본인만(기본)·1인·2인 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "companion", nullable = false, length = 10)
+    private CompanionPolicy companion;
+
+    /** 포장해 갈 수 있는지. 매장 식사와 둘 다 꺼질 수는 없다(요청 검증) */
+    @Column(name = "takeout_available", nullable = false)
+    private boolean takeoutAvailable;
+
+    /** 매장에서 먹을 수 있는지 */
+    @Column(name = "dine_in_available", nullable = false)
+    private boolean dineInAvailable;
+
+    /** 사장님 한마디 — 브레이크타임처럼 다른 칸으로 적기 어려운 말(100자 이하). 없으면 null */
+    @Column(name = "owner_note", length = 100)
+    private String ownerNote;
+
     @Builder
     private Store(String name, String nameNormalized,
                   String addressRoad, String addressNormalized,
@@ -133,6 +151,10 @@ public class Store extends BaseTimeEntity {
         // 점주 앱의 기본값과 같다 — 영업시간대로, 직접 켜고 끄기로 바꾸면 켜진 채로 시작
         this.openMode = OpenMode.SCHEDULE;
         this.manualOpen = true;
+        // 점주가 정하기 전에는 가장 넓게 둔다 — 아이 본인만, 포장·매장 둘 다
+        this.companion = CompanionPolicy.NONE;
+        this.takeoutAvailable = true;
+        this.dineInAvailable = true;
     }
 
     /**
@@ -295,5 +317,32 @@ public class Store extends BaseTimeEntity {
     public void changeOpenSetting(OpenMode openMode, boolean manualOpen) {
         this.openMode = openMode;
         this.manualOpen = manualOpen;
+    }
+
+    /**
+     * 아동 앱에 보이는 방문 조건을 바꾼다 — 동반 인원·식사 방법·사장님 한마디. 점주가 가게 관리에서 저장할 때 부른다.
+     *
+     * <p>각 칸은 {@code null} 이면 바뀌지 않는다. 점주 앱이 이 칸들을 보내기 전에도 가게 관리 저장이 깨지지 않게 하기 위해서다.
+     * 포장·매장은 둘이 함께 오고 하나는 켜져 있다 — 요청 검증이 본다.
+     *
+     * @param companion        동반 인원. {@code null} 이면 유지
+     * @param takeoutAvailable 포장 가능. {@code null} 이면 유지
+     * @param dineInAvailable  매장 식사 가능. {@code null} 이면 유지
+     * @param ownerNote        사장님 한마디(앞뒤 공백을 지운 값). {@code null} 이면 유지, 빈 문자열이면 지움
+     */
+    public void changeVisitInfo(CompanionPolicy companion, Boolean takeoutAvailable, Boolean dineInAvailable,
+                                String ownerNote) {
+        if (companion != null) {
+            this.companion = companion;
+        }
+        if (takeoutAvailable != null) {
+            this.takeoutAvailable = takeoutAvailable;
+        }
+        if (dineInAvailable != null) {
+            this.dineInAvailable = dineInAvailable;
+        }
+        if (ownerNote != null) {
+            this.ownerNote = ownerNote.isEmpty() ? null : ownerNote;
+        }
     }
 }

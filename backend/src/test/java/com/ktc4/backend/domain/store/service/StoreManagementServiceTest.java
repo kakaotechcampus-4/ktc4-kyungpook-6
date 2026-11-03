@@ -17,6 +17,7 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreBusinessHour;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
 import com.ktc4.backend.domain.store.enums.OpenMode;
 import com.ktc4.backend.domain.store.enums.StoreChangeField;
 import com.ktc4.backend.domain.store.enums.StoreChangeSource;
@@ -308,6 +309,48 @@ class StoreManagementServiceTest extends PostgresContainerTest {
 
         assertThat(saved.phone()).isEqualTo("053-123-4567");
         assertThat(saved.menus()).extracting(MenuResponse::name, MenuResponse::onSale).containsExactly(tuple("라면", true));
+    }
+
+    @Test
+    @DisplayName("방문 조건을 보내면 저장되고, 안 보낸 저장은 그 값을 유지한다 — 처음 값은 아이 본인만·포장·매장·한마디 없음")
+    void savesVisitInfoAndKeepsItWhenOmitted() {
+        assertThat(storeManagementService.getDetail(store.getStoreId(), owner))
+                .extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                .containsExactly(CompanionPolicy.NONE, true, true, null);
+        List<BusinessHourRequest> hours = List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00"));
+        List<MenuRequest> menus = List.of(new MenuRequest(null, "라면", true));
+
+        StoreDetailResponse saved = storeManagementService.save(store.getStoreId(), new OperatingInfoRequest(
+                "053-123-4567", hours, menus, CompanionPolicy.ONE, true, false, "  하루 5명까지 제공해요 "), owner);
+        assertThat(saved).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                .containsExactly(CompanionPolicy.ONE, true, false, "하루 5명까지 제공해요");
+
+        // 점주 앱이 새 칸을 보내지 않는 저장 — 앞서 정한 값이 그대로 남아야 한다
+        entityManager.flush();
+        entityManager.clear();
+        List<MenuRequest> liveMenus = storeManagementService.getDetail(store.getStoreId(), owner).menus().stream()
+                .map(menu -> new MenuRequest(menu.menuId(), menu.name(), menu.onSale())).toList();
+        StoreDetailResponse kept = storeManagementService.save(store.getStoreId(),
+                new OperatingInfoRequest("053-123-4567", hours, liveMenus), owner);
+        assertThat(kept).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                .containsExactly(CompanionPolicy.ONE, true, false, "하루 5명까지 제공해요");
+    }
+
+    @Test
+    @DisplayName("사장님 한마디를 빈 문자열(공백뿐 포함)로 보내면 지운다")
+    void clearsOwnerNoteWithBlank() {
+        List<BusinessHourRequest> hours = List.of(new BusinessHourRequest(BusinessDay.MON, "11:00", "21:00"));
+        storeManagementService.save(store.getStoreId(), new OperatingInfoRequest("053-123-4567", hours,
+                List.of(new MenuRequest(null, "라면", true)), null, null, null, "하루 5명까지"), owner);
+        entityManager.flush();
+        entityManager.clear();
+        List<MenuRequest> liveMenus = storeManagementService.getDetail(store.getStoreId(), owner).menus().stream()
+                .map(menu -> new MenuRequest(menu.menuId(), menu.name(), menu.onSale())).toList();
+
+        StoreDetailResponse cleared = storeManagementService.save(store.getStoreId(), new OperatingInfoRequest(
+                "053-123-4567", hours, liveMenus, null, null, null, "   "), owner);
+
+        assertThat(cleared.ownerNote()).isNull();
     }
 
     @Test

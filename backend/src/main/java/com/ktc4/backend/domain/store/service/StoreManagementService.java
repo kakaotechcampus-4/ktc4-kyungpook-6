@@ -120,6 +120,9 @@ public class StoreManagementService {
 
         // 여기부터 쓴다. 위의 검사를 모두 통과했다
         store.changePhone(request.phone().strip());
+        // 동반 인원·식사 방법·사장님 한마디는 지금은 선택이다 — 안 보낸 칸은 유지한다(OperatingInfoRequest 설명)
+        store.changeVisitInfo(request.companion(), request.takeoutAvailable(), request.dineInAvailable(),
+                request.ownerNote() == null ? null : request.ownerNote().strip());
         replaceBusinessHours(store, request);
         reconcileMenus(store, request.menus(), liveMenus);
         log.info("가게 운영 정보 저장 - storeId={}, memberId={}, 영업시간={}줄, 메뉴={}개",
@@ -205,6 +208,7 @@ public class StoreManagementService {
         // 관리자 수정은 가게 전화를 빈 문자열로 지울 수 있다 — 화면에는 "없음" 하나로 보낸다
         String phone = store.getPhone() == null || store.getPhone().isBlank() ? null : store.getPhone();
         return new StoreDetailResponse(store.getStoreId(), store.getName(), store.getAddressRoad(), phone, hours, menus,
-                store.getOpenMode(), store.isManualOpen());
+                store.getOpenMode(), store.isManualOpen(),
+                store.getCompanion(), store.isTakeoutAvailable(), store.isDineInAvailable(), store.getOwnerNote());
     }
 }

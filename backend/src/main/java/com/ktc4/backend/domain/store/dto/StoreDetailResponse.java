@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.store.dto;
 
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
 import com.ktc4.backend.domain.store.enums.OpenMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -26,6 +27,13 @@ public record StoreDetailResponse(
                 + "바꾸는 건 PUT /api/stores/{storeId}/open-setting", example = "SCHEDULE")
         OpenMode openMode,
         @Schema(description = "직접 켜고 끄기에서 켜 두었는지. 영업시간대로일 때는 쓰지 않는다", example = "true")
-        boolean manualOpen
+        boolean manualOpen,
+        @Schema(description = "동반 인원 — NONE(아이 본인만)·ONE(1인 동반)·TWO(2인 동반). 점주가 정하기 전에는 NONE",
+                example = "ONE")
+        CompanionPolicy companion,
+        @Schema(description = "포장 가능", example = "true") boolean takeoutAvailable,
+        @Schema(description = "매장 식사 가능", example = "true") boolean dineInAvailable,
+        @Schema(description = "사장님 한마디. 적지 않았으면 비어 있다", example = "브레이크타임 15:00 – 17:00, 하루 5명까지 제공해요")
+        String ownerNote
 ) {
 }

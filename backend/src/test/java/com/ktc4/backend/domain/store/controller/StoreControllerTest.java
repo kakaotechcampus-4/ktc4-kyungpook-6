@@ -14,6 +14,7 @@ import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.enums.OpenMode;
@@ -461,7 +462,7 @@ class StoreControllerTest {
                     List.of(new BusinessHourResponse(BusinessDay.MON, "11:00", "24:00"),
                             new BusinessHourResponse(BusinessDay.FRI, "21:00", "02:00")),
                     List.of(new MenuResponse(3L, "김치찌개", true, null), new MenuResponse(7L, "라면", false, null)),
-                    OpenMode.SCHEDULE, true);
+                    OpenMode.SCHEDULE, true, CompanionPolicy.NONE, true, true, null);
         }
 
         // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다
@@ -485,6 +486,64 @@ class StoreControllerTest {
 
         private ResultActions save(String content) throws Exception {
             return mockMvc.perform(put(OPERATING_INFO_PATH).contentType(MediaType.APPLICATION_JSON).content(content));
+        }
+
+        // 기본 세 칸에 방문 조건 칸(JSON 조각)을 붙인다
+        private static String bodyWith(String visitFields) {
+            String base = validBody();
+            return base.substring(0, base.length() - 1) + "," + visitFields + "}";
+        }
+
+        @Test
+        @DisplayName("방문 조건(동반 인원·식사 방법·사장님 한마디)을 함께 보내면 그대로 서비스에 넘어간다")
+        void visitInfoReachesService() throws Exception {
+            when(storeManagementService.save(eq(1L), any(), any())).thenReturn(sampleDetail());
+
+            save(bodyWith("\"companion\":\"TWO\",\"takeoutAvailable\":false,\"dineInAvailable\":true,"
+                    + "\"ownerNote\":\"하루 5명까지 제공해요\"")).andExpect(status().isOk());
+
+            ArgumentCaptor<OperatingInfoRequest> request = ArgumentCaptor.forClass(OperatingInfoRequest.class);
+            verify(storeManagementService).save(eq(1L), request.capture(), any());
+            assertThat(request.getValue()).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                    .containsExactly(CompanionPolicy.TWO, false, true, "하루 5명까지 제공해요");
+        }
+
+        @Test
+        @DisplayName("방문 조건을 안 보내도 저장된다 — 점주 앱이 아직 새 칸을 보내지 않는다")
+        void visitInfoIsOptionalForNow() throws Exception {
+            when(storeManagementService.save(eq(1L), any(), any())).thenReturn(sampleDetail());
+
+            save(validBody()).andExpect(status().isOk());
+
+            ArgumentCaptor<OperatingInfoRequest> request = ArgumentCaptor.forClass(OperatingInfoRequest.class);
+            verify(storeManagementService).save(eq(1L), request.capture(), any());
+            assertThat(request.getValue()).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                    .containsOnlyNulls();
+        }
+
+        @Test
+        @DisplayName("포장·매장을 둘 다 끄거나 하나만 보내면 400 — 아이가 먹을 방법이 없거나, 옛 값과 섞인다")
+        void rejectsBadDiningMethod() throws Exception {
+            for (String fields : List.of("\"takeoutAvailable\":false,\"dineInAvailable\":false",
+                    "\"takeoutAvailable\":true", "\"dineInAvailable\":false")) {
+                save(bodyWith(fields))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.errors[0].field").value("diningMethodValid"));
+            }
+            verify(storeManagementService, never()).save(anyLong(), any(), any());
+        }
+
+        @Test
+        @DisplayName("사장님 한마디는 100자까지, 한 줄 — 101자·줄바꿈은 400, 동반 인원은 NONE·ONE·TWO 만")
+        void rejectsBadOwnerNoteAndCompanion() throws Exception {
+            save(bodyWith("\"ownerNote\":\"" + "가".repeat(100) + "\"")).andExpect(status().isOk());
+            save(bodyWith("\"ownerNote\":\"" + "가".repeat(101) + "\""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("ownerNote"));
+            save(bodyWith("\"ownerNote\":\"브레이크타임\\n15시\""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("ownerNote"));
+            save(bodyWith("\"companion\":\"THREE\"")).andExpect(status().isBadRequest());
         }
 
         @Test
