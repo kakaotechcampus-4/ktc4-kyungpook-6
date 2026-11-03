@@ -5,6 +5,8 @@ import com.ktc4.backend.domain.auth.controller.AuthController;
 import com.ktc4.backend.domain.auth.service.AuthService;
 import com.ktc4.backend.domain.checkin.controller.CheckInController;
 import com.ktc4.backend.domain.checkin.service.CheckInService;
+import com.ktc4.backend.domain.child.controller.ChildAuthController;
+import com.ktc4.backend.domain.child.service.ChildAuthService;
 import com.ktc4.backend.domain.member.controller.OwnerAdminController;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.service.OwnerApprovalService;
@@ -32,6 +34,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static com.ktc4.backend.support.SignupMultipart.signupRequest;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -49,7 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 토큰은 이 컨텍스트의 실제 {@link JwtProvider} 로 발급한다.
  */
 @WebMvcTest({StoreController.class, AuthController.class, TestController.class, OwnerAdminController.class,
-        CheckInController.class, QrCredentialController.class})
+        CheckInController.class, QrCredentialController.class, ChildAuthController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {"auth.internal-api-key=" + SecurityConfigTest.API_KEY})
 @DisplayName("API 접근 권한")
@@ -80,6 +83,9 @@ class SecurityConfigTest {
 
     @MockitoBean
     private QrCredentialService qrCredentialService;
+
+    @MockitoBean
+    private ChildAuthService childAuthService;
 
     private String bearer(MemberRole role) {
         return "Bearer " + jwtProvider.issue(1L, role).value();
@@ -124,6 +130,14 @@ class SecurityConfigTest {
             mockMvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"email\":\"owner@example.com\",\"password\":\"password1234\"}"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("아동 카드 인증은 부를 수 있다")
+        void allowsChildCardAuth() throws Exception {
+            mockMvc.perform(post("/api/auth/children/card")
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"cardNumber\":\"1234567812345678\"}"))
                     .andExpect(status().isOk());
         }
 
@@ -280,7 +294,7 @@ class SecurityConfigTest {
             expectProblem(mockMvc.perform(post("/api/admin/owners/1/approve")
                     .header(HttpHeaders.AUTHORIZATION, statusBearer())
                     .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":10}")), ErrorCode.FORBIDDEN);
-            expectProblem(mockMvc.perform(post("/api/children/7/qr-token")
+            expectProblem(mockMvc.perform(post("/api/children/me/qr-token")
                     .header(HttpHeaders.AUTHORIZATION, statusBearer())), ErrorCode.FORBIDDEN);
 
             verifyNoInteractions(storeService, ownerApprovalService, qrCredentialService);
@@ -291,6 +305,55 @@ class SecurityConfigTest {
         void blocksUnlistedPath() throws Exception {
             expectProblem(mockMvc.perform(get("/api/anything-new")
                     .header(HttpHeaders.AUTHORIZATION, statusBearer())), ErrorCode.FORBIDDEN);
+        }
+    }
+
+    @Nested
+    @DisplayName("아동 토큰 — 급식카드 인증")
+    class Child {
+
+        private String childBearer() {
+            return "Bearer " + jwtProvider.issueChild(1L).value();
+        }
+
+        @Test
+        @DisplayName("관리자 API 와 점주 승인 API 는 403")
+        void blocksAdminApis() throws Exception {
+            expectProblem(mockMvc.perform(get("/api/stores")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(get("/api/admin/owners")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
+
+            verifyNoInteractions(storeService, ownerApprovalService);
+        }
+
+        @Test
+        @DisplayName("점주 API(가게 상세·체크인)는 403 — 아동 번호가 회원 번호로 읽혀 남의 가게에 닿지 않게")
+        void blocksOwnerApis() throws Exception {
+            expectProblem(mockMvc.perform(get("/api/stores/1")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(post("/api/stores/1/check-ins")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"qrPayload\":\"v1.qr-for-security-test\"}")), ErrorCode.FORBIDDEN);
+
+            verifyNoInteractions(storeService, checkInService);
+        }
+
+        @Test
+        @DisplayName("내 정보 조회는 403 — 회원 정보를 돌려주는 API 다")
+        void blocksMe() throws Exception {
+            expectProblem(mockMvc.perform(get("/api/auth/me")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
+
+            verifyNoInteractions(authService);
+        }
+
+        @Test
+        @DisplayName("권한 목록에 없는 경로도 403 — 부를 수 있는 API 는 내 QR 하나다")
+        void blocksUnlistedPath() throws Exception {
+            expectProblem(mockMvc.perform(get("/api/anything-new")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
         }
     }
 
@@ -387,13 +450,55 @@ class SecurityConfigTest {
         }
 
         @Test
-        @DisplayName("QR 발급은 관리자만 — 아동 인증 전까지 남의 QR 을 재발급(무효화)할 수 없게")
-        void qrIssueIsAdminOnly() throws Exception {
+        @DisplayName("내 QR 발급은 아동 토큰만 — 점주·관리자도 남의 QR 을 재발급(무효화)할 수 없게")
+        void myQrIsChildOnly() throws Exception {
+            mockMvc.perform(post("/api/children/me/qr-token")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issueChild(7L).value()))
+                    .andExpect(status().isOk());
+            // 보안 규칙에서 막혀 컨트롤러에 닿지 않는다(handler 없음) — 컨트롤러의 두 번째 방어선이 대신 막아 준 것과 구분한다
+            for (MemberRole role : List.of(MemberRole.OWNER, MemberRole.ADMIN)) {
+                expectProblem(mockMvc.perform(post("/api/children/me/qr-token")
+                                .header(HttpHeaders.AUTHORIZATION, bearer(role)))
+                        .andExpect(result -> assertThat(result.getHandler()).as(role.name()).isNull()),
+                        ErrorCode.FORBIDDEN);
+            }
+            expectProblem(mockMvc.perform(post("/api/children/me/qr-token")), ErrorCode.UNAUTHORIZED);
+        }
+
+        @Test
+        @DisplayName("내 QR 발급은 가입 상태 확인용 토큰·서버 간 API 키로도 안 된다")
+        void myQrRejectsOtherCredentials() throws Exception {
+            expectProblem(mockMvc.perform(post("/api/children/me/qr-token")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.issueSignupStatus(1L).value())),
+                    ErrorCode.FORBIDDEN);
+            expectProblem(mockMvc.perform(post("/api/children/me/qr-token").header("X-API-KEY", API_KEY)),
+                    ErrorCode.FORBIDDEN);
+
+            verifyNoInteractions(qrCredentialService);
+        }
+
+        @Test
+        @DisplayName("다른 키로 서명한 아동 토큰은 401 — 아동 번호를 지어내 남의 QR 을 재발급할 수 없다")
+        void myQrRejectsForgedChildToken() throws Exception {
+            JwtProvider foreign = new JwtProvider("another-test-only-secret-at-least-32-bytes",
+                    Duration.ofDays(7), Clock.systemUTC());
+
+            expectProblem(mockMvc.perform(post("/api/children/me/qr-token")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + foreign.issueChild(7L).value())),
+                    ErrorCode.UNAUTHORIZED);
+
+            verifyNoInteractions(qrCredentialService);
+        }
+
+        @Test
+        @DisplayName("아동 번호를 경로에 넣던 옛 발급 경로는 없다 — 점주 403, 관리자는 처리할 곳이 없어 404")
+        void oldQrPathIsGone() throws Exception {
             expectProblem(mockMvc.perform(post("/api/children/7/qr-token")
                     .header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.OWNER))), ErrorCode.FORBIDDEN);
-            expectProblem(mockMvc.perform(post("/api/children/7/qr-token")), ErrorCode.UNAUTHORIZED);
             mockMvc.perform(post("/api/children/7/qr-token").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isNotFound());
+
+            verifyNoInteractions(qrCredentialService);
         }
     }
 

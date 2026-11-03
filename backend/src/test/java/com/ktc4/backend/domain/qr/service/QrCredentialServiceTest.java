@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -43,6 +44,9 @@ class QrCredentialServiceTest extends PostgresContainerTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     // 기대 해시는 운영 코드가 아니라 JDK 로 직접 계산한다 — 같은 함수로 만들면 자기 자신과 비교하게 된다.
     private static String sha256Hex(String value) {
@@ -106,6 +110,19 @@ class QrCredentialServiceTest extends PostgresContainerTest {
             assertThat(saved.getQrCredentialId()).isEqualTo(firstId);
             assertThat(second).isNotEqualTo(first);
             assertThat(saved.getTokenHash()).isEqualTo(sha256Hex(tokenOf(second)));
+        }
+
+        @Test
+        @DisplayName("재발급하면 미리 읽어 둔 기록이 아니라 DB 의 새 해시를 읽는다 — 첫 발급 시각은 그대로다")
+        void reissueIsVisibleWithoutManualClear() {
+            issueAndClear(7L);
+            QrCredential before = qrCredentialRepository.findByChildId(7L).orElseThrow();   // 영속성 컨텍스트에 올려 둔다
+
+            String second = qrCredentialService.issue(7L).qrPayload();   // clear 없이 바로 다시 읽는다
+
+            QrCredential after = qrCredentialRepository.findByChildId(7L).orElseThrow();
+            assertThat(after.getTokenHash()).isEqualTo(sha256Hex(tokenOf(second)));
+            assertThat(after.getCreatedAt()).isEqualTo(before.getCreatedAt());
         }
 
         @Test
@@ -187,24 +204,29 @@ class QrCredentialServiceTest extends PostgresContainerTest {
     @DisplayName("DB 제약 — 서비스 로직과 별개로 테이블이 스스로 막는다")
     class Constraints {
 
-        // 서비스는 조회 후 수정이라 평소엔 중복이 생기지 않는다. 그래서 제약이 빠져도 위 테스트는 전부 통과한다.
-        // 동시 요청처럼 서비스 로직을 우회하는 경우를 막는 건 제약뿐이라, 리포지토리로 직접 넣어 확인한다.
+        // 발급은 아동 번호 제약(ON CONFLICT (child_id))에 기대고, 해시 제약은 한 QR 이 두 아동으로 풀리는 것을 막는다.
+        // 서비스는 늘 upsert 라 중복을 만들지 않으므로, 제약이 빠져도 위 테스트는 통과한다 — 그래서 SQL 로 직접 넣어 확인한다.
+
+        private void insert(Long childId, String tokenHash) {
+            jdbcTemplate.update("INSERT INTO qr_credential (child_id, token_hash, created_at, updated_at) "
+                    + "VALUES (?, ?, now(), now())", childId, tokenHash);
+        }
 
         @Test
         @DisplayName("같은 아동 번호로 두 줄을 넣으면 거절된다")
         void rejectsDuplicateChildId() {
-            qrCredentialRepository.saveAndFlush(QrCredential.issue(7L, "a".repeat(64)));
+            insert(7L, "a".repeat(64));
 
-            assertThatThrownBy(() -> qrCredentialRepository.saveAndFlush(QrCredential.issue(7L, "b".repeat(64))))
+            assertThatThrownBy(() -> insert(7L, "b".repeat(64)))
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
 
         @Test
         @DisplayName("같은 해시로 두 줄을 넣으면 거절된다 — 한 QR 이 두 아동으로 풀리면 안 된다")
         void rejectsDuplicateTokenHash() {
-            qrCredentialRepository.saveAndFlush(QrCredential.issue(7L, "a".repeat(64)));
+            insert(7L, "a".repeat(64));
 
-            assertThatThrownBy(() -> qrCredentialRepository.saveAndFlush(QrCredential.issue(8L, "a".repeat(64))))
+            assertThatThrownBy(() -> insert(8L, "a".repeat(64)))
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
     }
