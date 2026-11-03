@@ -153,4 +153,25 @@ public class StoreNtsCheck extends BaseTimeEntity {
         this.checkResult = NtsLookupResult.NO_BIZ_NO;
         this.lastAttemptAt = checkedAt;
     }
+
+    /**
+     * 사업자등록번호가 바뀌어 받아 둔 국세청 답을 더는 믿을 수 없게 됐을 때 비운다.
+     *
+     * <p>{@code ntsState} 는 조회에 실패해도 지우지 않는 값이다(이 클래스 설명 참고). <b>여기가 그 규칙의
+     * 의도된 예외다</b> — 비워 두지 않으면 다음 배치가 돌 때까지 화면이 다른 사업자의 상태를 보여 준다.
+     * 오타를 고쳤을 뿐인데 멀쩡한 가게가 계속 "폐업" 으로 뜬다.
+     *
+     * <p>{@code bizNo} 는 <b>그대로 둔다.</b> 그 칸의 뜻은 "마지막 조회에 실제로 쓴 번호" 라서 사실이 바뀌지
+     * 않았고, 다음 배치가 이 값과 지금 번호를 견줘 "다른 사업자" 를 알아본다. 비우면 한 번도 조회한 적 없는
+     * 가게와 구분할 수 없게 되어, 가짜 "확인 안 됨 → 영업" 이 상태 변경 이력에 남는다.
+     *
+     * <p>{@code lastAttemptAt} 도 그대로 둔다. 배치가 이 가게를 마지막으로 본 시각이고, 번호를 고친 것은
+     * 배치의 조회가 아니다.
+     */
+    public void resetForBizNoChange() {
+        this.checkResult = NtsLookupResult.UNCONFIRMED;
+        this.ntsState = null;
+        this.ntsClosedAt = null;
+        this.lastSuccessAt = null;
+    }
 }

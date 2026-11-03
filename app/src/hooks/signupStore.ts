@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSignupDraft } from "./signupDraft";
+import { fillBlank } from "../utils/bizCertReading";
 import { formatStorePhone } from "../utils/format";
 import {
   validateStoreAddress,
@@ -21,7 +22,7 @@ export type UseSignupStoreResult = {
   setStorePhone: (value: string) => void;
   storePhoto: File | null;
   setStorePhoto: (file: File | null) => void;
-  /** 세 칸이 모두 맞을 때만 true. 대표 사진은 서버가 받지 않아 검사하지 않는다(아래 TODO). */
+  /** 세 칸이 모두 맞을 때만 true. 대표 사진은 선택이라 검사하지 않는다. */
   canProceed: boolean;
   goNext: () => void;
 };
@@ -29,15 +30,16 @@ export type UseSignupStoreResult = {
 /** 가게 등록 1: 상호명·주소·가게 전화번호·대표 사진. */
 export const useSignupStore = (): UseSignupStoreResult => {
   const navigate = useNavigate();
-  const { store, setStore } = useSignupDraft();
+  const { info, store, setStore } = useSignupDraft();
 
-  const [storeName, setStoreName] = useState(store?.storeName ?? "");
-  const [storeAddress, setStoreAddress] = useState(store?.storeAddress ?? "");
+  // 처음 들어오면 사업자 등록증에서 읽은 상호·소재지를 채워 둔다. 한 번 적고 넘어간 뒤에는 적은 값을 쓴다.
+  const reading = info?.bizCertReading ?? null;
+  const [storeName, setStoreName] = useState(store?.storeName ?? fillBlank("", reading?.storeName ?? null));
+  const [storeAddress, setStoreAddress] = useState(
+    store?.storeAddress ?? fillBlank("", reading?.storeAddress ?? null),
+  );
   const [storePhone, setStorePhone] = useState(store?.storePhone ?? "");
-  /*
-    TODO(백엔드 가게 사진 업로드): 가입 요청(OwnerSignupRequest)에 사진 칸이 없어 고른 파일을 들고만 있다.
-    업로드 API 가 생기면 보내고, 필수라면 canProceed 조건에 넣는다.
-  */
+  // 선택이다. 고른 파일은 들고 있다가 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts).
   const [storePhoto, setStorePhoto] = useState<File | null>(store?.storePhoto ?? null);
 
   const canProceed = [

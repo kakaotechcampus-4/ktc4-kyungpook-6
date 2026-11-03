@@ -20,6 +20,12 @@ def client():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _vertex_by_default(monkeypatch):
+    """로컬 .env 에 WEB_SEARCH_PROVIDER 가 있어도 테스트는 기본(vertex)에서 시작한다. 바꾸는 테스트는 직접 넣는다."""
+    monkeypatch.delenv("WEB_SEARCH_PROVIDER", raising=False)
+
+
 def test_GCP_프로젝트가_없으면_503(client, monkeypatch):
     # 자격증명이 없으면 UnavailableInvestigator — 못 한다는 걸 200으로 감추지 않는다.
     # 로컬 .env 에 값이 있으면 실제 Vertex 를 부르게 되므로 테스트에서 지운다.
@@ -44,6 +50,50 @@ def test_GCP_프로젝트가_있으면_웹검색_조사를_쓴다(monkeypatch):
 
     assert isinstance(investigator, WebInvestigator)
     assert built == ["vertex"]
+
+
+def test_웹검색을_Claude_로_고르면_Anthropic_키로_판단한다(monkeypatch):
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER", "claude")
+    monkeypatch.delenv("INVESTIGATOR", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    main._web_investigator.cache_clear()
+    assert main.investigator_mode() == "UnavailableInvestigator"
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    built = []
+    monkeypatch.setattr(main, "ClaudeResearchProvider", lambda: built.append("claude") or object())
+    monkeypatch.setattr(main, "VertexResearchProvider", lambda: built.append("vertex") or object())
+    main._web_investigator.cache_clear()
+    try:
+        investigator = main.get_investigator()
+    finally:
+        main._web_investigator.cache_clear()
+
+    assert isinstance(investigator, WebInvestigator)
+    assert built == ["claude"]
+
+
+@pytest.mark.parametrize(("agent_model", "vertex_client"), [("", True), ("gpt-6-luna", False)])
+def test_Claude_웹검색에_Gemini_판단이면_판단용_Vertex_클라이언트를_따로_만든다(monkeypatch, agent_model, vertex_client):
+    """Claude provider 에는 Vertex 클라이언트가 없다 — 에이전트가 거기서 꺼내 쓰면 AttributeError 다."""
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("AGENT_ENABLED", "true")
+    monkeypatch.setenv("AGENT_MODEL", agent_model)
+    monkeypatch.delenv("INVESTIGATOR", raising=False)
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    monkeypatch.setattr(main, "ClaudeResearchProvider", lambda: object())
+    vertex = object()
+    monkeypatch.setattr(main.VertexResearchProvider, "_build_client", staticmethod(lambda: vertex))
+    main._web_investigator.cache_clear()
+    try:
+        investigator = main.get_investigator()
+    finally:
+        main._web_investigator.cache_clear()
+
+    assert (investigator._agent._client is vertex) is vertex_client
 
 
 @pytest.mark.parametrize(("kakao_compare", "checker_expected"), [("true", False), ("false", True)])

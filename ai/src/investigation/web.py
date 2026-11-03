@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 # 그라운딩 검색을 켜면 형식을 강제할 수 없고, 그라운딩이 빈 채로 오기도 한다.
 LLM_ATTEMPTS = 2
 
-# Vertex 가 429(요청 한도 초과)를 내면 기다렸다 다시 부른다. 실측에서 연달아 부르다 한 번 났다.
+# Vertex·Claude 가 429(요청 한도 초과)를 내면 기다렸다 다시 부른다. 실측에서 연달아 부르다 한 번 났다.
 # 기다린 뒤에도 나면 그 건은 실패로 남긴다 — 무한히 매달리면 배치 전체가 멈춘다.
 RATE_LIMIT_WAITS_SECONDS = (5.0, 15.0)
 
@@ -37,8 +37,12 @@ logger = logging.getLogger(__name__)
 
 
 def _is_rate_limited(error: Exception) -> bool:
-    """벤더 SDK 예외가 429 인가. SDK 를 import 하지 않고 `code` 만 본다."""
-    return getattr(error, "code", None) == 429
+    """벤더 SDK 예외가 429 인가. SDK 를 import 하지 않고 `code`(Vertex)·`status_code`(Anthropic) 만 본다.
+
+    Anthropic 과부하(529)도 같이 본다 — 이 가게가 아니라 지금 아무 가게도 못 부르는 상태라 기다렸다 다시 부르고,
+    그래도 나면 요청 전체를 429 로 올린다. Claude SDK 재시도는 꺼 두었다(`max_retries=0`).
+    """
+    return getattr(error, "code", None) == 429 or getattr(error, "status_code", None) in (429, 529)
 
 
 class PlaceChecker(Protocol):

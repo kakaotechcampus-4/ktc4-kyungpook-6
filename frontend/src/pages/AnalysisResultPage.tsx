@@ -136,7 +136,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                     ))
                   : tasks.map((task) => (
                       /*
-                        "메세지 보내기"(additional)는 아직 보낼 길이 없어 연결하지 않았다 —
+                        "메시지 보내기"(additional)는 아직 보낼 길이 없어 연결하지 않았다 —
                         누르면 수정안 반영으로 처리돼 엉뚱한 일이 일어나므로 priority 만 건다.
                       */
                       <AgentSurveyResultCard

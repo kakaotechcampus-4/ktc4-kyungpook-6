@@ -42,7 +42,12 @@ from src.investigation import ChangeField, InvestigationTarget, SignalType
 from src.investigation.classify import comparison_key, coverage, domestic_phone, road_address_key
 from src.investigation.kakao_map import KakaoPlaceChecker
 from src.investigation.web import WebInvestigator
-from src.investigation.web_research import ResearchResult, VertexResearchProvider
+from src.investigation.web_research import (
+    ClaudeResearchProvider,
+    ResearchResult,
+    VertexResearchProvider,
+    web_search_provider,
+)
 
 BENCH_PATH = mock_db.FIXTURES / "mismatch_bench.csv"
 SEED = 20261006
@@ -165,11 +170,14 @@ def _sheet(tag: str):
 class _Capturing:
     def __init__(self, inner) -> None:
         self._inner, self.last, self.queries, self.calls = inner, None, [], 0
-        self._client = getattr(inner, "_client", None)
+        # Claude 웹검색이어도 Gemini 판단은 Vertex 클라이언트로 한다(`main.py` 와 같게). 쓸 때 만든다.
+        self._client = inner.client if isinstance(inner, VertexResearchProvider) else None
 
     @property
     def client(self) -> object:
         """Gemini 판단(AGENT_MODEL 없음)일 때 에이전트가 같은 Vertex 클라이언트를 쓴다(`AgentInvestigator`)."""
+        if self._client is None:
+            self._client = VertexResearchProvider._build_client()
         return self._client
 
     def research(self, target: InvestigationTarget) -> ResearchResult:
@@ -281,7 +289,8 @@ def run(tag: str, mode: str = "web") -> int:
     done = {r["storeId"] for r in kept}
     from src.investigation.map_lookup import KakaoLocalLookup, MapLookup, NaverLocalLookup
 
-    provider = _Capturing(VertexResearchProvider())
+    # WEB_SEARCH_PROVIDER=claude 면 Claude 웹검색으로 잰다 — 같은 표본으로 두 제공자를 비교하려고.
+    provider = _Capturing(ClaudeResearchProvider() if web_search_provider() == "claude" else VertexResearchProvider())
     maps = _CapturingMaps(MapLookup([NaverLocalLookup(), KakaoLocalLookup()]))
     investigator = _investigator(mode, provider, maps)
     rows = [r for r in load_bench() if r["storeId"] not in done]

@@ -11,11 +11,14 @@ import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
+import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import com.ktc4.backend.global.util.BizNoNormalizer;
+import com.ktc4.backend.global.util.PhoneNormalizer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -28,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.Optional;
 
@@ -50,6 +54,7 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
     private final StoreChangeHistoryService storeChangeHistoryService;
+    private final StoreNtsCheckRepository storeNtsCheckRepository;
 
     /**
      * 가게 목록을 storeId 오름차순으로 페이지 단위 조회한다.
@@ -122,13 +127,48 @@ public class StoreService {
         String nameNormalized = request.name() == null ? null : StoreNormalizer.normalizeName(request.name());
         String addressNormalized = request.addressRoad() == null ? null
                 : StoreNormalizer.normalizeAddress(request.addressRoad());
+        // 엔티티를 건드리기 전에 정리하고 검증한다 — 번호가 틀렸으면 아무것도 바꾸지 않고 멈춘다
+        String bizNo = normalizeBizNoForUpdate(request.bizNo());
+        String ownerPhone = request.ownerPhone() == null ? null : PhoneNormalizer.normalize(request.ownerPhone());
 
         store.updateBasicInfo(request.name(), nameNormalized,
                 request.addressRoad(), addressNormalized,
                 request.phone(), request.status());
+        store.updateDetails(request.lat(), request.lng(), request.category(), ownerPhone, bizNo);
 
-        storeChangeHistoryService.recordChanges(store, before, storeChangeHistoryService.snapshot(store), change);
+        StoreSnapshot after = storeChangeHistoryService.snapshot(store);
+        storeChangeHistoryService.recordChanges(store, before, after, change);
+
+        /*
+          사업자등록번호가 실제로 바뀌었으면 국세청 확인 기록을 되돌린다. 저장된 답은 옛 번호로 받은
+          것이라 다른 사업자의 상태다 — 다음 배치(새벽 3시)까지 그대로 두면 오타를 고쳤는데도 멀쩡한
+          가게가 "폐업" 으로 남는다. 같은 값을 다시 저장한 경우는 바뀐 것이 아니므로 건드리지 않는다.
+        */
+        if (!Objects.equals(before.bizNo(), after.bizNo())) {
+            storeNtsCheckRepository.findById(storeId).ifPresent(StoreNtsCheck::resetForBizNoChange);
+        }
         return StoreResponse.from(store);
+    }
+
+    /*
+      사업자등록번호를 숫자만 남기고 10자리인지 본다.
+
+      주입(StoreImportService)은 10자리가 아니어도 세기만 하고 넣는다 — 명단 수백 건 중 하나 때문에
+      전체를 막을 수 없어서다. 수정은 한 건씩 사람이 입력하는 자리라 그 자리에서 알려 주는 편이 낫다.
+      애초에 오타를 고치러 오는 길인데 또 틀린 번호를 받으면 고치는 의미가 없다.
+    */
+    private String normalizeBizNoForUpdate(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String normalized = BizNoNormalizer.normalize(raw);
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (!BizNoNormalizer.isValid(normalized)) {
+            throw new CustomException(ErrorCode.INVALID_BIZ_NO);
+        }
+        return normalized;
     }
 
     /**

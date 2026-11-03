@@ -171,6 +171,10 @@ public class AuthService {
                 .storeName(request.storeName().strip())
                 .representativeName(request.representativeName().strip())
                 .phone(phone)
+                .openDate(request.openDate())
+                .corpName(stripToNull(request.corpName()))
+                .businessType(stripToNull(request.businessType()))
+                .businessItem(stripToNull(request.businessItem()))
                 .storeAddress(request.storeAddress().strip())
                 .storePhone(request.storePhone().strip())
                 .businessHours(request.businessHours().stream()
@@ -180,6 +184,16 @@ public class AuthService {
                         .map(menu -> new SignupMenu(menu.name().strip(), menu.photoFileId()))
                         .toList())
                 .build();
+    }
+
+    // 선택 글자 칸 — 앞뒤 공백을 지우고, 남는 것이 없으면 적지 않은 것(null)으로 둔다.
+    // 관리자 화면이 빈 문자열과 "없음"을 따로 다루지 않게 한다.
+    private static String stripToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String stripped = value.strip();
+        return stripped.isEmpty() ? null : stripped;
     }
 
     // 원인 사슬에서 Hibernate 가 알려준 제약 이름을 찾는다. 이름이 바뀌면 이 구분이 조용히 무너지므로

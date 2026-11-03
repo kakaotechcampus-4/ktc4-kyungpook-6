@@ -62,6 +62,9 @@ services:
       GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
       # Vertex 는 API 키가 아니라 서비스 계정 JSON(ADC)으로 인증한다. 비면 조사가 503 이다.
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/vertex.json
+      # 웹검색 제공자: vertex(기본, 구글 그라운딩) / claude(Claude 웹검색 도구 — ANTHROPIC_API_KEY 가 있어야 한다).
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
       # 2차 조사 스위치(#74). 기본 꺼짐. 여기 적지 않으면 .env 에 있어도 안 들어간다.

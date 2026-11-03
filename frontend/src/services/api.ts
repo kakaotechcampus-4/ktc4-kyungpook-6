@@ -12,8 +12,23 @@ export const LOGIN_PATH = "/login";
 */
 const baseURL = import.meta.env.DEV ? "" : import.meta.env.VITE_BACKEND_URL ?? "";
 
+/*
+  응답이 오지 않는 백엔드에 영영 매달리지 않게 한다.
+
+  2026-10-28 운영에서 실제로 그랬다. 번들에 옛 서버 주소가 박혀 있었는데 그 주소는 연결을
+  거절조차 하지 않아서, /api/stores 요청이 pending 인 채로 끝나지 않았다. 실패가 나지 않으니
+  401 리다이렉트도 목업 폴백도 돌지 못하고 화면은 스켈레톤만 계속 돌았다(PROMPT-160).
+  담당자에게는 "느리다"와 "서버가 없다"가 똑같이 보인다.
+
+  모든 요청이 빠르게 끝나야 정상이라 전역으로 건다 — 조사 시작(POST /api/jobs)은 작업만 만들고
+  바로 돌아오고 진행 상황은 폴링으로 본다. 오래 걸리는 파일 업로드는 이 화면에 없다.
+  긴 요청이 생기면 그 호출에만 timeout 을 따로 넘긴다.
+*/
+const REQUEST_TIMEOUT_MS = 15_000;
+
 const axiosApiInstance = axios.create({
   baseURL,
+  timeout: REQUEST_TIMEOUT_MS,
   headers: {
     "Content-Type": "application/json",
   },

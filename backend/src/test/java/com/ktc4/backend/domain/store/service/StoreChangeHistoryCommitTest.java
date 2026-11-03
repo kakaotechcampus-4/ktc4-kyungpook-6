@@ -145,7 +145,7 @@ class StoreChangeHistoryCommitTest extends PostgresContainerTest {
     void adminEditLocksStore() {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             // 지금과 같은 값을 보낸다 — 값을 바꾸면 그 UPDATE 가 행을 잠가, 잠금 조회를 빼도 이 테스트가 통과해 버린다
-            storeService.updateStore(store.getStoreId(), new StoreUpdateRequest("예시분식", null, null, null),
+            storeService.updateStore(store.getStoreId(), StoreUpdateRequest.ofBasic("예시분식", null, null, null),
                     StoreChange.storeEdit(ADMIN_ID));
 
             // 수정 트랜잭션이 열린 채로, 다른 연결에서 그 가게 행을 기다리지 않고 잠가 본다 — 잠겨 있어야 한다
@@ -170,7 +170,7 @@ class StoreChangeHistoryCommitTest extends PostgresContainerTest {
     @DisplayName("관리자 수정을 감싼 트랜잭션이 되돌려지면 가게도 기록도 남지 않는다 — 기록은 같은 트랜잭션에 들어간다")
     void adminEditRollbackLeavesNoHistory() {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            storeService.updateStore(store.getStoreId(), new StoreUpdateRequest("새이름", null, null, null),
+            storeService.updateStore(store.getStoreId(), StoreUpdateRequest.ofBasic("새이름", null, null, null),
                     StoreChange.storeEdit(ADMIN_ID));
             status.setRollbackOnly();
         });
@@ -198,7 +198,7 @@ class StoreChangeHistoryCommitTest extends PostgresContainerTest {
     @DisplayName("기록은 가게를 바꾸는 트랜잭션 밖에서 부르면 거절한다 — 일어나지 않은 변경이 따로 커밋되지 않게")
     void recordingOutsideTransactionIsRejected() {
         Store found = storeRepository.findById(store.getStoreId()).orElseThrow();
-        StoreSnapshot snapshot = new StoreSnapshot("\"a\"", "\"b\"", null, "\"OPEN\"", "[]", "[]");
+        StoreSnapshot snapshot = new StoreSnapshot("\"a\"", "\"b\"", null, "\"OPEN\"", "[]", "[]", null);
 
         assertThatThrownBy(() -> storeChangeHistoryService.recordChanges(found, snapshot, snapshot,
                 StoreChange.storeEdit(ADMIN_ID)))

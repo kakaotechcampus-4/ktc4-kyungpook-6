@@ -85,6 +85,23 @@ public class SecurityConfig {
     @Value("${upload.rate-limit.max-uploads-per-day:150}")
     private int uploadMaxPerDay;
 
+    // 사업자등록증 읽기 횟수 제한. 부를 때마다 모델 비용이 들어 업로드보다 훨씬 낮다 — 정상 점주는 가입 한 번에 1~2번이다
+    @Value("${biz-cert-extraction.rate-limit.max-attempts:5}")
+    private int bizCertReadMaxAttempts;
+
+    @Value("${biz-cert-extraction.rate-limit.window-minutes:10}")
+    private long bizCertReadWindowMinutes;
+
+    @Value("${biz-cert-extraction.rate-limit.max-attempts-per-day:10}")
+    private int bizCertReadMaxPerDay;
+
+    @Value("${biz-cert-extraction.rate-limit.max-attempts-per-file:3}")
+    private int bizCertReadMaxPerFile;
+
+    // 파일 ID 별로 세는 기간. 올린 파일이 남아 있는 시간(upload.pending-ttl-hours)과 같게 둔다
+    @Value("${biz-cert-extraction.rate-limit.file-window-hours:3}")
+    private long bizCertReadFileWindowHours;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtProvider jwtProvider,
@@ -111,6 +128,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
                         // 가입 신청에 붙일 파일. 가입 전이라 계정이 없다 — 횟수는 UploadRateLimitFilter 가 막는다
                         .requestMatchers(HttpMethod.POST, "/api/files").permitAll()
+                        // 올린 사업자등록증을 읽어 가입 form 을 채운다. 가입 전이라 계정이 없다 — 횟수는 BizCertReadRateLimitFilter 가 막는다.
+                        // 파일 ID 를 모양으로 좁혀, 맞지 않는 경로는 맨 아래 관리자 전용 규칙에 걸리게 한다
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/files/{fileId:" + FileIdFormat.PATH_REGEX + "}/biz-cert-extraction").permitAll()
                         // 가게 사진은 관리자와 그 가게에 연결된 점주만 본다(StoreImageController 주석). 어느 가게의 점주인지는
                         // 서비스가 확인한다. 사업자등록증은 이 경로로 나가지 않고 /api/admin/files/** 로만 나간다.
                         // 가게 번호를 숫자로 좁히는 이유는 아래 /api/stores/{storeId} 규칙과 같다.
@@ -161,6 +182,15 @@ public class SecurityConfig {
                                 new SignupRateLimiter(uploadMaxAttempts, Duration.ofMinutes(uploadWindowMinutes),
                                         Clock.systemUTC()),
                                 new SignupRateLimiter(uploadMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
+                                signupTrustedProxies, problemWriter),
+                        UsernamePasswordAuthenticationFilter.class)
+                // 사업자등록증 읽기도 로그인 없이 받는다 — 부를 때마다 모델 비용이 들어, 같은 곳·같은 파일로 되풀이하면 거절한다
+                .addFilterBefore(new BizCertReadRateLimitFilter(
+                                new SignupRateLimiter(bizCertReadMaxAttempts, Duration.ofMinutes(bizCertReadWindowMinutes),
+                                        Clock.systemUTC()),
+                                new SignupRateLimiter(bizCertReadMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
+                                SignupRateLimiter.passingWhenFull(bizCertReadMaxPerFile,
+                                        Duration.ofHours(bizCertReadFileWindowHours), Clock.systemUTC()),
                                 signupTrustedProxies, problemWriter),
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new ApiKeyAuthenticationFilter(internalApiKey),

@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface PendingUploadRepository extends JpaRepository<PendingUpload, Long> {
 
@@ -31,6 +32,9 @@ public interface PendingUploadRepository extends JpaRepository<PendingUpload, Lo
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from PendingUpload p where p.fileKey in :fileKeys order by p.fileKey")
     List<PendingUpload> findAllForUpdateByFileKeyIn(@Param("fileKeys") Collection<String> fileKeys);
+
+    /** 파일 ID 로 대기 기록을 찾는다. 잠그지 않는다 — 사업자등록증 읽기처럼 읽기만 하는 곳이 쓴다. */
+    Optional<PendingUpload> findByFileKey(String fileKey);
 
     /**
      * 정한 시각보다 먼저 올라와 아직 아무 신청도 가져가지 않은 파일을 잠그고 읽는다. <b>다른 트랜잭션이 잠근 행은 건너뛴다</b>

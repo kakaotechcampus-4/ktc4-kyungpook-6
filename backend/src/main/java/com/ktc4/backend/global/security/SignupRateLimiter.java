@@ -23,6 +23,8 @@ class SignupRateLimiter {
     private final int maxAttempts;
     private final Duration window;
     private final Clock clock;
+    // 기록이 가득 찼을 때 처음 보는 값을 거절할지(기본), 세지 않고 통과시킬지
+    private final boolean passWhenFull;
     private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
 
     /**
@@ -31,9 +33,23 @@ class SignupRateLimiter {
      * @param clock       현재 시각 기준. 테스트에서 시간이 지난 것을 재현하려고 주입받는다
      */
     SignupRateLimiter(int maxAttempts, Duration window, Clock clock) {
+        this(maxAttempts, window, clock, false);
+    }
+
+    private SignupRateLimiter(int maxAttempts, Duration window, Clock clock, boolean passWhenFull) {
         this.maxAttempts = maxAttempts;
         this.window = window;
         this.clock = clock;
+        this.passWhenFull = passWhenFull;
+    }
+
+    /**
+     * 기록이 가득 차면 처음 보는 값을 <b>세지 않고 통과시키는</b> 카운터. 다른 한도가 이미 비용을 묶고 있어, 이 카운터가
+     * 막히면 정상 사용자까지 모두 막히는 쪽이 더 나쁠 때 쓴다 — 예: 사업자등록증 읽기의 파일 ID 별 횟수. 지어낸 파일 ID 로
+     * 기록을 채우면 그동안 처음 읽는 점주가 모두 막힌다. 그때 비용은 같은 곳 한도와 서버 전체 상한이 막는다.
+     */
+    static SignupRateLimiter passingWhenFull(int maxAttempts, Duration window, Clock clock) {
+        return new SignupRateLimiter(maxAttempts, window, clock, true);
     }
 
     /**
@@ -49,7 +65,7 @@ class SignupRateLimiter {
             // 치우고도 가득 차 있으면 한 구간 안에 서로 다른 주소가 그만큼 몰린 것이다. 처음 보는 주소는 받지 않는다 —
             // 기록을 끝없이 늘려 메모리를 채우는 것보다, 그동안 새 가입을 잠시 거절하는 쪽이 낫다.
             if (windows.size() > CLEANUP_THRESHOLD && !windows.containsKey(key)) {
-                return window.toSeconds();
+                return passWhenFull ? 0 : window.toSeconds();
             }
         }
         Window current = windows.compute(key, (k, existing) -> {

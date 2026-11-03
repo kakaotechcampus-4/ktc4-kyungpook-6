@@ -261,6 +261,55 @@ class StoreNtsCheckServiceTest {
         verify(storeNtsChangeRepository, never()).saveAll(anyList());
     }
 
+    /*
+      사업자등록번호를 고쳤을 때 가짜 상태 변경이 남지 않아야 한다 — PROMPT-161.
+
+      어제까지 오타(1234567890)로 "폐업" 을 받아 둔 가게의 번호를 오늘 2222222222 로 고쳤다.
+      내일 새벽 배치가 새 번호로 "영업" 을 받는데, 앞 상태는 다른 사업자의 것이라 견줄 대상이 아니다.
+      그냥 견주면 "폐업 → 영업" 이 이력에 남아 가게가 되살아난 것처럼 보인다.
+    */
+    @Test
+    @DisplayName("지난 조회 때와 사업자번호가 다르면 이력을 남기지 않는다 — 다른 사업자의 상태다")
+    void doesNotRecordChangeWhenBizNoDiffers() {
+        Store store = store(1L, "2222222222");
+        when(storeNtsCheckRepository.findAllById(anyList()))
+                .thenReturn(List.of(previouslyConfirmed(store, BusinessState.CLOSED)));
+
+        storeNtsCheckService.markChecked(
+                List.of(store),
+                Map.of("2222222222", new BusinessStatus("2222222222", BusinessState.ACTIVE, null)),
+                ATTEMPTED_AT);
+
+        // 상태는 새 번호의 답으로 갱신한다 — 거르는 것은 이력뿐이다
+        verify(storeNtsCheckRepository).saveAll(checksCaptor.capture());
+        StoreNtsCheck saved = checksCaptor.getValue().get(0);
+        assertThat(saved.getNtsState()).isEqualTo(BusinessState.ACTIVE);
+        assertThat(saved.getBizNo()).isEqualTo("2222222222");
+
+        verify(storeNtsChangeRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("번호를 고쳐 확인 기록을 되돌린 가게도 다음 배치에서 이력을 남기지 않는다")
+    void doesNotRecordChangeAfterResetForBizNoChange() {
+        Store store = store(1L, "2222222222");
+        StoreNtsCheck check = previouslyConfirmed(store, BusinessState.CLOSED);
+        // 수정 경로가 한 일 — 믿을 수 없게 된 국세청 답은 비우고, 마지막 조회에 쓴 번호는 남긴다
+        check.resetForBizNoChange();
+        when(storeNtsCheckRepository.findAllById(anyList())).thenReturn(List.of(check));
+
+        storeNtsCheckService.markChecked(
+                List.of(store),
+                Map.of("2222222222", new BusinessStatus("2222222222", BusinessState.ACTIVE, null)),
+                ATTEMPTED_AT);
+
+        /*
+          비운 뒤의 ntsState 는 null 이라 "null != ACTIVE" 로 변경처럼 보인다. 남겨 둔 번호가
+          그 가짜 변경을 막는다 — 비웠다면 한 번도 조회하지 않은 가게와 구분할 수 없었다.
+        */
+        verify(storeNtsChangeRepository, never()).saveAll(anyList());
+    }
+
     @Test
     @DisplayName("대상이 없으면 DB 를 건드리지 않는다")
     void doesNothingWhenNoStores() {

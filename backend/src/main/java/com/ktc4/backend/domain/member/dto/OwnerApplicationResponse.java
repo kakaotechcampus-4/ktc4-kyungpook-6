@@ -6,6 +6,7 @@ import com.ktc4.backend.domain.member.enums.MemberStatus;
 import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -20,6 +21,13 @@ public record OwnerApplicationResponse(
         @Schema(description = "대표자 이름", example = "홍길동") String representativeName,
         @Schema(description = "점주 휴대폰 번호 (숫자만). 이 칸이 생기기 전에 가입한 점주는 비어 있음", example = "01000000000")
         String phone,
+        @Schema(description = "개업일 (yyyy-MM-dd) — 가입 때 실은 값. 적지 않았거나 이 칸이 생기기 전에 가입한 점주는 비어 있음",
+                example = "2019-03-02")
+        LocalDate openDate,
+        @Schema(description = "법인명 — 가입 때 실은 값. 개인사업자이거나 적지 않았으면 비어 있음", example = "주식회사 예시")
+        String corpName,
+        @Schema(description = "업태 — 가입 때 실은 값. 적지 않았으면 비어 있음", example = "음식점업") String businessType,
+        @Schema(description = "종목 — 가입 때 실은 값. 적지 않았으면 비어 있음", example = "한식, 분식") String businessItem,
         @Schema(description = "가게 주소 — 가입 때 적은 값. 이 칸이 생기기 전에 가입한 점주는 비어 있음",
                 example = "대구광역시 북구 대학로 80")
         String storeAddress,
@@ -43,6 +51,10 @@ public record OwnerApplicationResponse(
                 info.getStoreName(),
                 info.getRepresentativeName(),
                 info.getPhone(),
+                info.getOpenDate(),
+                info.getCorpName(),
+                info.getBusinessType(),
+                info.getBusinessItem(),
                 info.getStoreAddress(),
                 info.getStorePhone(),
                 info.getBusinessHours().stream()

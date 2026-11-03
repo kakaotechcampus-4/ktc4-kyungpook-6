@@ -60,6 +60,8 @@ public enum ErrorCode {
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다"),
     // 가입 신청에 실은 파일 ID 가 없거나, 이미 쓰였거나, 자리에 맞지 않는 종류인 경우 — 어느 쪽인지는 알려 주지 않는다
     INVALID_FILE_REFERENCE(HttpStatus.BAD_REQUEST, "올린 파일을 쓸 수 없습니다"),
+    // 사업자등록증 읽기가 실패했다 — 모델 장애·시간 초과·하루 상한. 가입은 막지 않고 직접 입력으로 넘긴다
+    BIZ_CERT_UNREADABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금 사업자등록증을 읽을 수 없습니다"),
 
     // 가입 신청 남용 방어. TOO_MANY_REQUESTS 는 컨트롤러에 닿기 전 필터가 직접 응답한다.
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요"),

@@ -1,4 +1,3 @@
-import { isAxiosError } from "axios";
 import { getRequest, putRequest } from "./api";
 
 /** 백엔드 BusinessDay. 9/29 프론트와 합의한 값이다. */
@@ -51,16 +50,7 @@ export type OperatingInfoRequest = {
   menus: MenuRequest[];
 };
 
-/*
-  두 API 모두 백엔드가 아직 구현 전이라 501 을 돌려준다(PR #96). 응답 모양은 확정이다.
-  조회는 501 이면 목업으로 화면을 채운다. 저장은 목업으로 "저장됨"을 흉내 내지 않는다 —
-  저장되지 않았는데 된 것처럼 보이면 안 되기 때문이다. 화면이 501 을 보고 "준비 중"을 알린다.
-  TODO(백엔드 구현 후): 아래 목업과 501 분기를 지운다.
-*/
-export const isNotImplemented = (error: unknown) =>
-  isAxiosError(error) && error.response?.status === 501;
-
-/** 백엔드가 비어 있을 때 쓰는 목업. 상호명은 내 정보의 가게 이름을 넣는다. */
+/** VITE_STORE_MOCK 으로 백엔드 없이 화면을 볼 때 쓰는 목업(hooks/storeManage.ts). 상호명은 내 정보의 가게 이름을 넣는다. */
 export const mockStoreDetail = (storeId: number, name: string): StoreDetailResponse => ({
   storeId,
   name,

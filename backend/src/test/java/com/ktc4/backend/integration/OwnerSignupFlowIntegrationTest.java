@@ -8,8 +8,10 @@ import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
+import com.ktc4.backend.global.security.AdminAccountInitializer;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -121,6 +123,16 @@ class OwnerSignupFlowIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     private final List<Long> createdStoreIds = new ArrayList<>();
+
+    @Autowired
+    private AdminAccountInitializer adminAccountInitializer;
+
+    // 관리자 계정은 기동할 때 한 번 만들어지는데, 아래 정리가 테스트마다 회원 표를 비운다(관리자 포함).
+    // 테스트가 둘 이상이면 두 번째부터 관리자가 없으므로, 기동 때와 같은 초기화를 테스트마다 다시 돌린다 — 이미 있으면 건너뛴다.
+    @BeforeEach
+    void ensureAdminAccount() {
+        adminAccountInitializer.run(null);
+    }
 
     @AfterEach
     void cleanUp() {
@@ -592,5 +604,51 @@ class OwnerSignupFlowIntegrationTest {
                 .andExpect(jsonPath("$.type").value(org.hamcrest.Matchers.endsWith("/owner-not-approved")));
         // 연결은 앞에서 만든 한 건 그대로다 — 거절된 신청자에게는 연결이 생기지 않았다
         org.assertj.core.api.Assertions.assertThat(storeOwnerRepository.count()).isEqualTo(1);
+    }
+
+    // 관리자 신청 목록(상태별)에서 한 신청을 찾는다
+    private JsonNode applicationOf(String admin, String status, long memberId) throws Exception {
+        String body = mockMvc.perform(get("/api/admin/owners").param("status", status)
+                        .header(HttpHeaders.AUTHORIZATION, admin))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        for (JsonNode application : JSON.readTree(body).get("content")) {
+            if (application.get("memberId").asLong() == memberId) {
+                return application;
+            }
+        }
+        throw new AssertionError(status + " 목록에 신청 " + memberId + " 이 없다");
+    }
+
+    @Test
+    @DisplayName("개업일·법인명·업태·종목을 실어 가입하면 관리자 신청 목록에 보이고, 승인한 뒤에도 그대로다 — 빈 칸은 null")
+    void bizCertFieldsReachAdminList() throws Exception {
+        long storeId = saveStore("통합테스트등록증가게", null, "053-000-0002", null);
+        String bizCertId = upload("BIZ_CERT", pdf("file"));
+        String base = signupJson("flow-cert@example.com", "010-0000-0002", bizCertId, null, null);
+        String body = base.substring(0, base.length() - 1)
+                + ",\"openDate\":\"2019-03-02\",\"corpName\":\" 주식회사 예시 \""
+                + ",\"businessType\":\"음식점업\",\"businessItem\":\"\"}";
+        String signupBody = mockMvc.perform(signupRequest(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        long ownerId = JSON.readTree(signupBody).get("memberId").asLong();
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+
+        JsonNode pending = applicationOf(admin, "PENDING", ownerId);
+        org.assertj.core.api.Assertions.assertThat(pending.get("openDate").asText()).isEqualTo("2019-03-02");
+        org.assertj.core.api.Assertions.assertThat(pending.get("corpName").asText()).isEqualTo("주식회사 예시");
+        org.assertj.core.api.Assertions.assertThat(pending.get("businessType").asText()).isEqualTo("음식점업");
+        org.assertj.core.api.Assertions.assertThat(pending.get("businessItem").isNull()).isTrue();
+
+        mockMvc.perform(post("/api/admin/owners/" + ownerId + "/approve").header(HttpHeaders.AUTHORIZATION, admin)
+                        .contentType(MediaType.APPLICATION_JSON).content(storeIdBody(storeId)))
+                .andExpect(status().isOk());
+
+        JsonNode approved = applicationOf(admin, "APPROVED", ownerId);
+        org.assertj.core.api.Assertions.assertThat(approved.get("openDate").asText()).isEqualTo("2019-03-02");
+        org.assertj.core.api.Assertions.assertThat(approved.get("corpName").asText()).isEqualTo("주식회사 예시");
+        org.assertj.core.api.Assertions.assertThat(approved.get("businessType").asText()).isEqualTo("음식점업");
+        org.assertj.core.api.Assertions.assertThat(approved.get("businessItem").isNull()).isTrue();
     }
 }

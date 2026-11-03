@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { BusinessDay } from "../services/auth";
+import type { BizCertReading } from "../services/file";
 
 /** 1단계(계정)에서 받은 값. */
 export type SignupAccount = {
@@ -13,6 +14,13 @@ export type SignupInfo = {
   phone: string;
   bizNo: string;
   bizRegistrationFile: File | null;
+  /**
+   * 고를 때 올려 받은 사업자등록증 파일 ID. 올리지 못했거나 가입 신청이 한 번 실패했으면 null 이고,
+   * 그때는 가입 신청을 보낼 때 다시 올린다(hooks/signupMenus.ts).
+   */
+  bizCertFileId: string | null;
+  /** 사업자등록증에서 읽은 값. 못 읽었으면 null. 가게 등록 1 의 빈 칸과 가입 신청의 선택 칸에 쓴다. */
+  bizCertReading: BizCertReading | null;
 };
 
 /** 가게 등록 1(가게 정보)에서 받은 값. */
@@ -20,7 +28,7 @@ export type SignupStore = {
   storeName: string;
   storeAddress: string;
   storePhone: string;
-  /** 대표 사진. 서버가 아직 받지 않아 들고만 있다(hooks/signupStore.ts TODO). */
+  /** 대표 사진(선택). 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts). */
   storePhoto: File | null;
 };
 
@@ -39,7 +47,7 @@ export type SignupMenu = {
   /** 화면에서 메뉴를 구분하는 키. 서버로 보내지 않는다. */
   id: string;
   name: string;
-  /** 메뉴 사진. 서버가 아직 받지 않아 들고만 있다(hooks/signupMenus.ts TODO). */
+  /** 메뉴 사진(선택). 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts). */
   photo: File | null;
 };
 

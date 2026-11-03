@@ -7,8 +7,8 @@ import { saveAuthToken } from "../services/authToken";
 import { toLoginErrorMessage } from "../utils/loginError";
 
 /*
-  로그인 뒤·회원가입·계정 찾기를 누른 뒤 넘어갈 화면.
-  점주 홈·계정 찾기 화면이 아직 없어서 임시 화면(/home)으로 둔다. 화면이 생기면 여기만 바꾼다.
+  로그인 뒤(점주 홈)·회원가입·계정 찾기를 누른 뒤 넘어갈 화면.
+  계정 찾기 화면은 아직 없어서 점주 홈(/home)으로 둔다. 화면이 생기면 FIND_ACCOUNT_PATH 만 바꾼다.
   "/" 는 스플래시라 여기로 보내면 역할 선택으로 되돌아간다.
 */
 const AFTER_LOGIN_PATH = "/home";

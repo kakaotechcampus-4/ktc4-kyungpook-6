@@ -221,6 +221,43 @@ public class Store extends BaseTimeEntity {
     }
 
     /**
+     * 기본 정보 말고 나머지 칸을 바꾼다. {@link #updateBasicInfo} 와 나눈 것은 한 메서드에 열한 칸을 받으면
+     * 순서를 틀리기 쉬워서다.
+     *
+     * <p>주입은 아홉 칸을 받는데 수정은 네 칸뿐이라, 사업자등록번호에 오타가 나면 가게를 지우고 다시 넣는
+     * 수밖에 없었다 — 그러면 쌓인 조사 이력까지 사라진다(PROMPT-161).
+     *
+     * <p>값은 이미 정리된 것을 받는다. 사업자등록번호는 숫자만 남긴 10자리, 점주 휴대폰도 숫자만 남긴 값이다 —
+     * 정리와 검증은 서비스가 한다.
+     *
+     * <p>사업자등록번호가 실제로 바뀌었는지는 부르는 쪽이 앞뒤 스냅숏으로 본다. 바뀌었으면 그 가게의 국세청
+     * 확인 기록을 되돌려야 한다 — 저장된 답은 옛 번호로 받은 것이라 다른 사업자의 상태다.
+     *
+     * @param lat        바꿀 위도. {@code null} 이면 유지 (이 요청으로는 지울 수 없다)
+     * @param lng        바꿀 경도. {@code null} 이면 유지 (이 요청으로는 지울 수 없다)
+     * @param category   바꿀 업종. {@code null} 이면 유지, 빈 문자열이면 지움
+     * @param ownerPhone 바꿀 점주 휴대폰(숫자만). {@code null} 이면 유지, 빈 문자열이면 지움
+     * @param bizNo      바꿀 사업자등록번호(숫자만). {@code null} 이면 유지, 빈 문자열이면 지움
+     */
+    public void updateDetails(Double lat, Double lng, String category, String ownerPhone, String bizNo) {
+        if (lat != null) {
+            this.lat = lat;
+        }
+        if (lng != null) {
+            this.lng = lng;
+        }
+        if (category != null) {
+            this.category = category;
+        }
+        if (ownerPhone != null) {
+            this.ownerPhone = ownerPhone;
+        }
+        if (bizNo != null) {
+            this.bizNo = bizNo;
+        }
+    }
+
+    /**
      * 담당자가 가게 정보를 직접 확인했음을 기록한다.
      *
      * <p>시각은 이 메서드가 스스로 만들지 않고 호출자(서비스)가 넘긴다 — 엔티티가 직접

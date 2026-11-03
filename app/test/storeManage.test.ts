@@ -102,10 +102,6 @@ describe("validateOperatingInfo", () => {
 });
 
 describe("toSaveErrorMessage", () => {
-  it("501 은 아직 저장되지 않았다고 알린다", () => {
-    expect(toSaveErrorMessage(httpError(501))).toContain("저장되지 않았어요");
-  });
-
   it("검증 실패면 errors 의 첫 문구를 쓴다", () => {
     const error = httpError(400, {
       type: TYPE_BASE + "invalid-request",

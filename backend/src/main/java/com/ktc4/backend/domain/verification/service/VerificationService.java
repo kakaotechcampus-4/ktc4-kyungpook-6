@@ -74,6 +74,11 @@ public class VerificationService {
         LocalDateTime now = LocalDateTime.now();
 
         storeService.updateStore(storeId, request, StoreChange.taskApply(adminId, taskId, now));
+        /*
+          확인일은 올리지 않는다. 반영한 것은 조사가 찾아낸 값이지 담당자가 가게를 직접 본 것이 아니다.
+          올리면 90일 재확인이 건너뛰어져, 아무도 확인하지 않은 가게가 90일 동안 조사에서 빠진다.
+          반영한 사실과 근거는 확인 기록(Verification)에, 무엇이 바뀌었는지는 가게 변경 기록에 남는다.
+        */
         Map<String, Object> applied = new LinkedHashMap<>(task.getProposedChanges());
         return saveVerification(task, actionFor(applied), applied, adminId, now);
     }
@@ -89,7 +94,10 @@ public class VerificationService {
      */
     public TaskResultResponse confirm(Long taskId, Long adminId) {
         Task task = lockUnreviewed(taskId);
-        return saveVerification(task, VerificationAction.NO_ACTION, null, adminId, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        // 담당자가 가게를 직접 본 것이므로 확인일을 올린다. 90일 재확인은 이 시각부터 다시 센다.
+        storeService.confirmStore(task.getStore().getStoreId(), now);
+        return saveVerification(task, VerificationAction.NO_ACTION, null, adminId, now);
     }
 
     /**
@@ -118,10 +126,9 @@ public class VerificationService {
         return task;
     }
 
-    // 확인 기록과 가게 확인일은 같은 시각으로 남긴다 — 화면이 둘을 나란히 보여 준다
+    // 확인 기록만 남긴다. 가게 확인일을 올릴지는 부르는 쪽이 정한다 — apply 는 올리지 않고 confirm 은 올린다.
     private TaskResultResponse saveVerification(Task task, VerificationAction action,
                                                 Map<String, Object> appliedChanges, Long adminId, LocalDateTime now) {
-        storeService.confirmStore(task.getStore().getStoreId(), now);
         Verification verification = verificationRepository.save(Verification.builder()
                 .store(task.getStore())
                 .task(task)
@@ -154,7 +161,7 @@ public class VerificationService {
             }
             values.put(field, value);
         }
-        StoreUpdateRequest request = new StoreUpdateRequest(
+        StoreUpdateRequest request = StoreUpdateRequest.ofBasic(
                 values.get(ChangeField.NAME),
                 values.get(ChangeField.ADDRESS_ROAD),
                 phone(task, values.get(ChangeField.PHONE)),

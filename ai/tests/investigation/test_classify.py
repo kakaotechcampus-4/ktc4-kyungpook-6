@@ -668,6 +668,36 @@ class TestNameRelation:
 
         assert found.proposed_changes == {"name": "최과장회덮밥"}
 
+    @pytest.mark.parametrize(
+        ("db", "web"),
+        [
+            ("스텔라떡볶이 대구신암신천점", "대구신암신천점"),  # 본사 매장 목록(stellapick.com)
+            ("크라운호프대구수성못점", "대구수성못점"),  # crownhof.kr
+            ("행컵(계명대점)", "대구계명대점"),  # 괄호 속 지점명 — hangcup.com
+            ("E1(이원)", "이원"),  # 괄호 병기만
+            ("본죽앤비빔밥(달서구청점)", "달서구청점"),
+        ],
+    )
+    def test_상호의_일부만_적은_값은_판단을_보류한다(self, db, web):
+        """Claude 웹검색 벤치마크에서 멀쩡한 가게 4곳에 상호 변경을 냈다 — 변화도, 확인도 아니다."""
+        target = TARGET.model_copy(update={"name": db})
+
+        assert relation_to_db(target, ChangeField.NAME, web) == "inconclusive"
+        assert classify(target, ResearchResult([obs(ChangeField.NAME, web, "a.com")])).signals == []
+
+    @pytest.mark.parametrize(
+        ("db", "web"),
+        [
+            ("영화번점", "영화반점"),  # 한 글자 오타 — 잡아야 하는 것
+            ("스텔라떡볶이 대구신암신천점", "대구동대구역점"),  # 다른 지점
+            ("크라운호프대구수성못점", "맥주창고수성못점"),  # 같은 지점명, 다른 상호
+        ],
+    )
+    def test_일부가_아닌_다른_이름은_그대로_변화다(self, db, web):
+        target = TARGET.model_copy(update={"name": db})
+
+        assert relation_to_db(target, ChangeField.NAME, web) == "different"
+
 
 class TestCityInRoad:
     def test_도로명_속_광역시를_되돌려_비교한다(self):

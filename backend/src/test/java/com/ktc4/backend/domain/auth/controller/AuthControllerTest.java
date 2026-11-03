@@ -21,6 +21,8 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
@@ -35,9 +37,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static com.ktc4.backend.support.SignupMultipart.SIGNUP_URL;
 import static com.ktc4.backend.support.SignupMultipart.file;
@@ -46,6 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -646,5 +653,141 @@ class AuthControllerTest {
         mockMvc.perform(signupRequest(signupBody("owner@example.com", "password1234", "1234567890", "예시분식", "홍길동")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value(ErrorCode.DUPLICATE_EMAIL.getType().toString()));
+    }
+
+    // ── 사업자등록증에서 읽는 값 (개업일·법인명·업태·종목, 모두 선택) ─────────────────────────
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final List<String> BIZ_CERT_TEXT_FIELDS = List.of("corpName", "businessType", "businessItem");
+
+    // 기본 가입 본문에 칸 하나를 더한다. 값은 JSON 으로 그대로 옮긴다(줄바꿈·보이지 않는 글자 포함)
+    private ResultActions signupWith(String field, Object value) throws Exception {
+        String body = VALID_SIGNUP.substring(0, VALID_SIGNUP.length() - 1)
+                + ",\"" + field + "\":" + toJson(value) + "}";
+        return mockMvc.perform(signupRequest(body));
+    }
+
+    private static String toJson(Object value) {
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private OwnerSignupRequest lastSignup() {
+        ArgumentCaptor<OwnerSignupRequest> sent = ArgumentCaptor.forClass(OwnerSignupRequest.class);
+        verify(authService, atLeastOnce()).signupOwner(sent.capture());
+        return sent.getValue();
+    }
+
+    @Test
+    @DisplayName("개업일·법인명·업태·종목이 없어도 가입할 수 있다 — 지금 앱이 보내는 요청")
+    void signupWithoutBizCertFields() throws Exception {
+        mockMvc.perform(signupRequest(VALID_SIGNUP)).andExpect(status().isCreated());
+
+        OwnerSignupRequest sent = lastSignup();
+        assertThat(sent.openDate()).isNull();
+        assertThat(sent.corpName()).isNull();
+        assertThat(sent.businessType()).isNull();
+        assertThat(sent.businessItem()).isNull();
+    }
+
+    @Test
+    @DisplayName("개업일·법인명·업태·종목을 같은 칸 이름으로 받는다 — 개업일은 yyyy-MM-dd")
+    void signupPassesBizCertFields() throws Exception {
+        String body = VALID_SIGNUP.substring(0, VALID_SIGNUP.length() - 1)
+                + ",\"openDate\":\"2019-03-02\",\"corpName\":\"주식회사 예시\""
+                + ",\"businessType\":\"음식점업\",\"businessItem\":\"한식, 분식\"}";
+
+        mockMvc.perform(signupRequest(body)).andExpect(status().isCreated());
+
+        OwnerSignupRequest sent = lastSignup();
+        assertThat(sent.openDate()).isEqualTo(LocalDate.of(2019, 3, 2));
+        assertThat(sent.corpName()).isEqualTo("주식회사 예시");
+        assertThat(sent.businessType()).isEqualTo("음식점업");
+        assertThat(sent.businessItem()).isEqualTo("한식, 분식");
+    }
+
+    static Stream<Arguments> acceptedBizCertTexts() {
+        // 값과, 서비스에 넘어가는 값(앞뒤 공백·빈 값 정리는 서비스가 한다 — 여기서는 받은 그대로)
+        return BIZ_CERT_TEXT_FIELDS.stream().flatMap(field -> Stream.of(
+                Arguments.of(field, "가".repeat(200)),
+                Arguments.of(field, ""),
+                Arguments.of(field, "   "),
+                Arguments.of(field, "(주)예시")));
+    }
+
+    @ParameterizedTest(name = "{0} = \"{1}\"")
+    @MethodSource("acceptedBizCertTexts")
+    @DisplayName("법인명·업태·종목은 200자까지, 빈 값·스페이스만은 '안 적음'으로 받아 그대로 넘긴다")
+    void bizCertTextFieldsAccept(String field, String value) throws Exception {
+        signupWith(field, value).andExpect(status().isCreated());
+
+        OwnerSignupRequest sent = lastSignup();
+        String passed = switch (field) {
+            case "corpName" -> sent.corpName();
+            case "businessType" -> sent.businessType();
+            case "businessItem" -> sent.businessItem();
+            default -> throw new IllegalArgumentException(field);
+        };
+        assertThat(passed).isEqualTo(value);
+    }
+
+    static Stream<Arguments> rejectedBizCertTexts() {
+        return BIZ_CERT_TEXT_FIELDS.stream().flatMap(field -> Stream.of(
+                Arguments.of(field, "가".repeat(201)),   // 길이
+                Arguments.of(field, "---"),              // 글자·숫자 없음
+                Arguments.of(field, "가\n나"),            // 줄바꿈
+                Arguments.of(field, "가\u200B나"),        // 폭 없는 공백
+                Arguments.of(field, "\u3000"),           // 전각 공백만
+                Arguments.of(field, "\t"),               // 탭만 — 스페이스와 달리 '안 적음'이 아니다
+                Arguments.of(field, "\n")));             // 줄바꿈만
+    }
+
+    @ParameterizedTest(name = "{0} = \"{1}\"")
+    @MethodSource("rejectedBizCertTexts")
+    @DisplayName("법인명·업태·종목의 201자, 글자 없는 기호, 줄바꿈·탭·폭 없는 공백, 전각 공백만은 400 이고 errors 에 그 칸이 실린다")
+    void bizCertTextFieldsReject(String field, String value) throws Exception {
+        signupWith(field, value)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", hasItem(field)));
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @ParameterizedTest(name = "\"{0}\"")
+    @ValueSource(strings = {"2019-03-02", "0001-01-01", "9999-12-31"})
+    @DisplayName("개업일은 yyyy-MM-dd 이고, 연도 네 자리 범위의 처음과 끝도 받는다")
+    void openDateAccepts(String value) throws Exception {
+        signupWith("openDate", value).andExpect(status().isCreated());
+        assertThat(lastSignup().openDate()).isEqualTo(LocalDate.parse(value));
+    }
+
+    @Test
+    @DisplayName("개업일이 null 이면 '안 적음'이다")
+    void openDateMayBeNull() throws Exception {
+        signupWith("openDate", null).andExpect(status().isCreated());
+        assertThat(lastSignup().openDate()).isNull();
+    }
+
+    @ParameterizedTest(name = "\"{0}\"")
+    @ValueSource(strings = {"2019-02-30", "20190302", "2019/03/02", "2019-3-2"})
+    @DisplayName("개업일이 없는 날짜이거나 yyyy-MM-dd 가 아니면 400 invalid-request — 요일처럼 칸별 errors 는 없다")
+    void openDateRejectsMalformed(String value) throws Exception {
+        signupWith("openDate", value)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(ErrorCode.INVALID_REQUEST.getType().toString()))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+        verify(authService, never()).signupOwner(any());
+    }
+
+    @ParameterizedTest(name = "\"{0}\"")
+    @ValueSource(strings = {"+10000-01-01", "+999999999-12-31", "0000-12-31", "-0001-01-01"})
+    @DisplayName("개업일 연도가 네 자리가 아니면 400 이고 errors 에 openDateInRange 가 실린다 — 날짜로는 읽히지만 DB 에 넣으면 서버 오류가 나는 값")
+    void openDateRejectsOutOfRange(String value) throws Exception {
+        signupWith("openDate", value)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", hasItem("openDateInRange")));
+        verify(authService, never()).signupOwner(any());
     }
 }

@@ -53,7 +53,7 @@ function OwnerStorePage() {
         <div className="px-5 pb-7">
           {store.isMock && (
             <p className="mt-3 rounded-xl bg-[#fbf3dc] px-3.5 py-2.5 text-[13px] leading-[normal] text-[#8a6712]">
-              서버에 가게 정보 기능이 아직 없어 예시 데이터를 보여 주고 있어요.
+              VITE_STORE_MOCK 으로 띄워 예시 데이터를 보여 주고 있어요. 저장되지 않아요.
             </p>
           )}
 

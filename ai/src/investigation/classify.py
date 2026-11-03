@@ -81,6 +81,8 @@ _BRACKETED = re.compile(r"[(\[（【][^)\]）】]*[)\]）】]")
 # 벤치마크). 앞에 상호가 있고 뒤에 "…점" 이 올 때만 뺀다 — "대구탕" 의 대구는 음식 이름이고, 상호가 지역어로
 # 시작하면("대구왕갈비본점"·"서울깍두기본점") 상호의 일부다.
 _REGION_BEFORE_BRANCH = re.compile(r"(?<=[가-힣a-z0-9])(?:대구|서울|부산|인천|광주|대전|울산|세종|경기)(?=[가-힣a-z0-9]*점$)")
+# 지점명만 적은 값의 앞 지역어 — 본사 매장 목록의 "대구신암신천점"(DB "스텔라떡볶이 대구신암신천점").
+_LEADING_REGION = re.compile(r"^(?:대구|서울|부산|인천|광주|대전|울산|세종|경기)")
 # 같은 상호로 볼 꼬리 — 업종 낱말과 지점 표기. "삼송빵집" ↔ "삼송빵집본점", "은정" ↔ "은정식당".
 _NAME_TAIL = re.compile(
     r"(?:식당|음식점|카페|커피|치킨|분식|김밥|포차|호프|주점|반점|국밥|가든|횟집|본가)?(?:[가-힣a-z0-9]{0,10}점)?"
@@ -233,9 +235,28 @@ def _same_as_current(change_field: ChangeField, current_key: str | None, key: st
     return key == current_key
 
 
-def _inconclusive(change_field: ChangeField, current_key: str | None, key: str) -> bool:
+def _part_of_name(current: str, observed: str) -> bool:
+    """DB 상호의 일부만 적은 값인가 — 지점명만("대구신암신천점", 본사 매장 목록) 또는 괄호 병기만("E1(이원)" 의 "이원").
+
+    다른 이름이 아니라 이름의 한 조각이라 변화로 세면 멀쩡한 가게에 상호 변경을 낸다(Claude 웹검색 벤치마크에서 9건 중
+    4건). 그렇다고 상호(브랜드)를 확인해 주지도 않는다.
+    """
+    observed_key = _squash(observed.replace("&", "앤"))
+    if not observed_key:
+        return False
+    if observed_key in {_squash(m[1:-1]) for m in _BRACKETED.findall(current)}:
+        return True
+    branch = _LEADING_REGION.sub("", observed_key)
+    full = _squash(current.replace("&", "앤"))  # 괄호 속 지점명까지 — "행컵(계명대점)"
+    return len(branch) > 1 and branch.endswith("점") and branch != full and full.endswith(branch)
+
+
+def _inconclusive(change_field: ChangeField, current: str | None, observed: str) -> bool:
     """DB 값과 같다고도 다르다고도 할 수 없는 관측 — 확인 근거로도, 변화로도 세지 않는다."""
-    return change_field is ChangeField.NAME and current_key is not None and name_relation(current_key, key) == "partial"
+    if change_field is not ChangeField.NAME or not current:
+        return False
+    current_key, key = comparison_key(change_field, current), comparison_key(change_field, observed)
+    return name_relation(current_key, key) == "partial" or _part_of_name(current, observed)
 
 
 def _current_value(target: InvestigationTarget, change_field: ChangeField) -> str | None:
@@ -267,9 +288,8 @@ def _judge_field(
     for o in observations:
         if not _comparable(change_field, current, o.value):
             continue
-        key = comparison_key(change_field, o.value)
-        if not _inconclusive(change_field, current_key, key):
-            groups.setdefault(key, []).append(o)
+        if not _inconclusive(change_field, current, o.value):
+            groups.setdefault(comparison_key(change_field, o.value), []).append(o)
 
     def domains(group: list[Observation]) -> set[str]:
         return {d for o in group for d in o.domains}
@@ -416,9 +436,9 @@ def relation_to_db(target: InvestigationTarget, change_field: ChangeField, value
     current = _current_value(target, change_field)
     if not current or not _comparable(change_field, current, value):
         return "unknown"
-    current_key, key = comparison_key(change_field, current), comparison_key(change_field, value)
-    if _inconclusive(change_field, current_key, key):
+    if _inconclusive(change_field, current, value):
         return "inconclusive"
+    current_key, key = comparison_key(change_field, current), comparison_key(change_field, value)
     return "same" if _same_as_current(change_field, current_key, key) else "different"
 
 
