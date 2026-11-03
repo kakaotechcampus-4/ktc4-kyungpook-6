@@ -2,13 +2,21 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { newDraftItemId, useSignupDraft } from "./signupDraft";
-import type { SignupBusinessHour, SignupInfo, SignupMenu, SignupStore, SignupAccount } from "./signupDraft";
+import type {
+  SignupAccount,
+  SignupBizCert,
+  SignupBusinessHour,
+  SignupInfo,
+  SignupMenu,
+  SignupStore,
+} from "./signupDraft";
 import { signupOwner } from "../services/auth";
 import type { BusinessDay } from "../services/auth";
 import { uploadFile } from "../services/file";
 import { saveStatusToken } from "../services/statusToken";
-import { toSignupExtras } from "../utils/bizCertReading";
 import { toSignupError } from "../utils/signupError";
+import { joinBusinessValues } from "../utils/bizCertReading";
+import { openDateToIso } from "../utils/format";
 import { MENU_MAX_COUNT, validateMenuName } from "../utils/signupValidation";
 
 /** 가입 신청이 받아들여진 뒤 보여 줄 완료(승인 대기) 화면. */
@@ -39,7 +47,8 @@ export type UseSignupMenusResult = {
 
 type SignupSubmission = {
   account: SignupAccount;
-  info: SignupInfo & { bizRegistrationFile: File };
+  bizCert: SignupBizCert;
+  info: SignupInfo;
   store: SignupStore;
   businessHours: SignupBusinessHour[];
   menus: SignupMenu[];
@@ -49,12 +58,12 @@ type SignupSubmission = {
  * 파일을 먼저 올리고(POST /api/files) 받은 파일 ID 를 실어 가입 신청을 보낸다.
  * 성공하면 가입 상태 확인용 토큰을 저장한다. 완료 화면이 이 토큰으로 승인 여부를 묻는다.
  *
- * 사업자 등록증은 기본 정보 화면에서 골랐을 때 이미 올렸으면 그 ID 를 쓴다(hooks/signupInfo.ts).
+ * 사업자등록증은 고를 때 이미 올렸으면 그 ID 를 쓴다(hooks/signupBizCert.ts).
  * 파일 ID 는 세 시간 안에 한 번만 쓸 수 있어서, 실패 뒤 다시 누르면 파일도 다시 올린다.
  */
-const submitSignup = async ({ account, info, store, businessHours, menus }: SignupSubmission) => {
+const submitSignup = async ({ account, bizCert, info, store, businessHours, menus }: SignupSubmission) => {
   const [bizCertFileId, storeImageFileId, menuPhotoFileIds] = await Promise.all([
-    info.bizCertFileId ?? uploadFile("BIZ_CERT", info.bizRegistrationFile),
+    bizCert.fileId ?? uploadFile("BIZ_CERT", bizCert.file),
     store.storePhoto ? uploadFile("STORE_IMAGE", store.storePhoto) : undefined,
     Promise.all(menus.map((menu) => (menu.photo ? uploadFile("MENU_IMAGE", menu.photo) : undefined))),
   ]);
@@ -64,8 +73,13 @@ const submitSignup = async ({ account, info, store, businessHours, menus }: Sign
     email: account.email,
     password: account.password,
     representativeName: info.representativeName,
-    phone: info.phone,
+    phone: store.phone,
     bizNo: info.bizNo,
+    // 선택 칸은 비었으면 싣지 않는다.
+    corpName: info.corpName.trim() === "" ? undefined : info.corpName,
+    openDate: info.openDate === "" ? undefined : openDateToIso(info.openDate),
+    businessType: joinBusinessValues(info.businessPairs.map((pair) => pair.type)),
+    businessItem: joinBusinessValues(info.businessPairs.map((pair) => pair.item)),
     storeName: store.storeName,
     storeAddress: store.storeAddress,
     storePhone: store.storePhone,
@@ -74,7 +88,6 @@ const submitSignup = async ({ account, info, store, businessHours, menus }: Sign
     menus: menus.map(({ name }, index) => ({ name, photoFileId: menuPhotoFileIds[index] })),
     storeImageFileId,
     bizCertFileId,
-    ...toSignupExtras(info.bizCertReading),
   });
   await saveStatusToken(response);
   return response;
@@ -85,8 +98,9 @@ export const useSignupMenus = (): UseSignupMenusResult => {
   const navigate = useNavigate();
   const {
     account,
+    bizCert,
+    setBizCert,
     info,
-    setInfo,
     store,
     businessHours,
     menus: savedMenus,
@@ -101,9 +115,9 @@ export const useSignupMenus = (): UseSignupMenusResult => {
   const signupMutation = useMutation({
     mutationFn: submitSignup,
     onSuccess: () => navigate(COMPLETE_PATH, { replace: true }),
-    onError: (error, { account: submitted, info: submittedInfo }) => {
-      // 미리 올린 사업자 등록증 ID 는 세 시간이 지났을 수도 있으니 버리고, 다시 누르면 새로 올린다.
-      setInfo({ ...submittedInfo, bizCertFileId: null });
+    onError: (error, { account: submitted, bizCert: submittedBizCert }) => {
+      // 미리 올린 사업자등록증 ID 는 세 시간이 지났을 수도 있으니 버리고, 다시 누르면 새로 올린다.
+      setBizCert({ ...submittedBizCert, fileId: null });
       if (toSignupError(error).kind === "duplicate-email") {
         markEmailTaken(submitted.email);
         navigate(ACCOUNT_STEP_PATH);
@@ -130,12 +144,13 @@ export const useSignupMenus = (): UseSignupMenusResult => {
 
   const goNext = () => {
     // 앞 단계 값은 화면이 확인하고 들여보내므로(OwnerSignupMenusPage) 여기서는 타입만 좁힌다.
-    if (!canProceed || !account || !info?.bizRegistrationFile || !store || !businessHours) return;
+    if (!canProceed || !account || !bizCert || !info || !store || !businessHours) return;
     // 409 로 1단계에 다녀와도 목록이 남도록 보관한다.
     saveMenus(menus);
     signupMutation.mutate({
       account,
-      info: { ...info, bizRegistrationFile: info.bizRegistrationFile },
+      bizCert,
+      info,
       store,
       businessHours,
       menus,
