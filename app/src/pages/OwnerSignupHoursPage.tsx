@@ -4,42 +4,15 @@ import addTimeIcon from "../assets/add-time-icon.svg";
 import LogoHeader from "../components/ui/LogoHeader";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import BusinessHourRow from "../components/signup/BusinessHourRow";
-import ChoiceChip from "../components/signup/ChoiceChip";
 import StoreStepProgress from "../components/signup/StoreStepProgress";
 import { useSignupDraft } from "../hooks/signupDraft";
 import { useSignupHours } from "../hooks/signupHours";
-import type { SignupStoreOptions } from "../hooks/signupDraft";
-import type { OrderReceiveType } from "../services/order";
+import SignupBottomBar from "../components/signup/SignupBottomBar";
 
-const SECTION_TITLE_CLASS_NAME = "text-sm leading-[normal] font-semibold text-[#6b7280]";
-
-const COMPANION_CHOICES: { value: SignupStoreOptions["companionLimit"]; label: string }[] = [
-  { value: 0, label: "아이 혼자" },
-  { value: 1, label: "1명 동반" },
-  { value: 2, label: "2명 동반" },
-];
-
-const RECEIVE_TYPE_CHOICES: { value: OrderReceiveType; label: string }[] = [
-  { value: "TAKEOUT", label: "포장" },
-  { value: "DINE_IN", label: "매장 식사" },
-];
-
-/** 가게 등록 2: 함께 올 수 있는 인원·식사 방법·영업시간. */
+/** 가게 등록 2: 영업시간. */
 function OwnerSignupHoursPage() {
   const { account, info, store } = useSignupDraft();
-  const {
-    companionLimit,
-    setCompanionLimit,
-    receiveTypes,
-    toggleReceiveType,
-    lines,
-    changeLine,
-    canAddLine,
-    addLine,
-    removeLine,
-    canProceed,
-    goNext,
-  } = useSignupHours();
+  const { lines, changeLine, canAddLine, addLine, removeLine, canProceed, goNext } = useSignupHours();
 
   // 앞 단계를 거치지 않고 들어오면(새로고침 등) 입력값이 없으니 1단계로 돌려보낸다.
   if (!account || !info || !store) return <Navigate to="/owner/signup" replace />;
@@ -50,40 +23,12 @@ function OwnerSignupHoursPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
-      <LogoHeader title="가게 등록" description="영업정보를 알려주세요." />
+    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)]">
+      <LogoHeader title="가게 등록" description="영업시간을 알려주세요." />
 
       <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
-        <section className="pb-4">
-          <h2 className={`${SECTION_TITLE_CLASS_NAME} pb-3`}>함께 올 수 있는 인원</h2>
-          <div className="flex gap-2">
-            {COMPANION_CHOICES.map(({ value, label }) => (
-              <ChoiceChip
-                key={value}
-                label={label}
-                selected={companionLimit === value}
-                onClick={() => setCompanionLimit(value)}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section className="pb-4">
-          <h2 className={`${SECTION_TITLE_CLASS_NAME} pb-3`}>식사 방법</h2>
-          <div className="flex gap-2">
-            {RECEIVE_TYPE_CHOICES.map(({ value, label }) => (
-              <ChoiceChip
-                key={value}
-                label={label}
-                selected={receiveTypes.includes(value)}
-                onClick={() => toggleReceiveType(value)}
-              />
-            ))}
-          </div>
-        </section>
-
         <div className="flex items-center justify-between pb-3">
-          <h2 className={SECTION_TITLE_CLASS_NAME}>영업시간</h2>
+          <h2 className="text-sm leading-[normal] font-semibold text-[#6b7280]">영업시간</h2>
           <button
             type="button"
             onClick={addLine}
@@ -104,12 +49,12 @@ function OwnerSignupHoursPage() {
           />
         ))}
 
-        <div className="flex-1 pb-6" />
-
-        <StoreStepProgress current={2} />
-        <PrimaryButton type="submit" disabled={!canProceed}>
-          다음
-        </PrimaryButton>
+        <SignupBottomBar className="pt-6">
+          <StoreStepProgress current={2} />
+          <PrimaryButton type="submit" disabled={!canProceed}>
+            다음
+          </PrimaryButton>
+        </SignupBottomBar>
       </form>
     </main>
   );
