@@ -3,33 +3,44 @@ import { Navigate } from "react-router-dom";
 import LogoHeader from "../components/ui/LogoHeader";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import TextField from "../components/ui/TextField";
+import ChoiceChip from "../components/signup/ChoiceChip";
 import StorePhotoField from "../components/signup/StorePhotoField";
 import StoreStepProgress from "../components/signup/StoreStepProgress";
-import StoreSummaryCard from "../components/signup/StoreSummaryCard";
 import { useSignupDraft } from "../hooks/signupDraft";
+import type { SignupStore } from "../hooks/signupDraft";
 import { useSignupStore } from "../hooks/signupStore";
-import { STORE_ADDRESS_MAX_LENGTH, STORE_PHONE_MAX_LENGTH } from "../utils/signupValidation";
+import type { OrderReceiveType } from "../services/order";
+import { STORE_PHONE_MAX_LENGTH } from "../utils/signupValidation";
+import SignupBottomBar from "../components/signup/SignupBottomBar";
 
 const LABEL_CLASS_NAME = "font-semibold";
+const SECTION_TITLE_CLASS_NAME = "pb-3 text-sm leading-[normal] font-semibold text-[#6b7280]";
 
-/** 가게 등록 1: 상호명·주소(사업자등록증에서 읽은 값)·가게 전화번호·대표자 전화번호·대표 사진. */
+const COMPANION_CHOICES: { value: SignupStore["companionLimit"]; label: string }[] = [
+  { value: 0, label: "아이 혼자" },
+  { value: 1, label: "1명 동반" },
+  { value: 2, label: "2명 동반" },
+];
+
+const RECEIVE_TYPE_CHOICES: { value: OrderReceiveType; label: string }[] = [
+  { value: "TAKEOUT", label: "포장" },
+  { value: "DINE_IN", label: "매장 식사" },
+];
+
+/** 가게 등록 1: 대표 사진·가게 전화번호·사장님 전화번호·함께 올 수 있는 인원·식사 방법. */
 function OwnerSignupStorePage() {
   const { account, bizCert, info } = useSignupDraft();
   const {
-    summaryRows,
-    editSummary,
-    showStoreNameField,
-    showStoreAddressField,
-    storeName,
-    setStoreName,
-    storeAddress,
-    setStoreAddress,
+    storePhoto,
+    setStorePhoto,
     storePhone,
     setStorePhone,
     phone,
     setPhone,
-    storePhoto,
-    setStorePhoto,
+    companionLimit,
+    setCompanionLimit,
+    receiveTypes,
+    toggleReceiveType,
     canProceed,
     goNext,
   } = useSignupStore();
@@ -43,40 +54,13 @@ function OwnerSignupStorePage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
-      <LogoHeader title="가게 등록" description="가게 정보를 알려주세요." />
+    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)]">
+      <LogoHeader title="가게 등록" description="가게 세부 정보를 알려주세요." />
 
       <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
-        {summaryRows.length > 0 && (
-          <>
-            <StoreSummaryCard rows={summaryRows} onEdit={editSummary} />
-            <h2 className="pb-2.5 text-sm leading-[normal] font-bold text-[#1f2937]">직접 입력해 주세요</h2>
-          </>
-        )}
-
-        {showStoreNameField && (
-          <TextField
-            id="signup-store-name"
-            label="상호명"
-            labelClassName={LABEL_CLASS_NAME}
-            className="pb-3"
-            value={storeName}
-            onChange={(event) => setStoreName(event.target.value)}
-            maxLength={200}
-          />
-        )}
-        {showStoreAddressField && (
-          <TextField
-            id="signup-store-address"
-            label="주소"
-            labelClassName={LABEL_CLASS_NAME}
-            className="pb-3"
-            value={storeAddress}
-            onChange={(event) => setStoreAddress(event.target.value)}
-            maxLength={STORE_ADDRESS_MAX_LENGTH}
-            autoComplete="street-address"
-          />
-        )}
+        <div className="pb-4">
+          <StorePhotoField id="signup-store-photo" file={storePhoto} onChange={setStorePhoto} />
+        </div>
         <TextField
           id="signup-store-phone"
           label="가게 전화번호"
@@ -91,7 +75,7 @@ function OwnerSignupStorePage() {
         />
         <TextField
           id="signup-phone"
-          label="대표자 전화번호"
+          label="사장님 전화번호"
           labelClassName={LABEL_CLASS_NAME}
           className="pb-4"
           placeholder="010-0000-0000"
@@ -101,14 +85,41 @@ function OwnerSignupStorePage() {
           inputMode="numeric"
           autoComplete="tel"
         />
-        <StorePhotoField id="signup-store-photo" file={storePhoto} onChange={setStorePhoto} />
 
-        <div className="flex-1 pb-6" />
+        <section className="pb-4">
+          <h2 className={SECTION_TITLE_CLASS_NAME}>함께 올 수 있는 인원</h2>
+          <div className="flex gap-2">
+            {COMPANION_CHOICES.map(({ value, label }) => (
+              <ChoiceChip
+                key={value}
+                label={label}
+                selected={companionLimit === value}
+                onClick={() => setCompanionLimit(value)}
+              />
+            ))}
+          </div>
+        </section>
 
-        <StoreStepProgress current={1} />
-        <PrimaryButton type="submit" disabled={!canProceed}>
-          다음
-        </PrimaryButton>
+        <section>
+          <h2 className={SECTION_TITLE_CLASS_NAME}>식사 방법</h2>
+          <div className="flex gap-2">
+            {RECEIVE_TYPE_CHOICES.map(({ value, label }) => (
+              <ChoiceChip
+                key={value}
+                label={label}
+                selected={receiveTypes.includes(value)}
+                onClick={() => toggleReceiveType(value)}
+              />
+            ))}
+          </div>
+        </section>
+
+        <SignupBottomBar className="pt-6">
+          <StoreStepProgress current={1} />
+          <PrimaryButton type="submit" disabled={!canProceed}>
+            다음
+          </PrimaryButton>
+        </SignupBottomBar>
       </form>
     </main>
   );
