@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CustomOverlayMap, Map, useKakaoLoader } from "react-kakao-maps-sdk";
 import locateIcon from "../assets/child-locate-icon.svg";
 import searchIcon from "../assets/child-map-search-icon.svg";
@@ -47,11 +47,18 @@ function ChildHomePage() {
     selectStore,
     openStore,
     userLocation,
+    startLocation,
     locateUser,
   } = useChildHome();
   const [loading, error] = useKakaoLoader({ appkey: import.meta.env.VITE_KAKAO_JS_KEY });
   const [map, setMap] = useState<kakao.maps.Map | null>(null);
   const { heading, requestPermission: requestHeadingPermission } = useDeviceHeading();
+  // 들어온 뒤 지도를 마지막 위치 → 지금 위치 순으로 옮긴다. 지도가 아직 없으면 지도가 생긴 뒤에 옮긴다.
+  // 둘 다 없으면 기준점(DEFAULT_CHILD_LOCATION)을 보여 준다. 가까우면 부드럽게, 멀면 바로 옮겨 간다(panTo).
+  useEffect(() => {
+    if (!map || !startLocation) return;
+    map.panTo(new kakao.maps.LatLng(startLocation.lat, startLocation.lng));
+  }, [map, startLocation]);
 
   /**
    * 그 위치로 부드럽게 옮겨 간 뒤, 다 옮기면 가운데를 기준으로 확대한다.
