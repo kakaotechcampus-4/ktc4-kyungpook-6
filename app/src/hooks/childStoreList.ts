@@ -4,9 +4,10 @@ import { MOCK_CHILD_STORES } from "../services/childStore";
 import type { ChildStore } from "../services/childStore";
 import { getChildStoreOpenStatus } from "../utils/childStoreStatus";
 import type { ChildStoreOpenStatus } from "../utils/childStoreStatus";
+import { matchesQuery } from "../utils/childSearch";
 
-/** 이 거리(m) 안의 가게만 목록에 띄운다. */
-const MAX_DISTANCE_METERS = 2000;
+/** 이 거리(m) 안의 가게만 목록·지도에 띄운다. */
+export const MAX_DISTANCE_METERS = 2000;
 
 /** 영업 상태를 다시 계산하는 주기. 분 단위로 바뀌니 30초면 충분하다. */
 const CLOCK_TICK_MS = 30_000;
@@ -36,13 +37,6 @@ export const useNow = () => {
   return now;
 };
 
-/** 공백·대소문자를 무시하고 가게 이름이나 메뉴 이름에 검색어가 들어 있는지. */
-const matchesQuery = (store: ChildStore, query: string) => {
-  const normalize = (text: string) => text.replace(/\s/g, "").toLowerCase();
-  const keyword = normalize(query);
-  if (keyword === "") return true;
-  return [store.name, ...store.menus.map((menu) => menu.name)].some((text) => normalize(text).includes(keyword));
-};
 
 /**
  * 아동 가게 목록. 적정 거리 안의 가게만, 검색어와 칩으로 거른다.
