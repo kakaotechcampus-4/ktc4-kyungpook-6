@@ -18,7 +18,10 @@ function StorePhotoField({ id, file, onChange }: StorePhotoFieldProps) {
 
   return (
     <div>
-      <p className="pb-3 text-sm leading-[normal] font-semibold text-[#6b7280]">대표 사진</p>
+      <p className="pb-3 text-sm leading-[normal] font-semibold text-[#6b7280]">
+        대표 사진
+        <span className="pl-1 text-[11px] leading-[13px] font-normal text-[#a0a7b2]">선택</span>
+      </p>
       <label
         htmlFor={id}
         aria-label={file ? "대표 사진 바꾸기" : "대표 사진 고르기"}
