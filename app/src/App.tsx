@@ -17,6 +17,13 @@ import OwnerStorePage from "./pages/OwnerStorePage";
 import OwnerOrdersPage from "./pages/OwnerOrdersPage";
 import OwnerQrScanPage from "./pages/OwnerQrScanPage";
 import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
+import ChildCardLoginPage from "./pages/ChildCardLoginPage";
+import ChildHomePage from "./pages/ChildHomePage";
+import ChildStoreListPage from "./pages/ChildStoreListPage";
+import ChildStoreDetailPage from "./pages/ChildStoreDetailPage";
+import ChildOrderPage from "./pages/ChildOrderPage";
+import ChildOrderCompletePage from "./pages/ChildOrderCompletePage";
+import ChildQrPage from "./pages/ChildQrPage";
 
 function App() {
   return (
@@ -43,6 +50,15 @@ function App() {
         <Route path="/owner/store" element={<OwnerStorePage />} />
         <Route path="/owner/qr" element={<OwnerQrScanPage />} />
         <Route path="/owner/qr/result" element={<OwnerCheckInResultPage />} />
+        {/* 아동 화면 */}
+        <Route path="/child/login" element={<ChildCardLoginPage />} />
+        {/* 카드 인증을 마치면 오는 아동 홈(hooks/childCardLogin.ts). */}
+        <Route path="/child/home" element={<ChildHomePage />} />
+        <Route path="/child/stores" element={<ChildStoreListPage />} />
+        <Route path="/child/stores/:storeId" element={<ChildStoreDetailPage />} />
+        <Route path="/child/stores/:storeId/order" element={<ChildOrderPage />} />
+        <Route path="/child/order/complete" element={<ChildOrderCompletePage />} />
+        <Route path="/child/qr" element={<ChildQrPage />} />
       </Routes>
     </BrowserRouter>
   );

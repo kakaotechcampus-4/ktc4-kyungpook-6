@@ -5,13 +5,12 @@ import { useNavigate } from "react-router-dom";
 export type AppUserRole = "OWNER" | "CHILD";
 
 /*
-  역할을 고른 뒤 넘어갈 화면.
-  아동 인증 화면은 아직 없어서 임시 화면(/home)으로 둔다. 화면이 생기면 여기만 바꾼다.
+  역할을 고른 뒤 넘어갈 화면. 점주는 로그인, 아동은 급식카드 인증.
   "/" 는 스플래시라 여기로 보내면 역할 선택으로 되돌아온다.
 */
 const NEXT_PATH: Record<AppUserRole, string> = {
   OWNER: "/owner/login",
-  CHILD: "/home",
+  CHILD: "/child/login",
 };
 
 export type UseRoleSelectResult = {

@@ -19,6 +19,7 @@
   "dependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/geolocation": "^8.2.4",
     "@capacitor/ios": "^8.5.2",
     "@capacitor/preferences": "^8.0.1",
     "@iconify/react": "^6.0.2",
@@ -27,6 +28,7 @@
     "qr-scanner": "^1.4.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-kakao-maps-sdk": "^1.2.2",
     "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
