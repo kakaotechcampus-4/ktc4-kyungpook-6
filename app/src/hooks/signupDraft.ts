@@ -9,7 +9,7 @@ export type SignupAccount = {
   password: string;
 };
 
-/** 사업자등록증 올리기에서 고른 파일과 읽은 값. 읽은 값은 기본 정보·가게 등록 1 의 칸을 채우는 데 쓴다. */
+/** 사업자등록증 올리기에서 고른 파일과 읽은 값. 읽은 값은 기본 정보의 칸을 채우는 데 쓴다. */
 export type SignupBizCert = {
   /** 필수다. */
   file: File;
@@ -22,43 +22,27 @@ export type SignupBizCert = {
   reading: BizCertReading | null;
 };
 
-/** 업태·종목 한 줄. 백엔드에는 줄마다 쉼표로 이어 업태 한 칸, 종목 한 칸으로 보낸다. */
-export type SignupBusinessPair = {
-  /** 화면에서 줄을 구분하는 키. 서버로 보내지 않는다. */
-  id: string;
-  type: string;
-  item: string;
-};
-
 /** 기본 정보에서 받은 값. 앞 단계로 돌아갔다 와도 다시 채우려고 보관한다. */
 export type SignupInfo = {
   representativeName: string;
-  /** 선택. 법인사업자만 적는다. */
-  corpName: string;
   bizNo: string;
-  /** 선택. "YYYY.MM.DD" 이거나 "". */
-  openDate: string;
-  /** 선택. 빈 줄은 보내지 않는다. */
-  businessPairs: SignupBusinessPair[];
-};
-
-/** 가게 등록 1(가게 정보)에서 받은 값. */
-export type SignupStore = {
   storeName: string;
   storeAddress: string;
-  storePhone: string;
-  /** 대표자 휴대폰 번호. */
-  phone: string;
-  /** 대표 사진(선택). 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts). */
-  storePhoto: File | null;
+  /** 선택. "YYYY.MM.DD" 이거나 "". */
+  openDate: string;
 };
 
-/**
- * 가게 등록 2 의 함께 올 수 있는 인원·식사 방법.
- * 백엔드 가입 신청에 아직 칸이 없어 보내지 않고 화면 사이에서만 들고 있는다.
- */
-export type SignupStoreOptions = {
-  /** 아이와 함께 올 수 있는 어른 수. 0 이면 아이 혼자. */
+/** 가게 등록 1(가게 세부 정보)에서 받은 값. */
+export type SignupStore = {
+  /** 대표 사진(선택). 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts). */
+  storePhoto: File | null;
+  storePhone: string;
+  /** 사장님(대표자) 휴대폰 번호. */
+  phone: string;
+  /**
+   * 아이와 함께 올 수 있는 어른 수(0 이면 아이 혼자)와 식사 방법.
+   * 백엔드 가입 신청에 아직 칸이 없어 보내지 않고 화면 사이에서만 들고 있는다.
+   */
   companionLimit: 0 | 1 | 2;
   receiveTypes: OrderReceiveType[];
 };
@@ -92,8 +76,6 @@ export type SignupDraft = {
   setInfo: (info: SignupInfo) => void;
   store: SignupStore | null;
   setStore: (store: SignupStore) => void;
-  storeOptions: SignupStoreOptions | null;
-  setStoreOptions: (storeOptions: SignupStoreOptions) => void;
   businessHours: SignupBusinessHour[] | null;
   setBusinessHours: (businessHours: SignupBusinessHour[]) => void;
   menus: SignupMenu[] | null;
@@ -122,7 +104,7 @@ export const useSignupDraft = (): SignupDraft => {
 let lastDraftItemId = 0;
 
 /**
- * 영업시간 줄·업태 종목 줄·메뉴에 붙이는 화면용 키. crypto.randomUUID 는 보안 컨텍스트에서만 있어
+ * 영업시간 줄·메뉴에 붙이는 화면용 키. crypto.randomUUID 는 보안 컨텍스트에서만 있어
  * (휴대폰으로 http://192.168.x.x 개발 서버에 붙으면 없다) 숫자를 센다.
  */
 export const newDraftItemId = () => String(++lastDraftItemId);

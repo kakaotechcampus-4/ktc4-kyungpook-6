@@ -15,7 +15,6 @@ import type { BusinessDay } from "../services/auth";
 import { uploadFile } from "../services/file";
 import { saveStatusToken } from "../services/statusToken";
 import { toSignupError } from "../utils/signupError";
-import { joinBusinessValues } from "../utils/bizCertReading";
 import { openDateToIso } from "../utils/format";
 import { MENU_MAX_COUNT, validateMenuName } from "../utils/signupValidation";
 
@@ -75,13 +74,10 @@ const submitSignup = async ({ account, bizCert, info, store, businessHours, menu
     representativeName: info.representativeName,
     phone: store.phone,
     bizNo: info.bizNo,
-    // 선택 칸은 비었으면 싣지 않는다.
-    corpName: info.corpName.trim() === "" ? undefined : info.corpName,
+    // 개업일은 선택이라 비었으면 싣지 않는다.
     openDate: info.openDate === "" ? undefined : openDateToIso(info.openDate),
-    businessType: joinBusinessValues(info.businessPairs.map((pair) => pair.type)),
-    businessItem: joinBusinessValues(info.businessPairs.map((pair) => pair.item)),
-    storeName: store.storeName,
-    storeAddress: store.storeAddress,
+    storeName: info.storeName,
+    storeAddress: info.storeAddress,
     storePhone: store.storePhone,
     // 영업시간 화면을 통과한 줄은 요일을 골랐다(validateBusinessHour).
     businessHours: businessHours.map(({ day, open, close }) => ({ day: day as BusinessDay, open, close })),

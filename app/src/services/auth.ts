@@ -40,12 +40,6 @@ export type OwnerSignupRequest = {
   phone: string;
   /** 개업일(선택). "yyyy-MM-dd". */
   openDate?: string;
-  /** 법인명(선택). 법인사업자만. */
-  corpName?: string;
-  /** 업태(선택). 여러 개면 쉼표로 잇는다. */
-  businessType?: string;
-  /** 종목(선택). 여러 개면 쉼표로 잇는다. */
-  businessItem?: string;
   storeAddress: string;
   storePhone: string;
   /** 1~21줄. 같은 요일 여러 줄 가능, 줄이 없는 요일은 휴무. */
