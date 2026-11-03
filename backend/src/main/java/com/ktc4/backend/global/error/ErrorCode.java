@@ -32,6 +32,7 @@ public enum ErrorCode {
     STORE_HAS_OWNER(HttpStatus.CONFLICT, "점주가 연결된 가게입니다"),
     STORE_UNDER_INVESTIGATION(HttpStatus.CONFLICT, "조사가 진행 중입니다"),
     STORE_HAS_CHECK_IN(HttpStatus.CONFLICT, "방문 기록이 있는 가게입니다"),
+    STORE_HAS_ORDER(HttpStatus.CONFLICT, "주문 기록이 있는 가게입니다"),
     INVALID_QR_TOKEN(HttpStatus.BAD_REQUEST, "유효하지 않은 QR 입니다"),
     // 아동 급식카드 인증. 서버에 카드 번호 해시 키(CARD_HASH_SECRET)가 없으면 인증만 멈춘다 — 앱 전체는 뜬다
     CARD_AUTH_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금 카드 인증을 할 수 없습니다"),

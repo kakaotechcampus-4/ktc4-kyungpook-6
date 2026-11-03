@@ -56,6 +56,7 @@ public class StoreDeleteAdminController {
                     | 점주가 연결돼 있음 | ✅ | 점주 앱에서 그 가게가 사라집니다. 연결만 끊으려면 `DELETE /api/admin/owners/{memberId}/stores/{storeId}` |
                     | 조사가 돌고 있음 | ✅ | 돌고 있는 조사의 대상이 없어집니다. 가게 단위가 아니라 **조사 단위**로 봅니다 — 조사는 한 번에 하나만 돌고, 아직 차례가 안 온 가게는 어느 표에도 없어 가게로는 판정할 수 없습니다 |
                     | 방문(체크인) 기록이 있음 | ❌ | 아동이 실제로 다녀간 기록인데 **보관할 자리가 아직 없습니다.** 지우면 영구히 사라집니다 |
+                    | 아동 주문 기록이 있음 | ❌ | 체크인과 같은 이유입니다(`store-has-order`) |
 
                     `force` 로 지우면 **점주 연결도 함께 끊깁니다.** 몇 건을 끊었는지 응답
                     `ownerLinks` 에 담깁니다.
@@ -75,7 +76,7 @@ public class StoreDeleteAdminController {
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class))),
             @ApiResponse(responseCode = "409",
-                    description = "점주가 연결돼 있거나, 조사가 돌고 있거나, 방문 기록이 있는 경우",
+                    description = "점주가 연결돼 있거나, 조사가 돌고 있거나, 방문·주문 기록이 있는 경우",
                     content = @Content(mediaType = "application/problem+json",
                             schema = @Schema(implementation = ApiProblemDetail.class)))
     })
@@ -97,7 +98,7 @@ public class StoreDeleteAdminController {
                     **한 곳이 막혀도 나머지는 지웁니다.** 어느 가게를 왜 지우지 않았는지는 `refusals` 에
                     담깁니다 — 단건 API 의 409 조건과 같습니다.
 
-                    `force` 를 함께 보내면 점주 연결이 있거나 조사가 돌고 있어도 지웁니다(체크인 기록은
+                    `force` 를 함께 보내면 점주 연결이 있거나 조사가 돌고 있어도 지웁니다(체크인·주문 기록은
                     그래도 지우지 않습니다). 거절 조건은 단건 API 와 같습니다.
 
                     **이미 없는 ID 는 오류가 아닙니다.** `notFound` 로 셉니다. 같은 요청을 두 번 보내도
