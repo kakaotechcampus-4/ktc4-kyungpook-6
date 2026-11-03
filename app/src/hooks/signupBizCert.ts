@@ -1,9 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { newDraftItemId, useSignupDraft } from "./signupDraft";
+import { useSignupDraft } from "./signupDraft";
 import { readBizCert, uploadFile } from "../services/file";
 import type { BizCertReading } from "../services/file";
-import { fillInfoBlanks, fillStoreBlanks, hasAnyReading, toAutofillItems } from "../utils/bizCertReading";
+import { fillInfoBlanks, hasAnyReading, toAutofillItems } from "../utils/bizCertReading";
 import type { AutofillItem } from "../utils/bizCertReading";
 import { toSignupError } from "../utils/signupError";
 
@@ -43,15 +43,14 @@ export type UseBizCertReaderResult = {
 /** 사업자등록증을 올리고 읽어 초안에 담는다. 올리기 화면과 결과 화면의 "다시 올리기"가 같이 쓴다. */
 export const useBizCertReader = (): UseBizCertReaderResult => {
   const navigate = useNavigate();
-  const { setBizCert, info, setInfo, store, setStore } = useSignupDraft();
+  const { setBizCert, info, setInfo } = useSignupDraft();
 
   const readMutation = useMutation({
     mutationFn: uploadAndRead,
     onSuccess: ({ fileId, reading }, file) => {
       setBizCert({ file, fileId, reading });
-      // 기본 정보·가게 정보를 적고 돌아와 다시 올렸으면 빈 칸만 새 값으로 채운다. 적은 값은 덮어쓰지 않는다.
-      if (reading && info) setInfo(fillInfoBlanks(info, reading, newDraftItemId));
-      if (reading && store) setStore(fillStoreBlanks(store, reading));
+      // 기본 정보를 적고 돌아와 다시 올렸으면 빈 칸만 새 값으로 채운다. 적은 값은 덮어쓰지 않는다.
+      if (reading && info) setInfo(fillInfoBlanks(info, reading));
       // 결과 화면에서 다시 올렸으면 같은 화면을 다시 그리므로 기록을 쌓지 않는다.
       navigate(RESULT_PATH, { replace: window.location.pathname === RESULT_PATH });
     },
