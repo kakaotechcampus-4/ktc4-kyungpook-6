@@ -5,6 +5,7 @@ import type { ChildStore } from "../services/childStore";
 import type { OrderReceiveType } from "../services/order";
 import { getChildStoreOpenStatus } from "../utils/childStoreStatus";
 import { useNow } from "./childStoreList";
+import { clearChildHomeView } from "./childHomeView";
 
 /*
   주문한 뒤 넘어갈 주문 완료 화면.
@@ -67,6 +68,8 @@ export const useChildOrder = (): UseChildOrderResult => {
     canSubmit,
     submit: () => {
       if (!canSubmit) return;
+      // 주문을 마쳤으니 홈은 다음에 처음 화면(검색어·칩 없음, 내 위치)으로 시작한다.
+      clearChildHomeView();
       navigate(AFTER_ORDER_PATH, { replace: true });
     },
   };

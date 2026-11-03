@@ -6,6 +6,8 @@ import { loadLastLocation, saveLastLocation } from "../services/lastLocation";
 import { getChildStoreOpenStatus } from "../utils/childStoreStatus";
 import { matchesQuery } from "../utils/childSearch";
 import { MAX_DISTANCE_METERS, useNow } from "./childStoreList";
+import { getChildHomeView, saveChildHomeView } from "./childHomeView";
+import type { ChildHomeView } from "./childHomeView";
 import type { ChildStoreListItem } from "./childStoreList";
 
 export type ChildHomeFilter = "OPEN_ONLY" | "TAKEOUT";
@@ -37,6 +39,10 @@ export type UseChildHomeResult = {
    * 둘 다 없으면 null(기준점에 둔다).
    */
   startLocation: LatLng | null;
+  /** 가게 정보에서 뒤로 왔을 때 되살릴 지도 위치. 있으면 지도를 여기서 시작하고 내 위치로 옮기지 않는다. */
+  restoredMap: ChildHomeView["map"];
+  /** 지도를 다 움직였을 때 위치를 기억해 둔다. */
+  saveMapView: (map: NonNullable<ChildHomeView["map"]>) => void;
   /** 위치를 다시 받는다. 받은 위치(또는 받지 못하면 지금 위치)를 돌려준다. */
   locateUser: () => Promise<LatLng>;
 };
@@ -67,34 +73,41 @@ const readDeviceLocation = async (): Promise<LatLng | null> => {
 export const useChildHome = (): UseChildHomeResult => {
   const navigate = useNavigate();
   const now = useNow();
-  const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<Set<ChildHomeFilter>>(() => new Set());
-  const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
+  // 가게 정보에서 뒤로 왔으면 보던 화면(hooks/childHomeView.ts)을 되살린다.
+  const [restored] = useState(getChildHomeView);
+  const [query, setQuery] = useState(restored?.query ?? "");
+  const [filters, setFilters] = useState<Set<ChildHomeFilter>>(() => new Set(restored?.filters));
+  const [selectedStoreId, setSelectedStoreId] = useState<number | null>(restored?.selectedStoreId ?? null);
   const [userLocation, setUserLocation] = useState<LatLng>(DEFAULT_CHILD_LOCATION);
   const [startLocation, setStartLocation] = useState<LatLng | null>(null);
 
-  // 들어오면 저장해 둔 마지막 위치에서 먼저 시작하고, 기기 위치를 받으면 그리로 옮긴다.
-  // 둘 다 없으면(처음 켰는데 거절 등) 기준점에 둔다.
   useEffect(() => {
+    saveChildHomeView({ query, filters: [...filters], selectedStoreId });
+  }, [query, filters, selectedStoreId]);
+
+  // 들어오면 저장해 둔 마지막 위치에서 먼저 시작하고, 기기 위치를 받으면 그리로 옮긴다.
+  // 둘 다 없으면(처음 켰는데 거절 등) 기준점에 둔다. 보던 지도를 되살렸으면 내 위치 표시만 옮기고 지도는 그대로 둔다.
+  useEffect(() => {
+    const keepMap = restored?.map != null;
     let cancelled = false;
     let deviceLocated = false;
     loadLastLocation()
       .then((saved) => {
         if (cancelled || deviceLocated || !saved) return;
         setUserLocation(saved);
-        setStartLocation(saved);
+        if (!keepMap) setStartLocation(saved);
       })
       .catch(() => {});
     readDeviceLocation().then((location) => {
       if (cancelled || !location) return;
       deviceLocated = true;
       setUserLocation(location);
-      setStartLocation(location);
+      if (!keepMap) setStartLocation(location);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [restored]);
 
   const stores = useMemo(
     () =>
@@ -131,6 +144,8 @@ export const useChildHome = (): UseChildHomeResult => {
     openStore: (storeId) => navigate(`/child/stores/${storeId}`),
     userLocation,
     startLocation,
+    restoredMap: restored?.map ?? null,
+    saveMapView: (map) => saveChildHomeView({ map }),
     locateUser: async () => {
       const location = await readDeviceLocation();
       if (location) setUserLocation(location);

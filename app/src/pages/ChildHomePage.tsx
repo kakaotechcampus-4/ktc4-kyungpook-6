@@ -48,6 +48,8 @@ function ChildHomePage() {
     openStore,
     userLocation,
     startLocation,
+    restoredMap,
+    saveMapView,
     locateUser,
   } = useChildHome();
   const [loading, error] = useKakaoLoader({ appkey: import.meta.env.VITE_KAKAO_JS_KEY });
@@ -116,10 +118,15 @@ function ChildHomePage() {
           </p>
         ) : (
           <Map
-            center={DEFAULT_CHILD_LOCATION}
-            level={DEFAULT_LEVEL}
+            center={restoredMap?.center ?? DEFAULT_CHILD_LOCATION}
+            level={restoredMap?.level ?? DEFAULT_LEVEL}
             isPanto
             onCreate={setMap}
+            // 가게 정보에서 뒤로 왔을 때 보던 자리로 돌아오도록 지도를 다 움직일 때마다 기억해 둔다.
+            onIdle={(target) => {
+              const center = target.getCenter();
+              saveMapView({ center: { lat: center.getLat(), lng: center.getLng() }, level: target.getLevel() });
+            }}
             onClick={() => selectStore(null)}
             style={{ width: "100%", height: "100%" }}
           >
