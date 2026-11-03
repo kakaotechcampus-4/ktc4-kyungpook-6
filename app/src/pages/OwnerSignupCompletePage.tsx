@@ -2,6 +2,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import ApprovalProgressTrack from "../components/signup/ApprovalProgressTrack";
 import GlowHeader from "../components/signup/GlowHeader";
 import { useSignupComplete } from "../hooks/signupComplete";
+import SignupBottomBar from "../components/signup/SignupBottomBar";
 
 /** 회원가입 완료: 관리자 승인을 기다린다. */
 function OwnerSignupCompletePage() {
@@ -9,7 +10,7 @@ function OwnerSignupCompletePage() {
   const approved = status === "APPROVED";
 
   return (
-    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
+    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)]">
       <section className="flex flex-1 flex-col items-center justify-center">
         <GlowHeader
           title="가입 요청이 완료됐어요"
@@ -26,9 +27,11 @@ function OwnerSignupCompletePage() {
         </div>
       </section>
 
-      <PrimaryButton disabled={!approved} onClick={goLogin}>
-        로그인하러 가기
-      </PrimaryButton>
+      <SignupBottomBar>
+        <PrimaryButton disabled={!approved} onClick={goLogin}>
+          로그인하러 가기
+        </PrimaryButton>
+      </SignupBottomBar>
     </main>
   );
 }
