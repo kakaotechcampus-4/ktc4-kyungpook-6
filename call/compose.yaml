@@ -6,10 +6,11 @@ services:
       DATA_DIR: /app/data
       PERSONA_FILE: /app/agent.json
       MODEM_LOCK_FILE: /app/data/modem.lock
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
       AT_PORT: /dev/ttyUSB2
       VOICE_PORT: /dev/ttyUSB1
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
     devices:
       - "${AT_PORT:-/dev/ttyUSB2}:/dev/ttyUSB2"
       - "${VOICE_PORT:-/dev/ttyUSB1}:/dev/ttyUSB1"

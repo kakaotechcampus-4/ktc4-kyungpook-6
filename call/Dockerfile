@@ -6,4 +6,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY verification ./verification
 COPY agent.json .
-CMD ["uvicorn", "verification.api:app", "--host", "127.0.0.1", "--port", "8000", "--workers", "1", "--timeout-graceful-shutdown", "180"]
+CMD ["sh", "-c", "exec uvicorn verification.api:app --host 127.0.0.1 --port \"${BACKEND_PORT:-8000}\" --workers 1 --timeout-graceful-shutdown 180"]
