@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.job.controller;
 
+import com.ktc4.backend.domain.call.service.CallBulkService;
 import com.ktc4.backend.domain.investigation.service.InvestigationRunner;
 import com.ktc4.backend.domain.job.dto.JobResultResponse;
 import com.ktc4.backend.domain.job.enums.JobStatus;
@@ -60,6 +61,9 @@ class JobControllerQueryTest {
     private JwtProvider jwtProvider;
 
     @MockitoBean
+    private CallBulkService callBulkService;
+
+    @MockitoBean
     private JobService jobService;
 
     @MockitoBean
@@ -78,12 +82,13 @@ class JobControllerQueryTest {
                 LocalDateTime.of(2026, 7, 1, 9, 0), TaskClassification.PRIORITY_CHECK, null,
                 List.of(new ProposedChangeResponse("status", "CLOSED")),
                 List.of(new EvidenceResponse("status", "NTS", "국세청 사업자 상태: 폐업자", null, null)),
-                new VerificationResponse(VerificationAction.CHANGE_STATUS, LocalDateTime.of(2026, 10, 7, 9, 0)));
+                new VerificationResponse(VerificationAction.CHANGE_STATUS, LocalDateTime.of(2026, 10, 7, 9, 0)),
+                null);
     }
 
     private static TaskResultResponse failedTask() {
         return new TaskResultResponse(2L, 6L, "실패가게", "대구광역시 북구 대학로 81", StoreStatus.OPEN, null,
-                null, null, "AI 응답 시간이 초과됐습니다", List.of(), List.of(), null);
+                null, null, "AI 응답 시간이 초과됐습니다", List.of(), List.of(), null, null);
     }
 
     @ParameterizedTest
