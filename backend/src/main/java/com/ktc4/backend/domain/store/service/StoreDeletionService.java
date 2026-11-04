@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.store.service;
 
+import com.ktc4.backend.domain.call.repository.VerificationCallRepository;
 import com.ktc4.backend.domain.checkin.repository.CheckInRepository;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.repository.JobRepository;
@@ -99,6 +100,7 @@ public class StoreDeletionService {
     private final CheckInRepository checkInRepository;
     private final TaskRepository taskRepository;
     private final VerificationRepository verificationRepository;
+    private final VerificationCallRepository verificationCallRepository;
     private final SignalRepository signalRepository;
     private final JobRepository jobRepository;
 
@@ -204,8 +206,10 @@ public class StoreDeletionService {
         List<Long> taskIds = taskRepository.findTaskIdsByStoreId(storeId);
         int signals = taskIds.isEmpty() ? 0 : signalRepository.deleteAllByTaskIds(taskIds);
         int verifications = verificationRepository.deleteAllByStoreId(storeId);
+        int calls = verificationCallRepository.deleteAllByStoreId(storeId);
         if (!taskIds.isEmpty()) {
             verifications += verificationRepository.deleteAllByTaskIds(taskIds);
+            calls += verificationCallRepository.deleteAllByTaskIds(taskIds);
         }
         int tasks = taskRepository.deleteAllByStoreId(storeId);
         int menus = storeMenuRepository.deleteAllByStoreId(storeId);
@@ -224,8 +228,8 @@ public class StoreDeletionService {
         if (ownerLinks > 0) {
             log.warn("가게 삭제 - 점주 연결을 함께 끊었다. storeId={}, 연결 {}건", storeId, ownerLinks);
         }
-        log.info("가게 삭제 - storeId={}, 조사결과 {}건, 국세청확인 {}건, 변경기록 {}건, 점주연결 {}건",
-                storeId, tasks, ntsChecks, changeHistories, ownerLinks);
+        log.info("가게 삭제 - storeId={}, 조사결과 {}건, 국세청확인 {}건, 변경기록 {}건, 확인전화 {}건, 점주연결 {}건",
+                storeId, tasks, ntsChecks, changeHistories, calls, ownerLinks);
         return new StoreDeleteResponse(storeId, name, ntsChecks, ntsChanges, menus, businessHours,
                 tasks, verifications, signals, changeHistories, ownerLinks);
     }

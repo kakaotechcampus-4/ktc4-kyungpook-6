@@ -255,6 +255,8 @@ public class TaskService {
                                 null,
                                 signal.getEvidenceUrl()))
                         .toList(),
+                // 확인 기록과 전화 기록은 JobQueryService 가 붙인다 — 여기서 읽으면 빈 순환이 생긴다
+                null,
                 null);
     }
 

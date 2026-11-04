@@ -78,6 +78,13 @@ public enum ErrorCode {
     TASK_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확인한 조사 결과입니다"),
     NOTHING_TO_APPLY(HttpStatus.CONFLICT, "반영할 수 있는 수정안이 없습니다"),
 
+    // 확인 전화(Task → VerificationCall). CALL_NOT_AVAILABLE 은 전화 API 주소·키를 아직 넣지 않은 환경이다 —
+    // 값이 없어도 앱은 뜨고 다른 기능은 그대로 돌게 두고, 전화를 걸려고 할 때만 이것으로 거절한다.
+    CALL_TARGET_NOT_ELIGIBLE(HttpStatus.CONFLICT, "전화로 확인할 대상이 아닙니다"),
+    CALL_ALREADY_REQUESTED(HttpStatus.CONFLICT, "이미 전화를 요청한 조사 결과입니다"),
+    CALL_NOT_AVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금 전화를 걸 수 없습니다"),
+    CALL_API_ERROR(HttpStatus.BAD_GATEWAY, "전화 API 호출에 실패했습니다"),
+
     // 아래 넷은 GlobalExceptionHandler.errorCodeFor 가 프레임워크 예외의 상태코드를 매핑할 때 쓴다.
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 경로를 찾을 수 없습니다"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식입니다"),

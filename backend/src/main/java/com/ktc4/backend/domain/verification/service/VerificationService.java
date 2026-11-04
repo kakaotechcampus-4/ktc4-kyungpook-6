@@ -117,6 +117,20 @@ public class VerificationService {
                 .collect(Collectors.toMap(Map.Entry::getKey, entry -> VerificationResponse.from(entry.getValue())));
     }
 
+    /**
+     * 그 조사 결과를 담당자가 이미 확인했는가.
+     *
+     * <p>확인 전화를 걸기 전에 본다 — 답이 나온 뒤에 가게로 전화가 가면 민폐다. 확인 기록은 이
+     * 서비스의 자료라 다른 도메인이 저장소를 직접 읽지 않고 여기로 묻는다.
+     *
+     * @param taskId 조사 결과 ID
+     * @return 확인 기록이 있으면 true
+     */
+    @Transactional(readOnly = true)
+    public boolean isConfirmed(Long taskId) {
+        return verificationRepository.existsByTask_TaskId(taskId);
+    }
+
     // 잠근 뒤에 확인 기록을 본다 — 잠그기 전에 보면 두 요청이 함께 "기록 없음"을 보고 둘 다 지나간다
     private Task lockUnreviewed(Long taskId) {
         Task task = taskService.lockForReview(taskId);
