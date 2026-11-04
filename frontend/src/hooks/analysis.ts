@@ -1,8 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { applyTask, confirmTask, getJobResult } from '../services/analysis';
+import {
+  applyTask,
+  confirmTask,
+  getJobResult,
+  requestCall,
+  requestCallsForJob,
+} from '../services/analysis';
 import type {
+  CallResponse,
   JobResultResponse,
   TaskClassificationResponse,
   TaskResponse,
@@ -15,6 +22,7 @@ import type {
 } from '../components/AgentSurveyResultCard';
 import { formatDateTime } from '../utils/date';
 import {
+  callAnswerLabel,
   changeValueLabel,
   evidenceSourceLabel,
   fieldLabel,
@@ -35,6 +43,59 @@ const ACTION_LABEL: Record<VerificationResponse['action'], string> = {
   CHANGE_STATUS: '상태변경',
   NO_ACTION: '조치없음',
 };
+
+/**
+ * 전화를 걸 수 있는 분류. 변화가 잡혔거나(우선확인) 확인한 지 90일이 넘은(추가확인) 가게다.
+ * 변화도 없고 최근에 확인한 가게와 조사하지 못한 가게에는 걸지 않는다 — 백엔드도 409 로 막는다.
+ */
+const CALLABLE: TaskClassification[] = ['priority', 'additional'];
+
+/** 카드에 찍을 확인 전화 한 줄. 아직 걸지 않았으면 undefined. */
+export type CallStatusLabel = {
+  label: string;
+  tone: 'progress' | 'done' | 'failed';
+};
+
+/**
+ * 확인 전화 기록을 카드에 찍을 한 줄로 만든다.
+ *
+ * 끝난 전화는 **들은 답을 그 줄에 같이 적는다.** 답을 따로 열어 봐야 하면 담당자가 전화를 건
+ * 카드와 안 건 카드만 구분하게 되고, 정작 점주가 뭐라고 했는지는 읽지 않게 된다.
+ */
+export function toCallStatusLabel(
+  call: CallResponse | null,
+): CallStatusLabel | undefined {
+  if (!call) return undefined;
+
+  if (call.status === 'PENDING' || call.status === 'IN_PROGRESS') {
+    const at = formatDateTime(call.requestedAt);
+    return {
+      tone: 'progress',
+      label: at ? `전화 확인 중 · ${at} 요청` : '전화 확인 중',
+    };
+  }
+
+  if (call.status === 'FAILED') {
+    /* 사유 코드는 전화 API 가 정하는 값이라 우리가 번역하지 않는다 — 모르는 코드를 삼키면 원인이 사라진다. */
+    return {
+      tone: 'failed',
+      label: call.failureReason
+        ? `전화 확인 실패 · ${call.failureReason}`
+        : '전화 확인 실패',
+    };
+  }
+
+  const answers = (call.answers ?? [])
+    .map(
+      (answer) =>
+        `${answer.naturalField}: ${callAnswerLabel(answer.field, answer.value)}`,
+    )
+    .join(' · ');
+  return {
+    tone: 'done',
+    label: answers ? `전화 확인 완료 · ${answers}` : '전화 확인 완료 · 답 없음',
+  };
+}
 
 /** 분석 결과 화면이 카드 하나에 넘기는 값. */
 export type AnalysisTask = {
@@ -60,6 +121,15 @@ export type AnalysisTask = {
   verifiedLabel?: string;
   /** 반영할 수정안이 있는가. 없으면 "즉시 수정 반영하기"가 409가 된다. */
   hasChanges: boolean;
+  /** 이 카드로 건 확인 전화 한 줄. 아직 걸지 않았으면 undefined. */
+  callStatus?: CallStatusLabel;
+  /**
+   * 지금 전화를 걸 수 있는가. 전화는 되돌릴 수 없어서 걸 수 없는 카드에는 버튼을 그리지 않는다.
+   *
+   * 번호가 없거나 물을 질문이 만들어지지 않는 경우는 여기서 가릴 수 없다 — 조사 결과 응답에
+   * 그 정보가 다 실리지 않기 때문이다. 그때는 백엔드가 409 로 거절하고 화면이 그 문구를 띄운다.
+   */
+  canCall: boolean;
 };
 
 /** 분류별로 나눈 Task 목록. 화면의 네 섹션과 1:1로 대응한다. */
@@ -107,6 +177,14 @@ function toVerifiedLabel(
 /** 백엔드 Task 하나를 카드가 쓰는 값으로 옮긴다. 테스트에서 직접 부른다(applySelection 과 같은 방식). */
 export function toAnalysisTask(task: TaskResponse): AnalysisTask {
   const changes = task.proposedChanges ?? [];
+  /*
+    판정이 없으면 조사 실패다. 예전에는 이 경우가 'unchanged'로 떨어져
+    "변화 근거가 없는 가게"에 섞였다 — 조사를 못 한 가게와 변화가 없는 가게는
+    담당자가 할 일이 서로 다르다(PROMPT-150).
+  */
+  const classification: TaskClassification = task.classification
+    ? CLASSIFICATION_MAP[task.classification] ?? 'unchanged'
+    : 'failed';
 
   return {
     id: String(task.taskId),
@@ -115,14 +193,7 @@ export function toAnalysisTask(task: TaskResponse): AnalysisTask {
     storeName: task.storeName,
     address: task.storeAddress ?? '-',
     addressRoad: task.storeAddress,
-    /*
-      판정이 없으면 조사 실패다. 예전에는 이 경우가 'unchanged'로 떨어져
-      "변화 근거가 없는 가게"에 섞였다 — 조사를 못 한 가게와 변화가 없는 가게는
-      담당자가 할 일이 서로 다르다(PROMPT-150).
-    */
-    classification: task.classification
-      ? CLASSIFICATION_MAP[task.classification] ?? 'unchanged'
-      : 'failed',
+    classification,
     evidences:
       task.evidences?.map((evidence) => ({
         description: evidence.description,
@@ -140,6 +211,15 @@ export function toAnalysisTask(task: TaskResponse): AnalysisTask {
     failureReason: task.failureReason ?? undefined,
     verifiedLabel: toVerifiedLabel(task.verification),
     hasChanges: changes.length > 0,
+    callStatus: toCallStatusLabel(task.call),
+    /*
+      전화를 걸 분류이고, 담당자가 아직 확인하지 않았고, 걸어 둔 전화가 없을 때만 걸 수 있다.
+      실패한 전화는 다시 걸 수 있다 — 안 받았거나 끊긴 통화다.
+    */
+    canCall:
+      CALLABLE.includes(classification) &&
+      !task.verification &&
+      (!task.call || task.call.status === 'FAILED'),
   };
 }
 
@@ -185,6 +265,7 @@ const FALLBACK_RESULT: JobResultResponse = {
       classification: 'PRIORITY_CHECK',
       failureReason: null,
       verification: null,
+      call: null,
       evidences: [
         {
           field: 'status',
@@ -216,6 +297,7 @@ const FALLBACK_RESULT: JobResultResponse = {
       classification: 'PRIORITY_CHECK',
       failureReason: null,
       verification: null,
+      call: null,
       evidences: [
         {
           field: 'name',
@@ -237,6 +319,7 @@ const FALLBACK_RESULT: JobResultResponse = {
       classification: 'ADDITIONAL_CHECK',
       failureReason: null,
       verification: null,
+      call: null,
       evidences: [
         {
           field: null,
@@ -258,6 +341,7 @@ const FALLBACK_RESULT: JobResultResponse = {
       classification: 'NO_CHANGE',
       failureReason: null,
       verification: null,
+      call: null,
       evidences: [
         {
           field: null,
@@ -287,10 +371,20 @@ export type UseAnalysisResultPageResult = {
   progressLabel: string | undefined;
   /** 수정안 반영 중인 Task id. 버튼을 잠그는 데 쓴다. */
   processingTaskId: number | null;
-  /** 반영·확인에 실패했을 때 담당자에게 보일 문구. */
+  /** 반영·확인·전화에 실패했을 때 담당자에게 보일 문구. */
   actionErrorMessage: string | undefined;
   /** "즉시 수정 반영하기". 반영 후 목록을 다시 불러온다. */
   applyChanges: (taskId: number) => void;
+  /** "전화로 확인하기". 요청만 넣고 결과는 폴링으로 받는다. */
+  requestOneCall: (taskId: number) => void;
+  /** 전화를 걸 만한 가게 수. 0 이면 한 번에 걸기 버튼을 내린다. */
+  callTargetCount: number;
+  /** "전화 대상 전체에 걸기". 조사 ID 를 모르면(목업·빈 상태) 아무 일도 하지 않는다. */
+  requestAllCalls: () => void;
+  /** 한 번에 걸기 요청이 날아가 있는 동안 true. */
+  isRequestingAllCalls: boolean;
+  /** 한 번에 걸고 난 결과 한 줄. 아직 누르지 않았으면 undefined. */
+  bulkCallMessage: string | undefined;
 };
 
 /**
@@ -332,6 +426,27 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   });
 
   /*
+    확인 전화. 요청만 넣고 통화를 기다리지 않는다(202) — 끝나면 서버가 전화 API 에서 받아 와
+    갱신하고, 화면은 조사 결과를 다시 조회해 각 카드의 call 로 본다.
+
+    그래서 성공한 뒤 목록을 바로 다시 불러온다. 그 조회에 "전화 확인 중" 이 실려 와야
+    담당자가 자기가 누른 것이 들어갔다는 것을 안다 — 아무 변화가 없으면 다시 누른다.
+  */
+  const callMutation = useMutation({
+    mutationFn: (taskId: number) => requestCall(taskId),
+    onMutate: () => setActionErrorMessage(undefined),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (error) => setActionErrorMessage(messageOf(error)),
+  });
+
+  const bulkCallMutation = useMutation({
+    mutationFn: (jobId: number) => requestCallsForJob(jobId),
+    onMutate: () => setActionErrorMessage(undefined),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (error) => setActionErrorMessage(messageOf(error)),
+  });
+
+  /*
     아직 조사한 적이 없으면(404) 목업을 깔지 않는다. 운영에 처음 올린 날 실제로 그랬는데,
     화면은 "불러오지 못해 목업 데이터를 표시합니다" 와 함께 가짜 가게 셋을 띄웠다. 담당자에게는
     "조사한 적이 없다" 와 "서버가 죽었다" 가 똑같이 보인다(11주차 멘토 리뷰 🟡 6).
@@ -348,6 +463,24 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     mutation.mutate({ taskId, hasChanges: task?.hasChanges ?? false });
   };
 
+  const callTargetCount = Object.values(groups)
+    .flat()
+    .filter((task) => task.canCall).length;
+
+  /*
+    한 번에 걸기는 조사 ID 가 있어야 한다. URL 에 없으면(최근 조사 화면) 응답의 jobId 를 쓰고,
+    조회가 실패해 목업을 깔았거나 조사한 적이 없으면 걸 곳이 없다 — 목업의 jobId(0)로 요청을 보내면
+    담당자는 404 만 보게 된다.
+  */
+  const callableJobId = isError || noJobYet ? undefined : data?.jobId;
+
+  const requestAllCalls = () => {
+    if (callableJobId === undefined) return;
+    bulkCallMutation.mutate(callableJobId);
+  };
+
+  const bulkResult = bulkCallMutation.data;
+
   return {
     /* 브레드크럼 표기. Figma 112:5450 "2026. 08. 20. 18:00" */
     finishedAtLabel: formatDateTime(result?.finishedAt),
@@ -356,8 +489,22 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     isError,
     noJobYet,
     progressLabel: progressLabelOf(isQueryError ? undefined : data),
-    processingTaskId: mutation.isPending ? mutation.variables.taskId : null,
+    processingTaskId: mutation.isPending
+      ? mutation.variables.taskId
+      : callMutation.isPending
+        ? callMutation.variables
+        : null,
     actionErrorMessage,
     applyChanges,
+    requestOneCall: (taskId: number) => callMutation.mutate(taskId),
+    callTargetCount: callableJobId === undefined ? 0 : callTargetCount,
+    requestAllCalls,
+    isRequestingAllCalls: bulkCallMutation.isPending,
+    bulkCallMessage: bulkResult
+      ? `${bulkResult.targetCount}곳 중 ${bulkResult.requested}곳에 전화를 넣었습니다` +
+        (bulkResult.skipped > 0
+          ? ` · ${bulkResult.skipped}곳은 번호가 없거나 물을 것이 없어 건너뛰었습니다`
+          : '')
+      : undefined,
   };
 }

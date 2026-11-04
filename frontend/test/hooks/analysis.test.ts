@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { progressLabelOf, toAnalysisTask } from '../../src/hooks/analysis';
-import type { JobResultResponse, TaskResponse } from '../../src/services/analysis';
+import {
+  progressLabelOf,
+  toAnalysisTask,
+  toCallStatusLabel,
+} from '../../src/hooks/analysis';
+import type {
+  CallResponse,
+  JobResultResponse,
+  TaskResponse,
+} from '../../src/services/analysis';
 
 /** 성공·변화 없음 기본값. 각 테스트는 보는 칸만 덮어쓴다. */
 const BASE: TaskResponse = {
@@ -15,6 +23,7 @@ const BASE: TaskResponse = {
   evidences: [],
   proposedChanges: [],
   verification: null,
+  call: null,
 };
 
 const task = (patch: Partial<TaskResponse>): TaskResponse => ({ ...BASE, ...patch });
@@ -142,5 +151,135 @@ describe('progressLabelOf — 진행 상황', () => {
 
   it('조사를 못 받아 왔으면 아무것도 적지 않는다', () => {
     expect(progressLabelOf(undefined)).toBeUndefined();
+  });
+});
+
+/** 확인 전화 기본값. 각 테스트는 보는 칸만 덮어쓴다. */
+const CALL: CallResponse = {
+  callId: 9,
+  status: 'COMPLETED',
+  reason: 'CHANGE_DETECTED',
+  requestedAt: '2026-11-04T11:03:00',
+  endedAt: '2026-11-04T11:04:10',
+  failureReason: null,
+  answers: [],
+};
+
+const call = (patch: Partial<CallResponse>): CallResponse => ({ ...CALL, ...patch });
+
+/**
+ * 확인 전화 한 줄.
+ *
+ * 끝난 전화는 들은 답을 그 줄에 같이 적는다 — 답을 따로 열어 봐야 하면 담당자가 전화를 건 카드와
+ * 안 건 카드만 구분하게 되고, 정작 점주가 뭐라고 했는지는 읽지 않는다.
+ */
+describe('toCallStatusLabel — 확인 전화 한 줄', () => {
+  it('아직 걸지 않았으면 줄이 없다', () => {
+    expect(toCallStatusLabel(null)).toBeUndefined();
+  });
+
+  it.each(['PENDING', 'IN_PROGRESS'] as const)(
+    '%s 는 요청 시각과 함께 "확인 중" 으로 적는다',
+    (status) => {
+      const result = toCallStatusLabel(call({ status }));
+
+      expect(result?.tone).toBe('progress');
+      expect(result?.label).toContain('전화 확인 중');
+      expect(result?.label).toContain('11:03');
+    },
+  );
+
+  it('영업 여부 답을 영업중/폐업이 아니라 영업 중·영업 안 함으로 적는다', () => {
+    // 전화로는 "지금도 영업하십니까" 한 가지만 물어서 답이 true/false 로 온다.
+    // 휴업인지 폐업인지는 전화로 가를 수 없고 담당자가 정한다
+    const result = toCallStatusLabel(
+      call({
+        answers: [{ field: 'status', naturalField: '영업 여부', value: 'false' }],
+      }),
+    );
+
+    expect(result?.tone).toBe('done');
+    expect(result?.label).toBe('전화 확인 완료 · 영업 여부: 영업 안 함');
+  });
+
+  it('여러 답을 한 줄에 이어 적는다', () => {
+    const result = toCallStatusLabel(
+      call({
+        answers: [
+          { field: 'status', naturalField: '영업 여부', value: 'true' },
+          { field: 'name', naturalField: '상호명', value: '신나는분식' },
+        ],
+      }),
+    );
+
+    expect(result?.label).toBe(
+      '전화 확인 완료 · 영업 여부: 영업 중 · 상호명: 신나는분식',
+    );
+  });
+
+  it('실패 사유 코드는 번역하지 않고 그대로 보여준다 — 삼키면 원인이 사라진다', () => {
+    const result = toCallStatusLabel(
+      call({ status: 'FAILED', failureReason: 'NO_ANSWER' }),
+    );
+
+    expect(result?.tone).toBe('failed');
+    expect(result?.label).toBe('전화 확인 실패 · NO_ANSWER');
+  });
+});
+
+/**
+ * 전화를 걸 수 있는 카드인가.
+ *
+ * 전화는 되돌릴 수 없다 — 걸 수 없는 카드에 버튼을 열어 두면 눌러서 가게에 실제로 전화가 가거나,
+ * 아무 일도 안 일어나는 먹통 버튼이 된다.
+ */
+describe('toAnalysisTask — 전화를 걸 수 있는가', () => {
+  it.each([
+    ['PRIORITY_CHECK', true],
+    ['ADDITIONAL_CHECK', true],
+    ['NO_CHANGE', false],
+  ] as const)('%s 는 %s', (classification, expected) => {
+    expect(toAnalysisTask(task({ classification })).canCall).toBe(expected);
+  });
+
+  it('조사하지 못한 가게에는 걸지 않는다 — 무엇을 물어야 할지 모르는 상태다', () => {
+    expect(
+      toAnalysisTask(
+        task({ classification: null, failureReason: 'AI 응답 시간이 초과됐습니다' }),
+      ).canCall,
+    ).toBe(false);
+  });
+
+  it('담당자가 이미 확인한 카드에는 걸지 않는다', () => {
+    expect(
+      toAnalysisTask(
+        task({
+          classification: 'PRIORITY_CHECK',
+          verification: { action: 'CHANGE_STATUS', verifiedAt: '2026-11-04T11:00:00' },
+        }),
+      ).canCall,
+    ).toBe(false);
+  });
+
+  it.each(['PENDING', 'IN_PROGRESS', 'COMPLETED'] as const)(
+    '걸어 둔 전화가 %s 면 다시 걸지 않는다',
+    (status) => {
+      expect(
+        toAnalysisTask(
+          task({ classification: 'PRIORITY_CHECK', call: call({ status }) }),
+        ).canCall,
+      ).toBe(false);
+    },
+  );
+
+  it('실패한 전화는 다시 걸 수 있다 — 안 받았거나 끊긴 통화다', () => {
+    expect(
+      toAnalysisTask(
+        task({
+          classification: 'PRIORITY_CHECK',
+          call: call({ status: 'FAILED', failureReason: 'NO_ANSWER' }),
+        }),
+      ).canCall,
+    ).toBe(true);
   });
 });
