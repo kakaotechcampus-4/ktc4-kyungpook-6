@@ -1,0 +1,21 @@
+services:
+  verification:
+    build: .
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+      PERSONA_FILE: /app/agent.json
+      MODEM_LOCK_FILE: /app/data/modem.lock
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+      AT_PORT: /dev/ttyUSB2
+      VOICE_PORT: /dev/ttyUSB1
+    ports:
+      - "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+    devices:
+      - "${AT_PORT:-/dev/ttyUSB2}:/dev/ttyUSB2"
+      - "${VOICE_PORT:-/dev/ttyUSB1}:/dev/ttyUSB1"
+    volumes:
+      - ./data:/app/data
+      - ./agent.json:/app/agent.json:ro
+    stop_grace_period: 180s
+    restart: "no"
