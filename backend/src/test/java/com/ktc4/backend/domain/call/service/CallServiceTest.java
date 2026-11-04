@@ -1,15 +1,21 @@
 package com.ktc4.backend.domain.call.service;
 
+import com.ktc4.backend.domain.call.entity.CallAnswer;
+import java.util.List;
 import com.ktc4.backend.domain.call.client.CallClient;
 import com.ktc4.backend.domain.call.client.CallNotConfigured;
 import com.ktc4.backend.domain.call.client.CallTransientError;
 import com.ktc4.backend.domain.call.dto.CallOrder;
+import com.ktc4.backend.domain.call.dto.CallSnapshot;
 import com.ktc4.backend.domain.call.dto.CallResponse;
 import com.ktc4.backend.domain.call.entity.VerificationCall;
 import com.ktc4.backend.domain.call.enums.CallFailureKind;
 import com.ktc4.backend.domain.call.enums.CallReason;
 import com.ktc4.backend.domain.call.enums.CallStatus;
 import com.ktc4.backend.domain.call.repository.VerificationCallRepository;
+import com.ktc4.backend.domain.store.dto.StoreChange;
+import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
+import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.store.service.StoreService;
@@ -35,6 +41,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -296,8 +303,11 @@ class CallServiceTest {
     class Refresh {
 
         private VerificationCall call(LocalDateTime requestedAt) {
+            Task task = task(TaskClassification.PRIORITY_CHECK, Map.of("status", "CLOSED"), "053-111-1111");
+            org.springframework.test.util.ReflectionTestUtils.setField(task, "taskId", TASK_ID);
             VerificationCall call = VerificationCall.builder()
                     .store(store("053-111-1111"))
+                    .task(task)
                     .reason(CallReason.CHANGE_DETECTED)
                     .externalId(EXTERNAL_ID)
                     .requestedBy(String.valueOf(ADMIN_ID))
@@ -305,6 +315,13 @@ class CallServiceTest {
                     .build();
             org.mockito.BDDMockito.given(callRepository.findById(9L)).willReturn(Optional.of(call));
             return call;
+        }
+
+        /** 전화 API 가 끝까지 간 통화를 답과 함께 돌려주는 상황. */
+        private void givenCompleted(List<CallAnswer> answers) {
+            org.mockito.BDDMockito.given(callClient.read(EXTERNAL_ID)).willReturn(new CallSnapshot(
+                    CallStatus.COMPLETED, answers,
+                    LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now(), null));
         }
 
         @Test
@@ -329,6 +346,79 @@ class CallServiceTest {
 
             assertThat(callService.refresh(9L)).isFalse();
             assertThat(call.getStatus()).isEqualTo(CallStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("끝까지 간 통화의 답을 가게에 반영한다 — 영업 여부만 빼고")
+        void 끝난_통화를_반영한다() {
+            VerificationCall call = call(LocalDateTime.now());
+            givenCompleted(List.of(
+                    new CallAnswer("q1", "open", "false"),
+                    new CallAnswer("q1", "storeName", "신나는 분식")));
+
+            assertThat(callService.refresh(9L)).isTrue();
+
+            ArgumentCaptor<StoreUpdateRequest> request = ArgumentCaptor.forClass(StoreUpdateRequest.class);
+            ArgumentCaptor<StoreChange> change = ArgumentCaptor.forClass(StoreChange.class);
+            verify(storeService).updateStore(any(), request.capture(), change.capture());
+
+            assertThat(request.getValue().name()).isEqualTo("신나는 분식");
+            // 영업 여부는 싣지 않는다 — 휴업인지 폐업인지 전화로는 가릴 수 없다
+            assertThat(request.getValue().status()).isNull();
+            // 사람이 누른 것이 아니라 통화가 끝나면서 바뀐 자리라 출처를 따로 남긴다
+            assertThat(change.getValue().source()).isEqualTo(StoreChangeSource.CALL_APPLY);
+            assertThat(change.getValue().taskId()).isEqualTo(TASK_ID);
+            assertThat(call.getAppliedChanges()).containsExactly(entry("name", "신나는 분식"));
+        }
+
+        @Test
+        @DisplayName("영업 여부만 들었으면 가게를 건드리지 않는다")
+        void 영업_여부만_들었을_때() {
+            call(LocalDateTime.now());
+            givenCompleted(List.of(new CallAnswer("q1", "open", "false")));
+
+            assertThat(callService.refresh(9L)).isTrue();
+
+            verify(storeService, never()).updateStore(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("담당자가 이미 확인한 카드면 반영하지 않는다 — 그 판단을 통화가 덮으면 안 된다")
+        void 이미_확인한_카드() {
+            call(LocalDateTime.now());
+            givenCompleted(List.of(new CallAnswer("q1", "storeName", "신나는 분식")));
+            org.mockito.BDDMockito.given(verificationService.isConfirmed(TASK_ID)).willReturn(true);
+
+            assertThat(callService.refresh(9L)).isTrue();
+
+            verify(storeService, never()).updateStore(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("가게 규칙에 맞지 않으면 한 칸이라도 걸릴 때 전부 두고 넘긴다")
+        void 규칙에_안_맞으면_전부_둔다() {
+            call(LocalDateTime.now());
+            // 가게명 길이 제한을 넘기는 값. 한 칸이 막히면 같이 들은 전화번호도 반영하지 않는다
+            givenCompleted(List.of(
+                    new CallAnswer("q1", "storeName", "가".repeat(500)),
+                    new CallAnswer("q1", "phoneNumber", "053-222-2222")));
+
+            assertThat(callService.refresh(9L)).isTrue();
+
+            verify(storeService, never()).updateStore(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("끝나지 않은 통화는 반영하지 않는다 — 끊긴 통화의 부분 답은 확인된 값이 아니다")
+        void 끊긴_통화는_반영하지_않는다() {
+            call(LocalDateTime.now());
+            org.mockito.BDDMockito.given(callClient.read(EXTERNAL_ID)).willReturn(new CallSnapshot(
+                    CallStatus.FAILED, List.of(new CallAnswer("q1", "storeName", "신나는 분식")),
+                    LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now(), "REMOTE_HANGUP"));
+
+            assertThat(callService.refresh(9L)).isTrue();
+
+            verify(storeService, never()).updateStore(any(), any(), any());
         }
 
         @Test
