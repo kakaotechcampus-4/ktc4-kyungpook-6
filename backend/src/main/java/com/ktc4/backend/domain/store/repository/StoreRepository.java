@@ -2,7 +2,9 @@ package com.ktc4.backend.domain.store.repository;
 
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.StoreStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -161,4 +163,61 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Store s where s.storeId = :storeId")
     Optional<Store> findByIdForUpdate(@Param("storeId") Long storeId);
+
+    /**
+     * 위경도 사각형 안의 가게를 가운데에서 가까운 순으로 — 주변 가게 찾기의 첫 거름(아동 앱). 실제 거리로는 부르는 쪽이 다시 거른다.
+     *
+     * <p>좌표가 없는 가게는 {@code BETWEEN} 에서 빠진다.
+     *
+     * <p>DB 에서 가까운 순으로 정렬해 {@code limit} 만큼만 읽는다 — 도심에서 반경을 넓히면 사각형 안의 가게를 전부 엔티티로
+     * 올리게 되기 때문이다. 정렬 없이 자르면 가까운 가게가 잘려 나갈 수 있어 반드시 정렬한 뒤 자른다. 정렬 거리는 경도 차에
+     * {@code cos²(위도)} 를 곱한 평면 근사({@code lngWeight})로, 반경 5km 안에서는 하버사인과 순서가 사실상 같다.
+     *
+     * @param lat              가운데 위도
+     * @param lng              가운데 경도
+     * @param lngWeight        경도 차의 제곱에 곱할 값 — {@code cos²(lat)}
+     * @param excludedStatuses 빼는 영업 상태(폐업·휴업)
+     * @param limit            읽을 가게 수 상한
+     */
+    @Query("""
+            select s from Store s
+            where s.lat between :minLat and :maxLat
+              and s.lng between :minLng and :maxLng
+              and s.status not in :excludedStatuses
+            order by (s.lat - :lat) * (s.lat - :lat) + (s.lng - :lng) * (s.lng - :lng) * :lngWeight, s.storeId
+            """)
+    List<Store> findInBox(@Param("minLat") double minLat, @Param("maxLat") double maxLat,
+                          @Param("minLng") double minLng, @Param("maxLng") double maxLng,
+                          @Param("lat") double lat, @Param("lng") double lng, @Param("lngWeight") double lngWeight,
+                          @Param("excludedStatuses") Collection<StoreStatus> excludedStatuses,
+                          Limit limit);
+
+    /**
+     * {@link #findInBox} 에 검색어를 더한다 — 상호명이나 지우지 않은 메뉴 이름에 검색어가 들어간 가게. 정렬·상한도 같다.
+     *
+     * <p>상호명은 원본(소문자)과 정규화 값(공백·법인표기를 뺀 값) 둘 다 본다 — "예시 분식" 으로 찾아도 "예시분식" 이 나오게.
+     * 패턴의 {@code %}·{@code _} 는 부르는 쪽이 {@code \} 로 이스케이프해 넘긴다.
+     *
+     * @param rawPattern        소문자 검색어를 {@code %} 로 감싼 패턴 — 상호명 원본·메뉴 이름에 쓴다
+     * @param normalizedPattern 정규화한 검색어를 {@code %} 로 감싼 패턴 — 정규화 상호명에 쓴다
+     */
+    @Query("""
+            select s from Store s
+            where s.lat between :minLat and :maxLat
+              and s.lng between :minLng and :maxLng
+              and s.status not in :excludedStatuses
+              and (lower(s.name) like :rawPattern escape '\\'
+                   or s.nameNormalized like :normalizedPattern escape '\\'
+                   or exists (select 1 from StoreMenu m
+                              where m.store = s and m.deletedAt is null
+                                and lower(m.name) like :rawPattern escape '\\'))
+            order by (s.lat - :lat) * (s.lat - :lat) + (s.lng - :lng) * (s.lng - :lng) * :lngWeight, s.storeId
+            """)
+    List<Store> searchInBox(@Param("minLat") double minLat, @Param("maxLat") double maxLat,
+                            @Param("minLng") double minLng, @Param("maxLng") double maxLng,
+                            @Param("lat") double lat, @Param("lng") double lng, @Param("lngWeight") double lngWeight,
+                            @Param("excludedStatuses") Collection<StoreStatus> excludedStatuses,
+                            @Param("rawPattern") String rawPattern,
+                            @Param("normalizedPattern") String normalizedPattern,
+                            Limit limit);
 }

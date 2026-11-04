@@ -1,17 +1,18 @@
 import { NavLink } from "react-router-dom";
 import homeIcon from "../../assets/tab-home-icon.svg";
+import homeActiveIcon from "../../assets/child-tab-home-active-icon.svg";
 import qrIcon from "../../assets/tab-qr-icon.svg";
+import storesIcon from "../../assets/child-tab-stores-icon.svg";
 import storesActiveIcon from "../../assets/child-tab-stores-active-icon.svg";
 import meIcon from "../../assets/child-tab-me-icon.svg";
 
 /*
   아동 앱 아래 탭. 점주 탭 바(components/owner/OwnerTabBar.tsx)와 같은 방식이다.
   path 가 null 인 탭은 화면이 아직 없어 누를 수 없다. 화면이 생기면 path 만 채운다.
-  "가게 목록" 의 회색 아이콘은 시안에 없어 노란 아이콘을 같이 쓴다. 다른 탭 화면이 생겨 회색이 보일 때 시안에서 받아 채운다.
 */
 const TABS: { label: string; icon: string; activeIcon?: string; path: string | null }[] = [
-  { label: "홈", icon: homeIcon, path: null },
-  { label: "가게 목록", icon: storesActiveIcon, path: "/child/stores" },
+  { label: "홈", icon: homeIcon, activeIcon: homeActiveIcon, path: "/child/home" },
+  { label: "가게 목록", icon: storesIcon, activeIcon: storesActiveIcon, path: "/child/stores" },
   { label: "내 QR", icon: qrIcon, path: null },
   { label: "내 정보", icon: meIcon, path: null },
 ];

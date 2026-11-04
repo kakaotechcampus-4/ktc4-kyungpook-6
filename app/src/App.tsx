@@ -5,6 +5,8 @@ import RoleSelectPage from "./pages/RoleSelectPage";
 import OwnerLoginPage from "./pages/OwnerLoginPage";
 import OwnerSignupLayout from "./pages/OwnerSignupLayout";
 import OwnerSignupAccountPage from "./pages/OwnerSignupAccountPage";
+import OwnerSignupBizCertPage from "./pages/OwnerSignupBizCertPage";
+import OwnerSignupBizCertResultPage from "./pages/OwnerSignupBizCertResultPage";
 import OwnerSignupInfoPage from "./pages/OwnerSignupInfoPage";
 import OwnerSignupStorePage from "./pages/OwnerSignupStorePage";
 import OwnerSignupHoursPage from "./pages/OwnerSignupHoursPage";
@@ -16,6 +18,7 @@ import OwnerOrdersPage from "./pages/OwnerOrdersPage";
 import OwnerQrScanPage from "./pages/OwnerQrScanPage";
 import OwnerCheckInResultPage from "./pages/OwnerCheckInResultPage";
 import ChildCardLoginPage from "./pages/ChildCardLoginPage";
+import ChildHomePage from "./pages/ChildHomePage";
 import ChildStoreListPage from "./pages/ChildStoreListPage";
 import ChildStoreDetailPage from "./pages/ChildStoreDetailPage";
 import ChildOrderPage from "./pages/ChildOrderPage";
@@ -35,6 +38,8 @@ function App() {
         <Route path="/owner/login" element={<OwnerLoginPage />} />
         <Route path="/owner/signup" element={<OwnerSignupLayout />}>
           <Route index element={<OwnerSignupAccountPage />} />
+          <Route path="biz-cert" element={<OwnerSignupBizCertPage />} />
+          <Route path="biz-cert/result" element={<OwnerSignupBizCertResultPage />} />
           <Route path="info" element={<OwnerSignupInfoPage />} />
           <Route path="store" element={<OwnerSignupStorePage />} />
           <Route path="store/hours" element={<OwnerSignupHoursPage />} />
@@ -47,6 +52,8 @@ function App() {
         <Route path="/owner/qr/result" element={<OwnerCheckInResultPage />} />
         {/* 아동 화면 */}
         <Route path="/child/login" element={<ChildCardLoginPage />} />
+        {/* 카드 인증을 마치면 오는 아동 홈(hooks/childCardLogin.ts). */}
+        <Route path="/child/home" element={<ChildHomePage />} />
         <Route path="/child/stores" element={<ChildStoreListPage />} />
         <Route path="/child/stores/:storeId" element={<ChildStoreDetailPage />} />
         <Route path="/child/stores/:storeId/order" element={<ChildOrderPage />} />

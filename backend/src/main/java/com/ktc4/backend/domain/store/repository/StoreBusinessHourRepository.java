@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface StoreBusinessHourRepository extends JpaRepository<StoreBusinessHour, Long> {
@@ -14,6 +15,9 @@ public interface StoreBusinessHourRepository extends JpaRepository<StoreBusiness
     boolean existsByStoreStoreId(Long storeId);
 
     List<StoreBusinessHour> findByStoreStoreId(Long storeId);
+
+    // 주변 가게 여러 곳의 영업시간을 한 번에 읽는다 — 가게마다 부르면 쿼리가 가게 수만큼 나간다
+    List<StoreBusinessHour> findByStoreStoreIdIn(Collection<Long> storeIds);
 
     /**
      * 가게의 영업시간을 값만 읽는다 — 엔티티를 영속성 컨텍스트에 올리지 않는다. 벌크 삭제({@link #deleteAllByStoreId})와

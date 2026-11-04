@@ -6,14 +6,18 @@ import com.ktc4.backend.domain.store.dto.BusinessHourRequest;
 import com.ktc4.backend.domain.store.dto.BusinessHourResponse;
 import com.ktc4.backend.domain.store.dto.MenuRequest;
 import com.ktc4.backend.domain.store.dto.MenuResponse;
+import com.ktc4.backend.domain.store.dto.OpenSettingRequest;
+import com.ktc4.backend.domain.store.dto.OpenSettingResponse;
 import com.ktc4.backend.domain.store.dto.OperatingInfoRequest;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreDetailResponse;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.enums.BusinessDay;
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
+import com.ktc4.backend.domain.store.enums.OpenMode;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
 import com.ktc4.backend.domain.store.enums.StoreChangeSource;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
@@ -458,7 +462,8 @@ class StoreControllerTest {
             return new StoreDetailResponse(1L, "예시분식", "가상특별시 예시구 샘플로 123", "053-123-4567",
                     List.of(new BusinessHourResponse(BusinessDay.MON, "11:00", "24:00"),
                             new BusinessHourResponse(BusinessDay.FRI, "21:00", "02:00")),
-                    List.of(new MenuResponse(3L, "김치찌개", true, null), new MenuResponse(7L, "라면", false, null)));
+                    List.of(new MenuResponse(3L, "김치찌개", true, null), new MenuResponse(7L, "라면", false, null)),
+                    OpenMode.SCHEDULE, true, CompanionPolicy.NONE, true, true, null);
         }
 
         // null 인 칸은 본문에서 뺀다 — "보내지 않음"을 표현한다
@@ -482,6 +487,64 @@ class StoreControllerTest {
 
         private ResultActions save(String content) throws Exception {
             return mockMvc.perform(put(OPERATING_INFO_PATH).contentType(MediaType.APPLICATION_JSON).content(content));
+        }
+
+        // 기본 세 칸에 방문 조건 칸(JSON 조각)을 붙인다
+        private static String bodyWith(String visitFields) {
+            String base = validBody();
+            return base.substring(0, base.length() - 1) + "," + visitFields + "}";
+        }
+
+        @Test
+        @DisplayName("방문 조건(동반 인원·식사 방법·사장님 한마디)을 함께 보내면 그대로 서비스에 넘어간다")
+        void visitInfoReachesService() throws Exception {
+            when(storeManagementService.save(eq(1L), any(), any())).thenReturn(sampleDetail());
+
+            save(bodyWith("\"companion\":\"TWO\",\"takeoutAvailable\":false,\"dineInAvailable\":true,"
+                    + "\"ownerNote\":\"하루 5명까지 제공해요\"")).andExpect(status().isOk());
+
+            ArgumentCaptor<OperatingInfoRequest> request = ArgumentCaptor.forClass(OperatingInfoRequest.class);
+            verify(storeManagementService).save(eq(1L), request.capture(), any());
+            assertThat(request.getValue()).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                    .containsExactly(CompanionPolicy.TWO, false, true, "하루 5명까지 제공해요");
+        }
+
+        @Test
+        @DisplayName("방문 조건을 안 보내도 저장된다 — 점주 앱이 아직 새 칸을 보내지 않는다")
+        void visitInfoIsOptionalForNow() throws Exception {
+            when(storeManagementService.save(eq(1L), any(), any())).thenReturn(sampleDetail());
+
+            save(validBody()).andExpect(status().isOk());
+
+            ArgumentCaptor<OperatingInfoRequest> request = ArgumentCaptor.forClass(OperatingInfoRequest.class);
+            verify(storeManagementService).save(eq(1L), request.capture(), any());
+            assertThat(request.getValue()).extracting("companion", "takeoutAvailable", "dineInAvailable", "ownerNote")
+                    .containsOnlyNulls();
+        }
+
+        @Test
+        @DisplayName("포장·매장을 둘 다 끄거나 하나만 보내면 400 — 아이가 먹을 방법이 없거나, 옛 값과 섞인다")
+        void rejectsBadDiningMethod() throws Exception {
+            for (String fields : List.of("\"takeoutAvailable\":false,\"dineInAvailable\":false",
+                    "\"takeoutAvailable\":true", "\"dineInAvailable\":false")) {
+                save(bodyWith(fields))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.errors[0].field").value("diningMethodValid"));
+            }
+            verify(storeManagementService, never()).save(anyLong(), any(), any());
+        }
+
+        @Test
+        @DisplayName("사장님 한마디는 100자까지, 한 줄 — 101자·줄바꿈은 400, 동반 인원은 NONE·ONE·TWO 만")
+        void rejectsBadOwnerNoteAndCompanion() throws Exception {
+            save(bodyWith("\"ownerNote\":\"" + "가".repeat(100) + "\"")).andExpect(status().isOk());
+            save(bodyWith("\"ownerNote\":\"" + "가".repeat(101) + "\""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("ownerNote"));
+            save(bodyWith("\"ownerNote\":\"브레이크타임\\n15시\""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("ownerNote"));
+            save(bodyWith("\"companion\":\"THREE\"")).andExpect(status().isBadRequest());
         }
 
         @Test
@@ -634,6 +697,62 @@ class StoreControllerTest {
                         .andExpect(jsonPath("$.type").value(
                                 "https://kakaotechcampus-4.github.io/ktc4-kyungpook-6/errors/invalid-request"));
             }
+        }
+    }
+
+    /**
+     * 점주 앱 홈의 영업 상태 저장 계약(PROMPT-185). "그 가게에 연결된 점주인지"는 서비스가 보므로 여기서는 경로·권한·본문 검증을 본다.
+     */
+    @Nested
+    @DisplayName("영업 상태 저장")
+    class OpenSetting {
+
+        private static final String OPEN_SETTING_PATH = "/api/stores/1/open-setting";
+
+        private ResultActions saveAs(RequestPostProcessor login, String body) throws Exception {
+            return mockMvc.perform(put(OPEN_SETTING_PATH).with(login)
+                    .contentType(MediaType.APPLICATION_JSON).content(body));
+        }
+
+        private static RequestPostProcessor ownerLogin() {
+            AuthMember owner = new AuthMember(21L, MemberRole.OWNER);
+            return authentication(UsernamePasswordAuthenticationToken.authenticated(owner, null, owner.authorities()));
+        }
+
+        @Test
+        @DisplayName("점주가 방식과 켜고 끈 값을 보내면 서비스에 그대로 넘기고 저장된 값을 돌려준다")
+        void ownerSavesOpenSetting() throws Exception {
+            when(storeManagementService.saveOpenSetting(eq(1L), any(), any()))
+                    .thenReturn(new OpenSettingResponse(OpenMode.MANUAL, false));
+
+            saveAs(ownerLogin(), "{\"mode\":\"MANUAL\",\"manualOpen\":false}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.mode").value("MANUAL"))
+                    .andExpect(jsonPath("$.manualOpen").value(false));
+
+            ArgumentCaptor<OpenSettingRequest> request = ArgumentCaptor.forClass(OpenSettingRequest.class);
+            verify(storeManagementService).saveOpenSetting(eq(1L), request.capture(), any());
+            assertThat(request.getValue()).isEqualTo(new OpenSettingRequest(OpenMode.MANUAL, false));
+        }
+
+        @Test
+        @DisplayName("mode·manualOpen 중 하나라도 없거나 mode 값이 틀리면 400 이고 서비스까지 가지 않는다")
+        void rejectsMissingOrUnknownValues() throws Exception {
+            for (String body : List.of("{\"manualOpen\":true}", "{\"mode\":\"MANUAL\"}",
+                    "{\"mode\":\"ALWAYS\",\"manualOpen\":true}", "{\"mode\":\"manual\",\"manualOpen\":true}")) {
+                saveAs(ownerLogin(), body).andExpect(status().isBadRequest());
+            }
+            verify(storeManagementService, never()).saveOpenSetting(anyLong(), any(), any());
+        }
+
+        @Test
+        @DisplayName("아동 토큰은 403 — 점주·관리자만 바꾼다")
+        @WithMockUser(roles = "CHILD")
+        void childCannotSave() throws Exception {
+            mockMvc.perform(put(OPEN_SETTING_PATH).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mode\":\"MANUAL\",\"manualOpen\":false}"))
+                    .andExpect(status().isForbidden());
+            verify(storeManagementService, never()).saveOpenSetting(anyLong(), any(), any());
         }
     }
 }

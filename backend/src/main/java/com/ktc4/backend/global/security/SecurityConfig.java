@@ -172,6 +172,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/stores/{storeId:\\d+}").hasAnyRole("OWNER", "ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/stores/{storeId:\\d+}/operating-info")
                         .hasAnyRole("OWNER", "ADMIN")
+                        // 점주 앱 홈의 영업 상태 저장 — 위와 같다
+                        .requestMatchers(HttpMethod.PUT, "/api/stores/{storeId:\\d+}/open-setting")
+                        .hasAnyRole("OWNER", "ADMIN")
+                        // 아동 앱의 주변 가게 — 급식카드로 인증한 아동만(PROMPT-185). 아동 토큰은 #145(PROMPT-182)가 발급한다
+                        .requestMatchers(HttpMethod.GET, "/api/stores/nearby").hasRole("CHILD")
                         // 점주가 아동 QR 을 찍어 방문을 기록한다(PR #50). "그 가게에 연결된 점주인지"는 서비스가 본다
                         .requestMatchers(HttpMethod.POST, "/api/stores/*/check-ins").hasAnyRole("OWNER", "ADMIN")
                         // 가게 주문 목록·조리 시작·완료·취소 — 점주·관리자. 연결된 가게인지는 서비스가 본다(체크인과 같은 방식).

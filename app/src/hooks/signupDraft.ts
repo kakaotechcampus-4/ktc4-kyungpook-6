@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type { BusinessDay } from "../services/auth";
 import type { BizCertReading } from "../services/file";
+import type { OrderReceiveType } from "../services/order";
 
 /** 1단계(계정)에서 받은 값. */
 export type SignupAccount = {
@@ -8,28 +9,42 @@ export type SignupAccount = {
   password: string;
 };
 
-/** 2단계(기본 정보)에서 받은 값. 앞 단계로 돌아갔다 와도 다시 채우려고 보관한다. */
-export type SignupInfo = {
-  representativeName: string;
-  phone: string;
-  bizNo: string;
-  bizRegistrationFile: File | null;
+/** 사업자등록증 올리기에서 고른 파일과 읽은 값. 읽은 값은 기본 정보의 칸을 채우는 데 쓴다. */
+export type SignupBizCert = {
+  /** 필수다. */
+  file: File;
   /**
-   * 고를 때 올려 받은 사업자등록증 파일 ID. 올리지 못했거나 가입 신청이 한 번 실패했으면 null 이고,
+   * 고를 때 올려 받은 파일 ID. 가입 신청이 한 번 실패했으면 null 이고,
    * 그때는 가입 신청을 보낼 때 다시 올린다(hooks/signupMenus.ts).
    */
-  bizCertFileId: string | null;
-  /** 사업자등록증에서 읽은 값. 못 읽었으면 null. 가게 등록 1 의 빈 칸과 가입 신청의 선택 칸에 쓴다. */
-  bizCertReading: BizCertReading | null;
+  fileId: string | null;
+  /** 읽은 값. 하나도 못 읽었거나 읽기에 실패했으면(503 등) null 이고, 그때는 직접 입력한다. */
+  reading: BizCertReading | null;
 };
 
-/** 가게 등록 1(가게 정보)에서 받은 값. */
-export type SignupStore = {
+/** 기본 정보에서 받은 값. 앞 단계로 돌아갔다 와도 다시 채우려고 보관한다. */
+export type SignupInfo = {
+  representativeName: string;
+  bizNo: string;
   storeName: string;
   storeAddress: string;
-  storePhone: string;
+  /** 선택. "YYYY.MM.DD" 이거나 "". */
+  openDate: string;
+};
+
+/** 가게 등록 1(가게 세부 정보)에서 받은 값. */
+export type SignupStore = {
   /** 대표 사진(선택). 가입 신청을 보낼 때 올린다(hooks/signupMenus.ts). */
   storePhoto: File | null;
+  storePhone: string;
+  /** 사장님(대표자) 휴대폰 번호. */
+  phone: string;
+  /**
+   * 아이와 함께 올 수 있는 어른 수(0 이면 아이 혼자)와 식사 방법.
+   * 백엔드 가입 신청에 아직 칸이 없어 보내지 않고 화면 사이에서만 들고 있는다.
+   */
+  companionLimit: 0 | 1 | 2;
+  receiveTypes: OrderReceiveType[];
 };
 
 /** 가게 등록 2(영업시간)의 한 줄. 요일을 아직 고르지 않았으면 day 는 "". */
@@ -55,6 +70,8 @@ export type SignupMenu = {
 export type SignupDraft = {
   account: SignupAccount | null;
   setAccount: (account: SignupAccount) => void;
+  bizCert: SignupBizCert | null;
+  setBizCert: (bizCert: SignupBizCert) => void;
   info: SignupInfo | null;
   setInfo: (info: SignupInfo) => void;
   store: SignupStore | null;

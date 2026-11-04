@@ -1,9 +1,9 @@
 import type { ChangeEvent, KeyboardEvent } from "react";
-import menuPlaceholder from "../../assets/menu-placeholder.jpg";
 import plusIcon from "../../assets/plus-icon.svg";
 import removeLightIcon from "../../assets/remove-light-icon.svg";
 import { useObjectUrl } from "../../hooks/objectUrl";
 import { MENU_NAME_MAX_LENGTH } from "../../utils/signupValidation";
+import StoreMascot from "../store/StoreMascot";
 
 const CARD_BASE = "flex items-center gap-3.5 rounded-2xl border border-[#e5e7eb] p-3";
 
@@ -87,13 +87,19 @@ type MenuCardProps = {
   onRemove: () => void;
 };
 
-/** 등록한 메뉴 한 개. 사진을 고르지 않았으면 기본 그림을 보여 준다. */
+/** 등록한 메뉴 한 개. 사진을 고르지 않았으면 마스코트를 보여 준다(가게 관리 메뉴 줄과 같다). */
 export function MenuCard({ name, photo, onRemove }: MenuCardProps) {
   const previewUrl = useObjectUrl(photo);
 
   return (
     <li className={`${CARD_BASE} bg-white`}>
-      <img src={previewUrl ?? menuPlaceholder} alt="" className="size-14 shrink-0 rounded-xl object-cover" />
+      {previewUrl ? (
+        <img src={previewUrl} alt="" className="size-14 shrink-0 rounded-xl object-cover" />
+      ) : (
+        <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[#fbf6e6]">
+          <StoreMascot size="small" />
+        </div>
+      )}
       <span className="min-w-0 flex-1 truncate text-[15px] leading-[normal] font-semibold text-[#1f2937]">
         {name}
       </span>

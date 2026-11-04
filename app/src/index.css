@@ -6,3 +6,29 @@
     "Pretendard Variable", Pretendard, system-ui, -apple-system,
     "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;
 }
+
+/*
+  아동 홈 내 위치의 점선 원 깜빡임(components/child/ChildMapMe.tsx).
+  안쪽 → 가운데 → 바깥 순서로 시간차를 두고 밝아졌다 흐려져, 레이더가 퍼지는 느낌을 낸다.
+*/
+@theme {
+  --animate-ring-blink: ring-blink 1.8s ease-in-out infinite;
+
+  @keyframes ring-blink {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    30% {
+      opacity: 1;
+    }
+  }
+}
+
+/* 가입 화면은 기본 스크롤바를 숨기고 내용 위에 겹치는 막대를 따로 그린다(components/signup/ScrollIndicator.tsx). */
+.signup-scroll {
+  scrollbar-width: none;
+}
+.signup-scroll::-webkit-scrollbar {
+  display: none;
+}
