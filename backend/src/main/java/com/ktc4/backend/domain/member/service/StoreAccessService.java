@@ -56,4 +56,14 @@ public class StoreAccessService {
             throw new CustomException(ErrorCode.FORBIDDEN);
         }
     }
+
+    /**
+     * 그 가게에 지금 연결된 점주가 있는지 답한다 — 아동 주문을 받을 수 있는 가게인지 볼 때 쓴다(점주가 없으면 주문을 처리할 사람이 없다).
+     *
+     * @param storeId 가게 ID
+     * @return 끊기지 않은 점주 연결이 있으면 true
+     */
+    public boolean hasLinkedOwner(Long storeId) {
+        return storeOwnerRepository.existsLinkedByStoreId(storeId);
+    }
 }

@@ -10,6 +10,10 @@ import com.ktc4.backend.domain.child.service.ChildAuthService;
 import com.ktc4.backend.domain.member.controller.OwnerAdminController;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.member.service.OwnerApprovalService;
+import com.ktc4.backend.domain.order.controller.ChildOrderController;
+import com.ktc4.backend.domain.order.controller.OrderAdminController;
+import com.ktc4.backend.domain.order.controller.StoreOrderController;
+import com.ktc4.backend.domain.order.service.OrderService;
 import com.ktc4.backend.domain.qr.controller.QrCredentialController;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.controller.StoreController;
@@ -52,7 +56,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 토큰은 이 컨텍스트의 실제 {@link JwtProvider} 로 발급한다.
  */
 @WebMvcTest({StoreController.class, AuthController.class, TestController.class, OwnerAdminController.class,
-        CheckInController.class, QrCredentialController.class, ChildAuthController.class})
+        CheckInController.class, QrCredentialController.class, ChildAuthController.class, ChildOrderController.class,
+        StoreOrderController.class, OrderAdminController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {"auth.internal-api-key=" + SecurityConfigTest.API_KEY})
 @DisplayName("API 접근 권한")
@@ -86,6 +91,9 @@ class SecurityConfigTest {
 
     @MockitoBean
     private ChildAuthService childAuthService;
+
+    @MockitoBean
+    private OrderService orderService;
 
     private String bearer(MemberRole role) {
         return "Bearer " + jwtProvider.issue(1L, role).value();
@@ -350,10 +358,100 @@ class SecurityConfigTest {
         }
 
         @Test
-        @DisplayName("권한 목록에 없는 경로도 403 — 부를 수 있는 API 는 내 QR 하나다")
+        @DisplayName("권한 목록에 없는 경로도 403 — 부를 수 있는 API 는 내 QR·내 주문뿐이다")
         void blocksUnlistedPath() throws Exception {
             expectProblem(mockMvc.perform(get("/api/anything-new")
                     .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
+        }
+    }
+
+    @Nested
+    @DisplayName("주문 — 아동·점주·관리자")
+    class Orders {
+
+        private static final String CREATE_BODY = "{\"storeId\":1,\"menuId\":3,\"receiveType\":\"TAKEOUT\"}";
+        private static final List<String> STORE_ACTIONS = List.of(
+                "/api/stores/1/orders/9/start-cooking", "/api/stores/1/orders/9/complete", "/api/stores/1/orders/9/cancel");
+
+        private String childBearer() {
+            return "Bearer " + jwtProvider.issueChild(7L).value();
+        }
+
+        // 보안 규칙에서 막혀 컨트롤러에 닿지 않았는지(handler 없음)까지 본다
+        private void expectBlocked(ResultActions result, ErrorCode errorCode) throws Exception {
+            expectProblem(result.andExpect(r -> assertThat(r.getHandler()).isNull()), errorCode);
+        }
+
+        @Test
+        @DisplayName("아동은 내 주문 만들기·진행 중 보기·취소를 부를 수 있다")
+        void childReachesOwnOrders() throws Exception {
+            mockMvc.perform(post("/api/children/me/orders").header(HttpHeaders.AUTHORIZATION, childBearer())
+                    .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY)).andExpect(status().isCreated());
+            mockMvc.perform(get("/api/children/me/orders/active").header(HttpHeaders.AUTHORIZATION, childBearer()))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post("/api/children/me/orders/9/cancel").header(HttpHeaders.AUTHORIZATION, childBearer()))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("아동 주문 API 는 점주·관리자 토큰으로 403, 토큰 없이 401")
+        void childOrdersAreChildOnly() throws Exception {
+            for (MemberRole role : List.of(MemberRole.OWNER, MemberRole.ADMIN)) {
+                expectBlocked(mockMvc.perform(post("/api/children/me/orders").header(HttpHeaders.AUTHORIZATION, bearer(role))
+                        .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY)), ErrorCode.FORBIDDEN);
+                expectBlocked(mockMvc.perform(get("/api/children/me/orders/active")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(role))), ErrorCode.FORBIDDEN);
+                expectBlocked(mockMvc.perform(post("/api/children/me/orders/9/cancel")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(role))), ErrorCode.FORBIDDEN);
+            }
+            expectBlocked(mockMvc.perform(get("/api/children/me/orders/active")), ErrorCode.UNAUTHORIZED);
+
+            verifyNoInteractions(orderService);
+        }
+
+        @Test
+        @DisplayName("점주·관리자는 가게 주문 목록·조리 시작·완료·취소에 닿는다 — 연결된 가게인지는 서비스가 본다")
+        void ownerAndAdminReachStoreOrders() throws Exception {
+            for (MemberRole role : List.of(MemberRole.OWNER, MemberRole.ADMIN)) {
+                mockMvc.perform(get("/api/stores/1/orders").header(HttpHeaders.AUTHORIZATION, bearer(role)))
+                        .andExpect(status().isOk());
+                for (String action : STORE_ACTIONS) {
+                    mockMvc.perform(post(action).header(HttpHeaders.AUTHORIZATION, bearer(role)))
+                            .andExpect(status().isOk());
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("아동 토큰으로 가게 주문·관리자 주문은 403 — 남의 주문을 처리하거나 볼 수 없다")
+        void childCannotHandleStoreOrders() throws Exception {
+            expectBlocked(mockMvc.perform(get("/api/stores/1/orders")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
+            for (String action : STORE_ACTIONS) {
+                expectBlocked(mockMvc.perform(post(action).header(HttpHeaders.AUTHORIZATION, childBearer())),
+                        ErrorCode.FORBIDDEN);
+            }
+            expectBlocked(mockMvc.perform(get("/api/admin/orders")
+                    .header(HttpHeaders.AUTHORIZATION, childBearer())), ErrorCode.FORBIDDEN);
+
+            verifyNoInteractions(orderService);
+        }
+
+        @Test
+        @DisplayName("가게 번호가 숫자가 아닌 주문 경로는 점주에게 열리지 않는다 — 넓은 /api/stores/** 관리자 규칙으로 간다")
+        void storeOrderRuleIsNarrow() throws Exception {
+            expectBlocked(mockMvc.perform(get("/api/stores/nts-checks/orders")
+                    .header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.OWNER))), ErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("관리자 주문 내역은 관리자만 — 점주 403, 토큰 없이 401")
+        void adminOrdersAreAdminOnly() throws Exception {
+            mockMvc.perform(get("/api/admin/orders").header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.ADMIN)))
+                    .andExpect(status().isOk());
+            expectBlocked(mockMvc.perform(get("/api/admin/orders")
+                    .header(HttpHeaders.AUTHORIZATION, bearer(MemberRole.OWNER))), ErrorCode.FORBIDDEN);
+            expectBlocked(mockMvc.perform(get("/api/admin/orders")), ErrorCode.UNAUTHORIZED);
         }
     }
 

@@ -33,7 +33,8 @@ import java.time.Duration;
  *
  * <p>아동은 급식카드로 인증해 아동 토큰을 받고({@code POST /api/auth/children/card}, 누구나), 그 토큰으로 자기 QR 만
  * 발급한다({@code POST /api/children/me/qr-token}). QR 발급은 다시 부르면 옛 QR 이 바로 무효가 되므로 아동 번호를 요청에서
- * 받지 않고 토큰에서만 꺼낸다 — 점주·관리자도 남의 QR 을 재발급할 수 없다. 아동 토큰은 이 하나만 부를 수 있다.
+ * 받지 않고 토큰에서만 꺼낸다 — 점주·관리자도 남의 QR 을 재발급할 수 없다. 아동 토큰이 부를 수 있는 것은 내 QR 과 내 주문
+ * (만들기·진행 중 보기·취소)뿐이다. 가게 주문 처리는 점주·관리자, 주문 내역은 관리자({@code /api/admin/**})다.
  *
  * <p>권한 검사는 끌 수 없다. 로그인 기능을 넣을 때 프론트·AI 가 준비되기 전이라 끌 수 있는 임시 스위치
  * ({@code AUTH_ENFORCE})를 두었고, 준비가 끝나 PROMPT-146 에서 지웠다. 다시 만들지 못하게
@@ -155,8 +156,11 @@ public class SecurityConfig {
                         .hasAnyRole("ADMIN", "OWNER", AuthMember.SIGNUP_STATUS_ROLE)
                         // 점주 가입 승인 같은 관리자 API
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        // 아동 본인의 QR 발급 — 아동 토큰만. 아동 번호는 토큰에서 꺼낸다(클래스 주석)
-                        .requestMatchers(HttpMethod.POST, "/api/children/me/qr-token").hasRole(AuthMember.CHILD_ROLE)
+                        // 아동 본인의 QR 발급·주문 — 아동 토큰만. 아동 번호는 토큰에서 꺼낸다(클래스 주석).
+                        // 경로를 하나씩 적는다 — /api/children/me/** 로 열면 새 경로가 실수로 아동에게 열린다
+                        .requestMatchers(HttpMethod.POST, "/api/children/me/qr-token", "/api/children/me/orders",
+                                "/api/children/me/orders/{orderId:\\d+}/cancel").hasRole(AuthMember.CHILD_ROLE)
+                        .requestMatchers(HttpMethod.GET, "/api/children/me/orders/active").hasRole(AuthMember.CHILD_ROLE)
                         // 관리자 조사(Job) — AI 호출 비용이 드는 API 다
                         .requestMatchers("/api/jobs/**").hasRole("ADMIN")
                         // 조사 결과로 가게 정보를 바꾼다
@@ -175,6 +179,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/stores/nearby").hasRole("CHILD")
                         // 점주가 아동 QR 을 찍어 방문을 기록한다(PR #50). "그 가게에 연결된 점주인지"는 서비스가 본다
                         .requestMatchers(HttpMethod.POST, "/api/stores/*/check-ins").hasAnyRole("OWNER", "ADMIN")
+                        // 가게 주문 목록·조리 시작·완료·취소 — 점주·관리자. 연결된 가게인지는 서비스가 본다(체크인과 같은 방식).
+                        // 가게 ID 를 숫자로 좁히는 이유는 위 가게 상세와 같다 — 아래 넓은 /api/stores/** 관리자 규칙보다 먼저 와야 한다
+                        .requestMatchers(HttpMethod.GET, "/api/stores/{storeId:\\d+}/orders").hasAnyRole("OWNER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/stores/{storeId:\\d+}/orders/{orderId:\\d+}/start-cooking",
+                                "/api/stores/{storeId:\\d+}/orders/{orderId:\\d+}/complete",
+                                "/api/stores/{storeId:\\d+}/orders/{orderId:\\d+}/cancel").hasAnyRole("OWNER", "ADMIN")
                         // AI 서버는 이 하나만 부를 수 있다 — 키가 새도 관리자 권한까지 열리지 않게
                         .requestMatchers(HttpMethod.GET, "/api/stores/nts-checks")
                         .hasAnyRole("ADMIN", ApiKeyAuthenticationFilter.AI_SERVER_ROLE)
