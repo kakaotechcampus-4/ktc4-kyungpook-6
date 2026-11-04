@@ -5,6 +5,7 @@ import com.ktc4.backend.domain.checkin.repository.CheckInRepository;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.repository.JobRepository;
 import com.ktc4.backend.domain.member.repository.StoreOwnerRepository;
+import com.ktc4.backend.domain.order.repository.ChildOrderRepository;
 import com.ktc4.backend.domain.signal.repository.SignalRepository;
 import com.ktc4.backend.domain.store.dto.StoreDeleteResponse;
 import com.ktc4.backend.domain.store.dto.StoreDeletionRequest;
@@ -67,6 +68,8 @@ import java.util.Set;
  *   <tr><td>방문(체크인) 기록이 있음</td><td><b>넘길 수 없다</b></td>
  *       <td>아동이 실제로 다녀간 기록인데 <b>보관할 자리가 아직 없다.</b> 지우면 영구히 사라진다 —
  *           보관 방법을 정하기 전까지는 지우는 쪽이 더 위험하다</td></tr>
+ *   <tr><td>아동 주문 기록이 있음</td><td><b>넘길 수 없다</b></td>
+ *       <td>체크인과 같은 이유. 주문 표가 가게·메뉴를 외래 키로 가리켜, 지우려 해도 DB 가 막는다</td></tr>
  * </table>
  *
  * <p>{@code force} 는 "지울 수 있게 해 달라"가 아니라 <b>"그 리스크를 알고 있다"는 표시</b>다.
@@ -93,6 +96,7 @@ public class StoreDeletionService {
     private final StoreRepository storeRepository;
     private final StoreNtsCheckRepository storeNtsCheckRepository;
     private final StoreNtsChangeRepository storeNtsChangeRepository;
+    private final ChildOrderRepository childOrderRepository;
     private final StoreMenuRepository storeMenuRepository;
     private final StoreBusinessHourRepository storeBusinessHourRepository;
     private final StoreChangeHistoryRepository storeChangeHistoryRepository;
@@ -112,7 +116,8 @@ public class StoreDeletionService {
      * @throws CustomException 가게가 없으면 {@code STORE_NOT_FOUND},
      *                         점주가 연결돼 있으면 {@code STORE_HAS_OWNER},
      *                         끝나지 않은 조사가 있으면 {@code STORE_UNDER_INVESTIGATION},
-     *                         방문 기록이 있으면 {@code STORE_HAS_CHECK_IN}
+     *                         방문 기록이 있으면 {@code STORE_HAS_CHECK_IN},
+     *                         아동 주문 기록이 있으면 {@code STORE_HAS_ORDER}
      */
     @Transactional
     public StoreDeleteResponse delete(Long storeId, boolean force) {
@@ -178,6 +183,10 @@ public class StoreDeletionService {
     private Optional<ErrorCode> refusalOf(Long storeId, boolean force) {
         if (checkInRepository.existsByStore_StoreId(storeId)) {
             return Optional.of(ErrorCode.STORE_HAS_CHECK_IN);
+        }
+        // force 분기보다 앞에 둔다 — 뒤에 두면 force 일 때 메뉴를 지우다 주문 표의 외래 키에 걸려 500 이 난다
+        if (childOrderRepository.existsByStore_StoreId(storeId)) {
+            return Optional.of(ErrorCode.STORE_HAS_ORDER);
         }
         if (force) {
             return Optional.empty();

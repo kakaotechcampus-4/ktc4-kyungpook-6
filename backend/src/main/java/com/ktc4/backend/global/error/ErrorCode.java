@@ -32,7 +32,18 @@ public enum ErrorCode {
     STORE_HAS_OWNER(HttpStatus.CONFLICT, "점주가 연결된 가게입니다"),
     STORE_UNDER_INVESTIGATION(HttpStatus.CONFLICT, "조사가 진행 중입니다"),
     STORE_HAS_CHECK_IN(HttpStatus.CONFLICT, "방문 기록이 있는 가게입니다"),
+    STORE_HAS_ORDER(HttpStatus.CONFLICT, "주문 기록이 있는 가게입니다"),
     INVALID_QR_TOKEN(HttpStatus.BAD_REQUEST, "유효하지 않은 QR 입니다"),
+    // 아동 급식카드 인증. 서버에 카드 번호 해시 키(CARD_HASH_SECRET)가 없으면 인증만 멈춘다 — 앱 전체는 뜬다
+    CARD_AUTH_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금 카드 인증을 할 수 없습니다"),
+    // 아동 주문. 남의 주문·다른 가게 주문도 ORDER_NOT_FOUND 다 — 있는지 알려 주지 않는다
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다"),
+    ACTIVE_ORDER_EXISTS(HttpStatus.CONFLICT, "진행 중인 주문이 있습니다"),
+    ORDER_STATUS_CONFLICT(HttpStatus.CONFLICT, "지금 주문 상태에서는 할 수 없습니다"),
+    MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "메뉴를 찾을 수 없습니다"),
+    MENU_NOT_ON_SALE(HttpStatus.CONFLICT, "오늘 판매하지 않는 메뉴입니다"),
+    // 주문을 처리할 점주가 연결돼 있지 않은 가게. 가게 영업 상태(주문 OFF)가 생기면 그 경우도 이 값이다
+    STORE_NOT_ORDERABLE(HttpStatus.CONFLICT, "지금 주문을 받지 않는 가게입니다"),
 
     // 인증·권한. 앞의 둘(UNAUTHORIZED, FORBIDDEN)은 대개 컨트롤러에 닿기 전 보안 필터가 직접 응답한다.
     // 서비스가 던지기도 한다 — 체크인의 "그 가게에 연결된 점주인지"(FORBIDDEN)처럼 데이터를 봐야 아는 확인과,
