@@ -14,9 +14,9 @@ import java.util.Map;
  * 넘기게 된다. 2026-11-04 에 실제로 그렇게 읽었다(전화 API 가 {@code PROCESSING_ERROR} 로 즉시 실패했고,
  * 벨도 울리지 않았는데 화면은 안 받은 전화와 똑같이 보였다).
  *
- * <p>⚠️ <b>아는 코드가 아직 하나뿐이다.</b> 전화 API 명세에도 OpenAPI 에도 {@code failureReason} 의
- * 코드 목록이 없다. 그래서 모르는 코드는 {@link #UNKNOWN} 으로 두고 받은 코드를 화면에 그대로
- * 보여 준다 — 삼키면 원인이 사라진다. 코드 목록을 받으면 {@link #BY_REASON} 만 채우면 된다.
+ * <p>코드 목록은 2026-11-04 에 전화 API 쪽에서 받았다(PR #153 코멘트). 그래도 모르는 코드는
+ * {@link #UNKNOWN} 으로 두고 받은 코드를 화면에 그대로 보여 준다 — 목록이 늘어날 수 있고,
+ * 삼키면 원인이 사라진다. 코드가 추가되면 {@link #BY_REASON} 만 채우면 된다.
  */
 public enum CallFailureKind {
 
@@ -52,26 +52,46 @@ public enum CallFailureKind {
     public static final String GAVE_UP_WAITING = "KTC4_GAVE_UP_WAITING";
 
     /**
-     * 아는 코드. 전화 API 쪽 코드 목록을 받으면 여기를 채운다.
+     * 전화 API 가 주는 사유 코드를 담당자가 할 일로 묶는다.
      *
-     * <p>전부 2026-11-04 에 실제로 받아 본 코드이거나 우리가 적는 코드다. 문서에서 베끼지 않았다.
+     * <p>목록은 2026-11-04 에 전화 API 쪽에서 받았다(PR #153 코멘트). 그전에는 상황을 직접 만들어
+     * 받아 본 셋뿐이었고 나머지는 {@link #UNKNOWN} 이었다.
      *
-     * <ul>
-     *   <li>{@code REMOTE_HANGUP} — 연결된 뒤 상대가 끊었다({@code connectedAt} 이 찍혀 있다).
-     *       다시 걸면 받을 수 있으니 {@link #RETRY_LATER} 다</li>
-     *   <li>{@code IDENTITY_UNCONFIRMED} — 연결된 뒤({@code connectedAt} 이 찍힌다) 상대가 맞는지
-     *       확인하지 못했다. 받고 나서 아무 말도 하지 않으면 통화를 마친다고 알리고 끊는다(실측).
-     *       받는 사람이 없어도, 번호가 낡아 엉뚱한 곳에 닿아도 같은 코드로 보여
-     *       {@link #PARTY_UNCONFIRMED} 로 둔다</li>
-     *   <li>{@code PROCESSING_ERROR} — 전화 API 안에서 즉시 터졌고 {@code startedAt} 이 비어 있었다.
-     *       발신 시도 전이라 가게와 무관하다</li>
-     * </ul>
+     * <p>가르는 기준이 "무슨 일이 있었나" 가 아니라 <b>"담당자가 뭘 해야 하나"</b> 라, 전화 API 의
+     * 코드와 일대일이 아니다. 예를 들어 {@code NO_ANSWER_OR_REJECTED} 는 안 받은 것과 거절한 것이
+     * 한 코드에 묶여 있는데 둘을 가를 수 없으니 <b>덜 단정적인 쪽</b>(다시 걸어 보기)으로 둔다.
      */
-    private static final Map<String, CallFailureKind> BY_REASON = Map.of(
-            GAVE_UP_WAITING, OUR_SIDE,
-            "PROCESSING_ERROR", OUR_SIDE,
-            "REMOTE_HANGUP", RETRY_LATER,
-            "IDENTITY_UNCONFIRMED", PARTY_UNCONFIRMED);
+    private static final Map<String, CallFailureKind> BY_REASON = Map.ofEntries(
+            // 우리가 적는 코드
+            Map.entry(GAVE_UP_WAITING, OUR_SIDE),
+
+            // 가게와 무관 — 전화 API 쪽 장치·서버
+            Map.entry("CONNECTION_FAILED", OUR_SIDE),   // 모뎀에서 발신에 실패
+            Map.entry("PROCESSING_ERROR", OUR_SIDE),    // STT·LLM·TTS·장치 오류
+            Map.entry("SERVER_RESTARTED", OUR_SIDE),
+            Map.entry("SERVER_SHUTDOWN", OUR_SIDE),
+
+            // 이따 다시 걸면 된다
+            Map.entry("NO_ANSWER_OR_REJECTED", RETRY_LATER),  // 안 받음과 거절이 한 코드다 — 덜 단정적인 쪽으로
+            Map.entry("REMOTE_HANGUP", RETRY_LATER),          // 마치기 전에 끊음. 들은 답은 함께 온다
+            Map.entry("INPUT_TIMEOUT", RETRY_LATER),          // 정해진 시간 동안 응답 없음
+            Map.entry("CALL_TIME_LIMIT", RETRY_LATER),        // 최대 통화 시간 초과
+            Map.entry("TURN_LIMIT", RETRY_LATER),             // 최대 대화 턴 초과
+
+            /*
+              번호가 잘못됐다 — 전화를 받은 사람이 "확인 대상이 아니다" 라고 직접 답한 경우다.
+              다시 걸어도 같은 사람이 받는다. 우리가 만들어 볼 수 없던 "없는 번호" 자리를 이것이 메운다.
+            */
+            Map.entry("WRONG_TARGET", FIX_NUMBER),
+
+            // 상대를 확정하지 못했다 — 다시 걸어 보고, 또 그러면 번호를 본다
+            Map.entry("IDENTITY_UNCONFIRMED", PARTY_UNCONFIRMED),
+
+            /*
+              상대가 "그만하자" 고 말한 경우다. 바로 다시 거는 것은 민폐라 전화로는 더 묻지 않는다 —
+              버튼은 열어 두되(담당자가 판단할 수 있게) 안내는 다른 방법을 가리킨다.
+            */
+            Map.entry("USER_REQUESTED_STOP", NOT_BY_PHONE));
 
     /**
      * 실패 사유 코드를 담당자가 할 일로 바꾼다.

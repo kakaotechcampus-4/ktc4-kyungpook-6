@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.call.enums;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -19,23 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallFailureKindTest {
 
     @Test
-    @DisplayName("전화 API 안에서 터진 것은 가게와 무관한 쪽으로 묶는다")
-    void 전화_API_문제() {
-        // 2026-11-04 에 실제로 받은 코드다. 벨도 울리지 않았고 startedAt 이 비어 있었다
-        assertThat(CallFailureKind.of("PROCESSING_ERROR")).isEqualTo(CallFailureKind.OUR_SIDE);
-    }
-
-    @Test
     @DisplayName("우리가 기다리다 닫은 것도 가게와 무관하다")
     void 우리가_닫은_것() {
         assertThat(CallFailureKind.of(CallFailureKind.GAVE_UP_WAITING)).isEqualTo(CallFailureKind.OUR_SIDE);
-    }
-
-    @Test
-    @DisplayName("연결된 뒤 상대가 끊은 것은 다시 걸면 된다")
-    void 상대가_끊음() {
-        // 2026-11-04 16:26 에 실제로 받은 코드다. startedAt·connectedAt 이 둘 다 찍혀 있었다
-        assertThat(CallFailureKind.of("REMOTE_HANGUP")).isEqualTo(CallFailureKind.RETRY_LATER);
     }
 
     @Test
@@ -46,10 +33,32 @@ class CallFailureKindTest {
         assertThat(CallFailureKind.of("IDENTITY_UNCONFIRMED")).isEqualTo(CallFailureKind.PARTY_UNCONFIRMED);
     }
 
+    @ParameterizedTest(name = "{0} → {1}")
+    @CsvSource({
+            // 2026-11-04 에 전화 API 쪽에서 받은 목록 전부 (PR #153 코멘트)
+            "CONNECTION_FAILED,      OUR_SIDE",          // 모뎀에서 발신에 실패
+            "PROCESSING_ERROR,       OUR_SIDE",          // STT·LLM·TTS·장치 오류
+            "SERVER_RESTARTED,       OUR_SIDE",
+            "SERVER_SHUTDOWN,        OUR_SIDE",
+            "NO_ANSWER_OR_REJECTED,  RETRY_LATER",
+            "REMOTE_HANGUP,          RETRY_LATER",
+            "INPUT_TIMEOUT,          RETRY_LATER",
+            "CALL_TIME_LIMIT,        RETRY_LATER",
+            "TURN_LIMIT,             RETRY_LATER",
+            "WRONG_TARGET,           FIX_NUMBER",        // 받은 사람이 "대상이 아니다" 라고 답했다
+            "IDENTITY_UNCONFIRMED,   PARTY_UNCONFIRMED",
+            "USER_REQUESTED_STOP,    NOT_BY_PHONE",      // "그만하자" — 바로 다시 걸면 민폐다
+    })
+    @DisplayName("전화 API 가 준 코드 목록을 담당자가 할 일로 묶는다")
+    void 받은_코드_목록(String reason, CallFailureKind expected) {
+        assertThat(CallFailureKind.of(reason)).isEqualTo(expected);
+    }
+
     @ParameterizedTest(name = "[{0}]")
     @ValueSource(strings = {"NO_ANSWER", "BUSY", "처음 보는 코드", "PROCESSING_ERROR_X"})
-    @DisplayName("모르는 코드는 UNKNOWN 이다 — 비슷해 보인다고 끼워 맞추지 않는다")
+    @DisplayName("목록에 없는 코드는 UNKNOWN 이다 — 비슷해 보인다고 끼워 맞추지 않는다")
     void 모르는_코드(String reason) {
+        // 코드가 늘어날 수 있다. 그때 틀린 안내를 띄우느니 받은 코드를 그대로 보여 준다
         assertThat(CallFailureKind.of(reason)).isEqualTo(CallFailureKind.UNKNOWN);
     }
 
