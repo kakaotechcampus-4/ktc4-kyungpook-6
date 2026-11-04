@@ -1,4 +1,5 @@
 """One call, continuously recording while STT/Jev/LLM/TTS run."""
+import json
 import logging
 import threading
 import time
@@ -93,6 +94,8 @@ class Session:
         self.playbacks.append({'start':self.prompt_started, 'end':self.prompt_started+wav_duration(path),
                                'text':text,'state':self.dialogue.state()})
         self.log.emit('assistant.response',turn=self.turn,text=text)
+        print(json.dumps({'call_id':self.call_id,'stage':'assistant.response',
+                          'turn':self.turn,'text':text},ensure_ascii=False),flush=True)
 
     def interrupt(self):
         self.audio.stop_playback()
@@ -167,6 +170,8 @@ class Session:
                 trace['output'] = {'text':text}
             if text:
                 self.log.emit('user.transcript',turn=self.turn,text=text)
+                print(json.dumps({'call_id':self.call_id,'stage':'user.transcript',
+                                  'turn':self.turn,'text':text},ensure_ascii=False),flush=True)
             if not self.active():
                 return terminal_reason if terminal else 'REMOTE_HANGUP'
             if not text:
