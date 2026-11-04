@@ -113,6 +113,37 @@ class ApiDocsSchemaIntegrationTest {
     }
 
     @Test
+    @DisplayName("아동 카드 인증은 토큰 없이 부른다고 적히고, 응답은 토큰 세 칸뿐이며 실패 응답도 적힌다")
+    void childCardAuthPublishesItsShape() throws Exception {
+        JsonNode docs = apiDocs();
+        JsonNode operation = docs.at("/paths/~1api~1auth~1children~1card/post");
+        assertThat(operation.isObject()).isTrue();
+
+        Set<String> refs = new HashSet<>();
+        collectRefs(operation.at("/responses/200/content"), refs);
+        assertThat(refs).containsExactly("ChildAuthResponse");
+        assertThat(docs.at("/components/schemas/ChildAuthResponse").get("properties").fieldNames())
+                .toIterable()
+                .containsExactlyInAnyOrder("accessToken", "tokenType", "expiresAt");
+        assertThat(operation.get("responses").fieldNames())
+                .toIterable()
+                .containsExactlyInAnyOrder("200", "400", "429", "503");
+
+        // 전역으로 걸린 토큰 요구를 이 API 에서는 지운다 — 앱이 토큰 없이 부르는 API 로 읽게
+        assertThat(operation.get("security").isArray()).isTrue();
+        assertThat(operation.get("security")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("아동 QR 발급은 내 QR 경로 하나만 문서에 있다 — 아동 번호를 경로에 넣던 옛 경로는 없다")
+    void childQrPathIsMine() throws Exception {
+        JsonNode paths = apiDocs().at("/paths");
+
+        assertThat(paths.at("/~1api~1children~1me~1qr-token/post").isObject()).isTrue();
+        assertThat(paths.has("/api/children/{childId}/qr-token")).isFalse();
+    }
+
+    @Test
     @DisplayName("문서가 가리키는 스키마는 전부 실제로 있다")
     void everyReferencedSchemaResolves() throws Exception {
         JsonNode docs = apiDocs();

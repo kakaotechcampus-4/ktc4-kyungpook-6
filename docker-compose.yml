@@ -33,6 +33,8 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
       # 로그인·외부 조회에 쓰는 값. 비면 그 기능만 꺼진다(관리자 계정은 만들어지지 않는다).
       JWT_SECRET: ${JWT_SECRET:-}
+      # 아동 급식카드 번호 해시 키. 비면 카드 인증만 꺼진다. 한 번 정하면 바꾸지 않는다(바꾸면 모든 아동이 새 아동)
+      CARD_HASH_SECRET: ${CARD_HASH_SECRET:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       BIZNO_API_KEY: ${BIZNO_API_KEY:-}
