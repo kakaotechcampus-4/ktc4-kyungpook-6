@@ -22,6 +22,7 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       BIZNO_API_KEY: ${BIZNO_API_KEY}
       NTS_SERVICE_KEY: ${NTS_SERVICE_KEY}
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY}
       # dev 는 nginx 프록시 한 대 뒤에 있습니다. 프록시가 없는 서버에는 넣지 마세요.
       SIGNUP_TRUSTED_PROXIES: ${SIGNUP_TRUSTED_PROXIES:-1}
 

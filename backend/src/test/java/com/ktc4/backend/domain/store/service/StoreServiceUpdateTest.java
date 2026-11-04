@@ -22,6 +22,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static com.ktc4.backend.support.StoreChangeHistoryRow.json;
@@ -77,6 +78,41 @@ class StoreServiceUpdateTest extends PostgresContainerTest {
         storeService.updateStore(store.getStoreId(),
                 new StoreUpdateRequest(null, null, null, null, null, null, category, ownerPhone, bizNo),
                 StoreChange.storeEdit(ADMIN_ID));
+    }
+
+    private Store reloaded() {
+        entityManager.flush();
+        entityManager.clear();
+        return entityManager.find(Store.class, store.getStoreId());
+    }
+
+    @Test
+    @DisplayName("주소를 바꾸며 좌표를 안 보내면 옛 좌표와 못 찾은 기록을 비운다 — 좌표 채우기가 새 주소로 다시 찾는다")
+    void addressChangeWithoutCoordinatesClearsThem() {
+        store.recordGeocodedCoordinates(35.8884, 128.6107);
+        store.recordGeocodeMiss(LocalDateTime.of(2026, 11, 1, 12, 0));
+        entityManager.flush();
+
+        update(null, "가상특별시 예시구 새주소로 45", null, null);
+
+        Store after = reloaded();
+        assertThat(after.getLat()).isNull();
+        assertThat(after.getLng()).isNull();
+        assertThat(after.getGeocodeAttemptedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("주소와 좌표를 함께 보내면 보낸 좌표를 쓰고, 주소가 그대로면 좌표를 건드리지 않는다")
+    void keepsCoordinatesWhenGivenOrAddressUnchanged() {
+        store.recordGeocodedCoordinates(35.8884, 128.6107);
+        entityManager.flush();
+
+        storeService.updateStore(store.getStoreId(), new StoreUpdateRequest(null, "가상특별시 예시구 새주소로 45",
+                null, null, 35.9, 128.7, null, null, null), StoreChange.storeEdit(ADMIN_ID));
+        assertThat(reloaded()).extracting(Store::getLat, Store::getLng).containsExactly(35.9, 128.7);
+
+        update("예시분식 본점", "가상특별시 예시구 새주소로 45", null, null);   // 같은 주소를 다시 보냄
+        assertThat(reloaded()).extracting(Store::getLat, Store::getLng).containsExactly(35.9, 128.7);
     }
 
     /*
