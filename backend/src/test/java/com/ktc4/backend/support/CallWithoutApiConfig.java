@@ -6,7 +6,9 @@ import com.ktc4.backend.domain.call.dto.CallOrder;
 import com.ktc4.backend.domain.call.dto.CallSnapshot;
 import com.ktc4.backend.domain.call.repository.VerificationCallRepository;
 import com.ktc4.backend.domain.call.service.CallService;
+import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.service.TaskService;
+import jakarta.validation.Validator;
 import com.ktc4.backend.domain.verification.service.VerificationService;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -49,7 +51,10 @@ public class CallWithoutApiConfig {
     public CallService callService(VerificationCallRepository callRepository,
                                    CallClient callClient,
                                    TaskService taskService,
-                                   VerificationService verificationService) {
-        return new CallService(callRepository, callClient, taskService, verificationService, 15);
+                                   VerificationService verificationService,
+                                   StoreService storeService,
+                                   Validator validator) {
+        return new CallService(callRepository, callClient, taskService, verificationService,
+                storeService, validator, 15);
     }
 }

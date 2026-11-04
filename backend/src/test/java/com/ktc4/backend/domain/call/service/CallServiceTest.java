@@ -12,12 +12,15 @@ import com.ktc4.backend.domain.call.enums.CallStatus;
 import com.ktc4.backend.domain.call.repository.VerificationCallRepository;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
+import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.service.TaskService;
 import com.ktc4.backend.domain.verification.service.VerificationService;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -62,6 +65,8 @@ class CallServiceTest {
     private CallClient callClient;
     private TaskService taskService;
     private VerificationService verificationService;
+    private StoreService storeService;
+    private Validator validator;
     private CallService callService;
 
     @BeforeEach
@@ -70,7 +75,10 @@ class CallServiceTest {
         callClient = mock(CallClient.class);
         taskService = mock(TaskService.class);
         verificationService = mock(VerificationService.class);
-        callService = new CallService(callRepository, callClient, taskService, verificationService, MAX_WAIT_MINUTES);
+        storeService = mock(StoreService.class);
+        validator = Validation.buildDefaultValidatorFactory().getValidator();
+        callService = new CallService(callRepository, callClient, taskService, verificationService,
+                storeService, validator, MAX_WAIT_MINUTES);
     }
 
     private static Store store(String phone) {

@@ -69,4 +69,15 @@ public record StoreChange(StoreChangeSource source, Long changedBy, Long taskId,
     public static StoreChange operatingInfoSave(Long memberId) {
         return new StoreChange(StoreChangeSource.OPERATING_INFO_SAVE, memberId, null, LocalDateTime.now());
     }
+
+    /**
+     * 확인 전화 결과를 자동으로 반영할 때.
+     *
+     * @param requestedBy 그 전화를 요청한 관리자 ID. 값을 바꾼 것은 통화지만, 전화를 건 사람은 이 사람이다
+     * @param taskId      그 전화를 띄운 조사 결과 ID. 조사 결과 없이 건 전화면 {@code null}
+     * @param changedAt   바꾼 시각 — 전화 기록과 같은 시각을 쓴다
+     */
+    public static StoreChange callApply(Long requestedBy, Long taskId, LocalDateTime changedAt) {
+        return new StoreChange(StoreChangeSource.CALL_APPLY, requestedBy, taskId, changedAt);
+    }
 }

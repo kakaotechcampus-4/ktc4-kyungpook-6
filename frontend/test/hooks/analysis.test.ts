@@ -195,7 +195,7 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
     // 휴업인지 폐업인지는 전화로 가를 수 없고 담당자가 정한다
     const result = toCallStatusLabel(
       call({
-        answers: [{ field: 'status', naturalField: '영업 여부', value: 'false' }],
+        answers: [{ field: 'status', naturalField: '영업 여부', value: 'false', applied: false }],
       }),
     );
 
@@ -207,14 +207,14 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
     const result = toCallStatusLabel(
       call({
         answers: [
-          { field: 'status', naturalField: '영업 여부', value: 'true' },
-          { field: 'name', naturalField: '상호명', value: '신나는분식' },
+          { field: 'status', naturalField: '영업 여부', value: 'true', applied: false },
+          { field: 'name', naturalField: '상호명', value: '신나는분식', applied: true },
         ],
       }),
     );
 
     expect(result?.label).toBe(
-      '전화 확인 완료 · 영업 여부: 영업 중 · 상호명: 신나는분식',
+      '전화 확인 완료 · 영업 여부: 영업 중 · 상호명: 신나는분식(반영됨)',
     );
   });
 
@@ -264,7 +264,7 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
         status: 'FAILED',
         failureReason: 'HANGUP',
         failureKind: 'RETRY_LATER',
-        answers: [{ field: 'status', naturalField: '영업 여부', value: 'false' }],
+        answers: [{ field: 'status', naturalField: '영업 여부', value: 'false', applied: false }],
       }),
     );
 

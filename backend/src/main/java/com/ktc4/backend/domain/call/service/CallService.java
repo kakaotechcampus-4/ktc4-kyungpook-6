@@ -11,12 +11,17 @@ import com.ktc4.backend.domain.call.entity.VerificationCall;
 import com.ktc4.backend.domain.call.enums.CallReason;
 import com.ktc4.backend.domain.call.enums.CallStatus;
 import com.ktc4.backend.domain.call.repository.VerificationCallRepository;
+import com.ktc4.backend.domain.store.dto.StoreChange;
+import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.service.TaskService;
 import com.ktc4.backend.domain.verification.service.VerificationService;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Limit;
@@ -29,6 +34,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Optional;
 import java.util.function.BinaryOperator;
 import java.util.regex.Pattern;
@@ -72,6 +78,8 @@ public class CallService {
     private final CallClient callClient;
     private final TaskService taskService;
     private final VerificationService verificationService;
+    private final StoreService storeService;
+    private final Validator validator;
 
     /** 이 시간이 지나도 끝나지 않은 전화는 실패로 닫는다. 전화 API 에 통화 제한 시간이 명시돼 있지 않아 우리가 정한다. */
     private final long maxWaitMinutes;
@@ -80,11 +88,15 @@ public class CallService {
                        CallClient callClient,
                        TaskService taskService,
                        VerificationService verificationService,
+                       StoreService storeService,
+                       Validator validator,
                        @Value("${call.max-wait-minutes}") long maxWaitMinutes) {
         this.callRepository = callRepository;
         this.callClient = callClient;
         this.taskService = taskService;
         this.verificationService = verificationService;
+        this.storeService = storeService;
+        this.validator = validator;
         this.maxWaitMinutes = maxWaitMinutes;
     }
 
@@ -222,11 +234,63 @@ public class CallService {
         }
         boolean changed = call.apply(snapshot.status(), snapshot.answers(),
                 snapshot.startedAt(), snapshot.connectedAt(), snapshot.endedAt(), snapshot.failureReason());
+        if (changed && snapshot.status() == CallStatus.COMPLETED) {
+            applyToStore(call, now);
+        }
         if (changed && snapshot.status().isFinished()) {
             log.info("확인 전화 종료 - callId={}, status={}, 답 {}건",
                     callId, snapshot.status(), snapshot.answers().size());
         }
         return changed;
+    }
+
+    /**
+     * 끝까지 간 통화에서 들은 값을 가게에 반영한다.
+     *
+     * <p>끝까지 간 통화의 답은 믿을 만하다 — 전화 API 가 상대가 맞는지 먼저 확인하고, 알아들은 값을
+     * 다시 읽어 주고 확인받는다. 그래서 담당자를 거치지 않는다. <b>영업 여부만 빼고</b> 반영한다
+     * ({@link CallAnswers} 에 이유가 있다).
+     *
+     * <p>세 가지를 하지 않는다.
+     *
+     * <ul>
+     *   <li><b>가게 확인일을 올리지 않는다.</b> 담당자가 가게를 직접 본 것이 아니다 — 수정안 반영과 같은
+     *       규칙이다. 올리면 90일 재확인이 건너뛰어진다</li>
+     *   <li><b>담당자가 이미 확인한 카드면 반영하지 않는다.</b> 전화를 거는 사이에 담당자가 직접
+     *       처리했을 수 있고, 그 판단을 통화가 덮으면 안 된다</li>
+     *   <li><b>가게 규칙에 맞지 않으면 아무것도 반영하지 않는다.</b> 통화로 들은 값이라 길이나 모양이
+     *       어긋날 수 있다. 한 칸이라도 걸리면 전부 두고 담당자에게 넘긴다</li>
+     * </ul>
+     */
+    private void applyToStore(VerificationCall call, LocalDateTime now) {
+        Task task = call.getTask();
+        if (task != null && verificationService.isConfirmed(task.getTaskId())) {
+            log.info("확인 전화 결과를 반영하지 않음 - callId={}, 사유=담당자가 이미 확인함", call.getCallId());
+            return;
+        }
+        Store store = call.getStore();
+        Map<String, Object> applied = CallAnswers.toApply(store, call.getAnswers());
+        if (applied.isEmpty()) {
+            return;
+        }
+        StoreUpdateRequest request = CallAnswers.toUpdateRequest(applied);
+        Set<ConstraintViolation<StoreUpdateRequest>> violations = validator.validate(request);
+        if (!violations.isEmpty()) {
+            // 어느 항목이 막혔는지만 남긴다 — 값(전화번호 등)은 남기지 않는다
+            String fields = violations.stream()
+                    .map(violation -> violation.getPropertyPath().toString())
+                    .sorted()
+                    .collect(Collectors.joining(","));
+            log.warn("확인 전화 결과가 가게 규칙에 맞지 않아 반영하지 않음 - callId={}, 항목={}",
+                    call.getCallId(), fields);
+            return;
+        }
+        Long taskId = task == null ? null : task.getTaskId();
+        storeService.updateStore(store.getStoreId(), request,
+                StoreChange.callApply(Long.valueOf(call.getRequestedBy()), taskId, now));
+        call.recordApplied(applied);
+        log.info("확인 전화 결과를 가게에 반영 - callId={}, storeId={}, 항목={}",
+                call.getCallId(), store.getStoreId(), applied.keySet());
     }
 
     /** 전화 기능을 쓸 수 있는가 — 전화 API 주소와 키가 들어와 있는가. 폴러가 헛돌지 않도록 먼저 본다. */

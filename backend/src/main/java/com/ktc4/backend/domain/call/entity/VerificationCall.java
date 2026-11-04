@@ -27,6 +27,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 가게에 건 확인 전화 한 건. 전화 API 에 요청을 넣고 받은 {@code verificationId} 와, 그 뒤로 받아 온
@@ -103,6 +104,16 @@ public class VerificationCall extends BaseTimeEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "answers", columnDefinition = "jsonb")
     private List<CallAnswer> answers;
+
+    /**
+     * 이 통화가 실제로 가게에 반영한 값. 예: {@code {"name": "신나는 분식"}}
+     *
+     * <p>{@link #answers}(들은 것)와 다르다 — 들었지만 반영하지 않은 것이 있다. 영업 여부는
+     * 담당자가 판단할 몫이라 반영하지 않고, 이미 같은 값이면 바꿀 것이 없다.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "applied_changes", columnDefinition = "jsonb")
+    private Map<String, Object> appliedChanges;
 
     /** 실패 사유. 전화 API 의 {@code failureReason} 코드이거나, 우리가 기다리다 닫았으면 그 문구. */
     @Column(name = "failure_reason", length = FAILURE_REASON_MAX_LENGTH)
@@ -188,6 +199,17 @@ public class VerificationCall extends BaseTimeEntity {
         this.failureReason = CallFailureKind.GAVE_UP_WAITING;
         this.endedAt = closedAt;
         return true;
+    }
+
+    /**
+     * 이 통화가 가게에 반영한 값을 적는다. 끝난 통화의 답을 가게에 쓴 직후에 부른다.
+     *
+     * @param appliedChanges 항목 키 → 새 값. 비어 있으면 아무것도 적지 않는다
+     */
+    public void recordApplied(Map<String, Object> appliedChanges) {
+        if (appliedChanges != null && !appliedChanges.isEmpty()) {
+            this.appliedChanges = Map.copyOf(appliedChanges);
+        }
     }
 
     // 전화 API 가 긴 사유를 보내도 저장이 실패하지 않게 칸 길이에 맞춘다. 사유는 길이보다 남는 것이 중요하다.

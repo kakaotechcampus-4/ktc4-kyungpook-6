@@ -122,13 +122,19 @@ export function toCallStatusLabel(
   };
 }
 
-/** 통화에서 들은 답을 한 줄로 잇는다. 아직 들은 것이 없으면 빈 문자열. */
+/**
+ * 통화에서 들은 답을 한 줄로 잇는다. 아직 들은 것이 없으면 빈 문자열.
+ *
+ * 가게에 반영된 답에는 "(반영됨)" 을 붙인다. 담당자가 **무엇이 이미 고쳐졌고 무엇이 자기 몫인지**
+ * 한 줄에서 알아야 한다 — 특히 영업 여부는 늘 담당자 몫이라(휴업과 폐업을 전화로 못 가린다)
+ * 표시가 없으면 "전화가 알아서 했겠지" 하고 넘어간다.
+ */
 function answerText(call: CallResponse): string {
   return (call.answers ?? [])
-    .map(
-      (answer) =>
-        `${answer.naturalField}: ${callAnswerLabel(answer.field, answer.value)}`,
-    )
+    .map((answer) => {
+      const value = callAnswerLabel(answer.field, answer.value);
+      return `${answer.naturalField}: ${value}${answer.applied ? '(반영됨)' : ''}`;
+    })
     .join(' · ');
 }
 

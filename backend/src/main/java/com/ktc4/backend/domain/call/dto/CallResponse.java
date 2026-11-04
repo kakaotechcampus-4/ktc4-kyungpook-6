@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 조사 결과 카드 한 장에 붙는 확인 전화 기록.
@@ -53,9 +54,10 @@ public record CallResponse(
 ) {
 
     public static CallResponse from(VerificationCall call) {
+        Map<String, Object> applied = call.getAppliedChanges() == null ? Map.of() : call.getAppliedChanges();
         List<CallAnswerResponse> answers = call.getAnswers() == null
                 ? List.of()
-                : call.getAnswers().stream().map(CallAnswerResponse::from).toList();
+                : call.getAnswers().stream().map(answer -> CallAnswerResponse.from(answer, applied)).toList();
         // 실패가 아니면 분류도 없다 — 성공한 전화에 UNKNOWN 이 붙으면 화면이 실패로 읽는다
         CallFailureKind kind = call.getStatus() == CallStatus.FAILED
                 ? CallFailureKind.of(call.getFailureReason())
