@@ -57,7 +57,7 @@ class Providers:
         s = self.settings
         response = self.http.post(s.llm_base_url.rstrip('/') + '/chat/completions',
             headers={'Authorization':f'Bearer {s.llm_api_key.get_secret_value()}'},
-            json={'model':s.llm_model, 'temperature':0.2,
+            json={'model':s.llm_model,
                   'messages':[{'role':'system', 'content':INTERPRETER + '\n' + json.dumps(
                       {'persona':dialogue.policy['persona'],'knowledge':dialogue.policy['knowledge']}, ensure_ascii=False)},
                       {'role':'user','content':json.dumps({'state':dialogue.state(),'transcript':text},ensure_ascii=False)}]})
