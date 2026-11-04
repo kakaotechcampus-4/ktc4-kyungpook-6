@@ -23,7 +23,16 @@ services:
       - backend
       - frontend
 
+  backend:
+    environment:
+      # prod 는 Caddy 한 대 뒤에 있습니다(8080 은 보안그룹에서 닫힘). 프록시가 없는 서버에는 넣지 마세요.
+      # 없으면 모든 요청이 Caddy 주소로 보여 가입·카드 인증 횟수 제한을 시연장 전체가 나눠 씁니다.
+      SIGNUP_TRUSTED_PROXIES: ${SIGNUP_TRUSTED_PROXIES:-1}
+
   frontend:
+    build:
+      args:
+        VITE_BACKEND_URL: ${PUBLIC_BACKEND_URL:?PUBLIC_BACKEND_URL 이 없으면 번들에 옛 주소가 박힙니다}
     networks:
       - db-net
 

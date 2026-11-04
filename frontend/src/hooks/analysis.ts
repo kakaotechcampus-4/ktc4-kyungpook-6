@@ -19,7 +19,7 @@ import {
   evidenceSourceLabel,
   fieldLabel,
 } from '../utils/changeLabel';
-import { messageOf } from '../utils/apiError';
+import { isNotFound, messageOf } from '../utils/apiError';
 
 /** 백엔드 enum을 카드가 쓰는 소문자 값으로 옮긴다. */
 const CLASSIFICATION_MAP: Record<TaskClassificationResponse, TaskClassification> =
@@ -163,6 +163,7 @@ function groupByClassification(tasks: AnalysisTask[]): AnalysisTaskGroups {
  * Figma 112:4993의 예시 데이터를 그대로 옮겼다.
  *
  * 로그인이 풀린 경우(401)는 여기로 오지 않는다 — services/api.ts가 로그인 화면으로 보낸다.
+ * 조사한 적이 없는 경우(404)도 오지 않는다 — 그건 고장이 아니라 빈 상태라 따로 알린다.
  * 백엔드가 죽었을 때 가짜 결과를 보여주는 게 맞는지는 PROMPT-62(에러 상황 UI)에서 정한다.
  */
 const FALLBACK_RESULT: JobResultResponse = {
@@ -278,8 +279,10 @@ export type UseAnalysisResultPageResult = {
   groups: AnalysisTaskGroups;
   /** 조사 결과 조회 중 여부. Skeleton 노출 여부에 쓰인다. */
   isPending: boolean;
-  /** 조회 실패 여부. 목업 결과로 대체해 보여준다. */
+  /** 조회 실패 여부. 목업 결과로 대체해 보여준다. 아래 noJobYet 인 경우는 빼고 센다. */
   isError: boolean;
+  /** 조사한 기록이 아직 없는가(404). 고장이 아니라 빈 상태라 목업을 깔지 않는다. */
+  noJobYet: boolean;
   /** 조사가 아직 도는 중이면 진행 상황 한 줄. 끝났으면 undefined. */
   progressLabel: string | undefined;
   /** 수정안 반영 중인 Task id. 버튼을 잠그는 데 쓴다. */
@@ -306,7 +309,7 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     string | undefined
   >(undefined);
 
-  const { data, isPending, isError } = useQuery({
+  const { data, error, isPending, isError: isQueryError } = useQuery({
     queryKey,
     queryFn: () => getJobResult(jobId),
     retry: false,
@@ -328,6 +331,13 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     onError: (error) => setActionErrorMessage(messageOf(error)),
   });
 
+  /*
+    아직 조사한 적이 없으면(404) 목업을 깔지 않는다. 운영에 처음 올린 날 실제로 그랬는데,
+    화면은 "불러오지 못해 목업 데이터를 표시합니다" 와 함께 가짜 가게 셋을 띄웠다. 담당자에게는
+    "조사한 적이 없다" 와 "서버가 죽었다" 가 똑같이 보인다(11주차 멘토 리뷰 🟡 6).
+  */
+  const noJobYet = isQueryError && isNotFound(error);
+  const isError = isQueryError && !noJobYet;
   const result = isError ? FALLBACK_RESULT : data;
   const groups = groupByClassification(result?.tasks.map(toAnalysisTask) ?? []);
 
@@ -344,7 +354,8 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     groups,
     isPending,
     isError,
-    progressLabel: progressLabelOf(isError ? undefined : data),
+    noJobYet,
+    progressLabel: progressLabelOf(isQueryError ? undefined : data),
     processingTaskId: mutation.isPending ? mutation.variables.taskId : null,
     actionErrorMessage,
     applyChanges,
