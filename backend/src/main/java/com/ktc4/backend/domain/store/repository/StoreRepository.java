@@ -12,11 +12,32 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 public interface StoreRepository extends JpaRepository<Store, Long> {
+
+    /**
+     * 좌표 채우기 대상 — 좌표가 없고, 폐업이 아니고, 최근에 못 찾은 적이 없는 가게. 오래된 가게부터.
+     * 주소가 비어 있으면 물을 것이 없어 뺀다(물으면 카카오가 거절한다).
+     *
+     * <p>가게 엔티티가 아니라 ID·주소만 읽는다 — 이 목록을 들고 바깥(카카오)에 묻는 동안 엔티티를 쥐고 있지 않게.
+     *
+     * @param retryBefore 이 시각 전에 못 찾은 가게는 다시 묻는다
+     * @param limit       한 번에 읽을 가게 수
+     */
+    @Query("""
+            select new com.ktc4.backend.domain.store.repository.GeocodeTarget(s.storeId, s.addressRoad)
+            from Store s
+            where (s.lat is null or s.lng is null)
+              and s.addressRoad is not null and trim(s.addressRoad) <> ''
+              and s.status <> com.ktc4.backend.domain.store.enums.StoreStatus.CLOSED
+              and (s.geocodeAttemptedAt is null or s.geocodeAttemptedAt < :retryBefore)
+            order by s.storeId
+            """)
+    List<GeocodeTarget> findGeocodeTargets(@Param("retryBefore") LocalDateTime retryBefore, Limit limit);
 
     List<Store> findByNameNormalizedIn(Collection<String> nameNormalized);
 

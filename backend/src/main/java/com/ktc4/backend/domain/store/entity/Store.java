@@ -129,6 +129,13 @@ public class Store extends BaseTimeEntity {
     @Column(name = "owner_note", length = 100)
     private String ownerNote;
 
+    /**
+     * 주소로 좌표를 찾지 못한 마지막 시각. 좌표 채우기 배치가 같은 주소를 매번 다시 묻지 않게, 이 시각부터 며칠은 건너뛴다.
+     * 좌표를 찾았거나 주소가 바뀌면 비운다.
+     */
+    @Column(name = "geocode_attempted_at")
+    private LocalDateTime geocodeAttemptedAt;
+
     @Builder
     private Store(String name, String nameNormalized,
                   String addressRoad, String addressNormalized,
@@ -344,5 +351,36 @@ public class Store extends BaseTimeEntity {
         if (ownerNote != null) {
             this.ownerNote = ownerNote.isEmpty() ? null : ownerNote;
         }
+    }
+
+    /**
+     * 주소로 찾은 좌표를 넣는다 — 좌표 채우기 배치가 부른다. 못 찾은 기록은 지운다.
+     *
+     * @param lat 위도
+     * @param lng 경도
+     */
+    public void recordGeocodedCoordinates(double lat, double lng) {
+        this.lat = lat;
+        this.lng = lng;
+        this.geocodeAttemptedAt = null;
+    }
+
+    /**
+     * 주소로 좌표를 찾지 못했음을 남긴다 — 좌표 채우기 배치가 한동안 이 가게를 건너뛴다.
+     *
+     * @param attemptedAt 찾아본 시각
+     */
+    public void recordGeocodeMiss(LocalDateTime attemptedAt) {
+        this.geocodeAttemptedAt = attemptedAt;
+    }
+
+    /**
+     * 좌표를 비운다 — 주소가 바뀌었는데 새 좌표를 함께 받지 못했을 때. 옛 좌표가 남으면 지도에 옛 자리로 나온다.
+     * 좌표 채우기 배치가 새 주소로 다시 채운다(못 찾은 기록도 지워 바로 다시 찾게 한다).
+     */
+    public void clearCoordinates() {
+        this.lat = null;
+        this.lng = null;
+        this.geocodeAttemptedAt = null;
     }
 }

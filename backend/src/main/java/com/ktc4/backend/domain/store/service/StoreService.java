@@ -158,10 +158,16 @@ public class StoreService {
         String bizNo = normalizeBizNoForUpdate(request.bizNo());
         String ownerPhone = request.ownerPhone() == null ? null : PhoneNormalizer.normalize(request.ownerPhone());
 
+        String addressBefore = store.getAddressRoad();
         store.updateBasicInfo(request.name(), nameNormalized,
                 request.addressRoad(), addressNormalized,
                 request.phone(), request.status());
         store.updateDetails(request.lat(), request.lng(), request.category(), ownerPhone, bizNo);
+        // 주소가 바뀌었는데 새 좌표를 함께 받지 못했으면 옛 좌표를 비운다 — 남겨 두면 아동 앱 지도에 옛 자리로 나온다.
+        // 좌표 채우기 배치(StoreGeocodeService)가 새 주소로 다시 채운다
+        if (!Objects.equals(addressBefore, store.getAddressRoad()) && request.lat() == null && request.lng() == null) {
+            store.clearCoordinates();
+        }
 
         StoreSnapshot after = storeChangeHistoryService.snapshot(store);
         storeChangeHistoryService.recordChanges(store, before, after, change);
