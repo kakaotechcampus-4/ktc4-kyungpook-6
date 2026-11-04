@@ -61,7 +61,17 @@ class Providers:
                   'messages':[{'role':'system', 'content':INTERPRETER + '\n' + json.dumps(
                       {'persona':dialogue.policy['persona'],'knowledge':dialogue.policy['knowledge']}, ensure_ascii=False)},
                       {'role':'user','content':json.dumps({'state':dialogue.state(),'transcript':text},ensure_ascii=False)}]})
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # HTTPStatusError omits the response body, which often explains a 400.
+            # Keep the diagnostic in the private call log without request headers or keys.
+            detail = response.text.strip().replace('\n', ' ')[:500]
+            if detail:
+                raise httpx.HTTPStatusError(
+                    f'{exc}\nLLM response: {detail}', request=exc.request, response=exc.response
+                ) from exc
+            raise
         content = response.json()['choices'][0]['message']['content'].strip()
         if content.startswith('```') and content.endswith('```'):
             content = content.split('\n',1)[1].rsplit('```',1)[0].strip()

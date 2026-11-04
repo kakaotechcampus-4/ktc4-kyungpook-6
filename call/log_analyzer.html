@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>통화 JSONL 로그 분석기</title>
+  <style>
+    :root { color-scheme: light; --ink:#172a32; --muted:#61757b; --line:#d8e3e1; --paper:#fffefa; --soft:#f1f6f3; --green:#166b55; --red:#b63e39; --amber:#9b6a1a; --shadow:0 18px 55px rgba(22,49,52,.08) }
+    * { box-sizing:border-box }
+    body { margin:0; background:linear-gradient(145deg,#e6f2ec 0,#f8f8f2 42%,#eef2f3 100%); color:var(--ink); font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif }
+    button,input,textarea,select { font:inherit }
+    button { cursor:pointer }
+    .wrap { max-width:1180px; margin:auto; padding:42px 24px 80px }
+    header { display:flex; gap:24px; align-items:flex-start; justify-content:space-between; margin-bottom:28px }
+    .eyebrow { display:inline-block; margin-bottom:10px; font-size:12px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; color:var(--green) }
+    h1 { margin:0; font-size:clamp(28px,4vw,44px); letter-spacing:-.045em; line-height:1.15 }
+    h2 { margin:0 0 15px; font-size:21px; letter-spacing:-.03em }
+    h3 { margin:0; font-size:16px }
+    p { margin:7px 0 0 }
+    .subtitle { max-width:670px; color:var(--muted) }
+    .privacy { flex:none; padding:9px 13px; border:1px solid #c7dfd2; border-radius:999px; color:var(--green); background:#f6fcf6; font-size:12px; font-weight:700 }
+    .panel { background:var(--paper); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow) }
+    .input-panel { padding:20px }
+    .dropzone { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; min-height:190px; padding:25px; border:2px dashed #a8c8b9; border-radius:16px; background:#f7fbf7; text-align:center; transition:.15s }
+    .dropzone.dragover { border-color:var(--green); background:#e8f5ec; transform:scale(1.005) }
+    .dropzone strong { font-size:18px }
+    .dropzone small,.hint { color:var(--muted) }
+    .button { border:0; border-radius:10px; padding:9px 16px; background:var(--green); color:white; font-weight:750 }
+    .button:hover { background:#10533f }
+    .button.secondary { background:#e7f1e9; color:var(--green) }
+    .input-row { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:14px; flex-wrap:wrap }
+    details.paste { margin-top:15px; border-top:1px solid var(--line); padding-top:10px }
+    details.paste summary { cursor:pointer; color:var(--green); font-weight:700 }
+    textarea { display:block; width:100%; min-height:105px; margin:12px 0; padding:12px; border:1px solid var(--line); border-radius:10px; resize:vertical; background:#fff }
+    .message { margin-top:14px; padding:11px 14px; border-radius:10px; background:#fff1ec; color:#8c342e; white-space:pre-wrap }
+    .report { margin-top:28px }
+    .filebar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; margin-bottom:16px; color:var(--muted); font-size:13px }
+    .filebar strong { color:var(--ink) }
+    .stats { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:20px }
+    .stat { padding:17px 18px; background:var(--paper); border:1px solid var(--line); border-radius:15px }
+    .stat .label { font-size:12px; color:var(--muted); font-weight:700 }
+    .stat .value { margin-top:4px; font-size:27px; line-height:1.2; font-weight:800; letter-spacing:-.04em }
+    .stat.error .value { color:var(--red) }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start }
+    section.panel { padding:22px; margin-bottom:20px; min-width:0 }
+    .section-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px }
+    .section-head span { color:var(--muted); font-size:12px }
+    .empty { padding:23px; color:var(--muted); background:var(--soft); border-radius:12px }
+    .error-card { border-left:4px solid var(--red); padding:12px 14px; margin-top:10px; background:#fff5f1; border-radius:0 11px 11px 0; overflow-wrap:anywhere }
+    .error-card .top,.speech .top,.event .top,.overview-detail .top { display:flex; flex-wrap:wrap; align-items:center; gap:7px 11px }
+    .error-card p { margin:8px 0 0; white-space:pre-wrap }
+    .small { color:var(--muted); font-size:12px }
+    .badge { display:inline-block; border-radius:999px; padding:2px 8px; background:#eaf0ed; color:#385760; font-size:11px; font-weight:800 }
+    .badge.error { color:#9f342e; background:#fbe3df }
+    .badge.ok { color:var(--green); background:#e2f2e6 }
+    .badge.started { color:var(--amber); background:#f7efd8 }
+    .badge.ignored { color:#755e22; background:#f7efd8 }
+    .speech { padding:12px 0; border-bottom:1px solid var(--line) }
+    .speech:last-child { border-bottom:0 }
+    .speech p { margin:7px 0 0; white-space:pre-wrap; overflow-wrap:anywhere }
+    .speech.assistant { border-left:3px solid #7fae92; padding-left:12px }
+    .speech.user { border-left:3px solid #82a2be; padding-left:12px }
+    .duration-row { display:grid; grid-template-columns:minmax(130px,1.4fr) 55px 70px 70px 70px; gap:8px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); font-size:13px }
+    .duration-row:last-child { border-bottom:0 }
+    .duration-row.heading { color:var(--muted); font-size:11px; font-weight:800 }
+    .duration-row .stage { overflow-wrap:anywhere }
+    .bar-track { margin-top:5px; height:4px; background:#e9f0ec; border-radius:10px }
+    .bar { height:100%; min-width:2px; background:#59a585; border-radius:10px }
+    .controls { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 }
+    .controls input,.controls select { border:1px solid var(--line); border-radius:9px; padding:9px 11px; background:white; color:var(--ink) }
+    .controls input { flex:1 1 240px; min-width:0 }
+    .controls select { flex:0 1 170px }
+    .view-options { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:2px 0 12px }
+    .view-switch { display:inline-flex; padding:3px; border-radius:10px; background:#eaf1ed }
+    .view-switch button { border:0; border-radius:8px; padding:6px 12px; background:transparent; color:var(--muted); font-size:13px; font-weight:750 }
+    .view-switch button[aria-pressed="true"] { background:white; color:var(--green); box-shadow:0 1px 5px #a2b9ae66 }
+    .hide-at { display:inline-flex; align-items:center; gap:6px; font-size:13px; cursor:pointer }
+    .hide-at input { accent-color:var(--green) }
+    .stage-visibility { position:relative; font-size:13px }
+    .stage-visibility summary { cursor:pointer; color:var(--green); font-weight:700 }
+    .stage-choices { position:absolute; z-index:20; top:100%; left:0; display:grid; gap:5px; min-width:220px; max-height:290px; overflow:auto; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper); box-shadow:var(--shadow) }
+    .stage-choices label { display:flex; align-items:center; gap:7px; white-space:nowrap; cursor:pointer }
+    .stage-choices input { accent-color:var(--green) }
+    .payload { display:grid; gap:7px; margin-top:9px }
+    .payload-block { min-width:0; padding:8px 10px; border:1px solid #dce7e2; border-radius:8px; background:#f6f9f7 }
+    .payload-block strong { display:block; color:var(--green); font-size:11px; margin-bottom:3px }
+    .payload-block pre { margin:0; padding:0; max-height:190px; border-radius:0; background:transparent; font-size:12px; line-height:1.5 }
+    .payload-note { margin-top:7px; color:var(--muted); font-size:12px }
+    .event-legend { display:flex; flex-wrap:wrap; gap:6px 15px; color:var(--muted); font-size:12px }
+    .event-legend span { display:inline-flex; align-items:center; gap:6px }
+    .legend-bar { width:18px; height:8px; border-radius:3px; background:#4c8f77 }
+    .legend-point { width:7px; height:7px; border-radius:50%; background:#4c8f77 }
+    .legend-error { background:var(--red) }
+    .event-scroll { overflow-x:auto }
+    .time-axis,.event { display:grid; grid-template-columns:76px minmax(230px,1fr) minmax(300px,1.5fr) 68px; gap:12px; min-width:760px }
+    .time-axis { align-items:end; padding:8px 0 7px; color:var(--muted); font-size:11px; font-weight:700; border-bottom:1px solid var(--line) }
+    .axis-track { position:relative; height:28px; border-bottom:1px solid #b5c9c3; font-variant-numeric:tabular-nums }
+    .axis-tick { position:absolute; bottom:5px; transform:translateX(-50%); white-space:nowrap }
+    .axis-tick:first-child { transform:none }
+    .axis-tick:last-child { transform:translateX(-100%) }
+    .axis-tick::after { content:""; position:absolute; left:50%; bottom:-6px; height:5px; border-left:1px solid #b5c9c3 }
+    .axis-tick:first-child::after { left:0 }
+    .axis-tick:last-child::after { left:100% }
+    .event { align-items:start; padding:12px 0; border-bottom:1px solid var(--line) }
+    .event:last-child { border-bottom:0 }
+    .event-time { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; padding-top:3px }
+    .event .main { min-width:0 }
+    .event .preview { margin-top:5px; white-space:pre-wrap; overflow-wrap:anywhere }
+    .event details { margin-top:6px }
+    .event summary { cursor:pointer; color:var(--green); font-size:12px; font-weight:700 }
+    .waterfall-track { position:relative; height:24px; margin-top:2px; border-radius:5px; background:linear-gradient(to right,transparent 24.9%,#dbe5e2 25%,transparent 25.1%,transparent 49.9%,#dbe5e2 50%,transparent 50.1%,transparent 74.9%,#dbe5e2 75%,transparent 75.1%),#f1f5f3 }
+    .waterfall-bar { position:absolute; top:5px; height:14px; min-width:2px; border-radius:4px; background:var(--tone); cursor:help }
+    .waterfall-point { position:absolute; top:6px; width:12px; height:12px; border:2px solid white; border-radius:50%; background:var(--tone); box-shadow:0 0 0 1px var(--tone); transform:translateX(-50%); cursor:help }
+    .waterfall-bar:focus-visible,.waterfall-point:focus-visible { outline:2px solid var(--ink); outline-offset:2px }
+    .tone-stt { --tone:#7863ad } .tone-llm { --tone:#526bb3 } .tone-tts { --tone:#3a9b70 } .tone-audio { --tone:#338a9c } .tone-modem { --tone:#ad762b } .tone-event { --tone:#607c83 } .tone-error { --tone:var(--red) }
+    .event-duration { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; text-align:right; padding-top:3px; white-space:nowrap }
+    .overview-scroll { overflow-x:auto; padding:14px 0 4px }
+    .overview-inner { min-width:760px }
+    .overview-track { position:relative; height:36px; border:1px solid var(--line); border-radius:7px; background:linear-gradient(to right,transparent 24.9%,#dbe5e2 25%,transparent 25.1%,transparent 49.9%,#dbe5e2 50%,transparent 50.1%,transparent 74.9%,#dbe5e2 75%,transparent 75.1%),#f1f5f3 }
+    .overview-mark { position:absolute; top:7px; height:20px; min-width:3px; padding:0 4px; overflow:hidden; border:0; border-radius:4px; background:var(--tone); color:white; font-size:10px; font-weight:800; white-space:nowrap; text-align:left; cursor:pointer }
+    .overview-mark.point { top:11px; width:12px; height:12px; min-width:12px; padding:0; border:2px solid white; border-radius:50%; box-shadow:0 0 0 1px var(--tone); transform:translateX(-50%) }
+    .overview-mark:hover,.overview-mark:focus-visible,.overview-mark.selected { z-index:10; outline:2px solid var(--ink); outline-offset:2px }
+    .overview-axis { position:relative; height:27px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums }
+    .overview-axis .axis-tick { bottom:2px }
+    .overview-detail { margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:11px; background:#fbfdfa }
+    .overview-detail .detail-meta { color:var(--muted); font-size:12px; margin-bottom:7px }
+    .overview-detail .main { min-width:0 }
+    .overview-detail .preview { margin-top:5px; white-space:pre-wrap; overflow-wrap:anywhere }
+    .overview-detail details { margin-top:8px }
+    .overview-detail summary { cursor:pointer; color:var(--green); font-size:12px; font-weight:700 }
+    pre { margin:8px 0 0; padding:12px; border-radius:10px; background:#edf2f0; font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; max-height:350px; overflow:auto }
+    #more { margin-top:15px }
+    @media (max-width:850px) { .stats { grid-template-columns:repeat(3,1fr) } .grid { grid-template-columns:1fr } }
+    @media (max-width:560px) { .wrap { padding:24px 14px 55px } header { display:block } .privacy { display:inline-block; margin-top:15px } .stats { grid-template-columns:repeat(2,1fr) } section.panel { padding:17px } .duration-row { grid-template-columns:minmax(90px,1.2fr) repeat(4,55px); gap:3px; font-size:11px } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div><span class="eyebrow">EP06 · local log viewer</span><h1>통화 JSONL 로그 분석기</h1><p class="subtitle">통화 중 기록된 이벤트와 대화, 처리 시간, 오류를 한눈에 확인합니다.</p></div>
+      <span class="privacy">● 브라우저에서만 처리 · 업로드 없음</span>
+    </header>
+    <div class="panel input-panel">
+      <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="JSONL 파일 선택 또는 끌어놓기">
+        <strong>JSONL 파일을 여기에 놓으세요</strong>
+        <small>서버의 data/calls/통화ID/call-*.jsonl 파일 · 한 번에 한 파일</small>
+        <button id="pick" class="button" type="button">파일 선택</button>
+        <input id="file" type="file" accept=".jsonl,.json,text/plain,application/json" hidden>
+      </div>
+      <div class="input-row"><span class="hint">파일 내용은 이 기기에서만 읽습니다. 네트워크 요청이나 외부 라이브러리를 사용하지 않습니다.</span><button id="reset" class="button secondary" type="button" hidden>초기화</button></div>
+      <details class="paste"><summary>JSONL 텍스트 붙여넣기</summary><textarea id="paste" placeholder="JSON 객체를 한 줄에 하나씩 붙여넣으세요"></textarea><button id="analyzePaste" class="button" type="button">붙여넣은 내용 분석</button></details>
+      <div id="message" class="message" role="alert" hidden></div>
+    </div>
+
+    <main id="report" class="report" hidden>
+      <div id="filebar" class="filebar"></div>
+      <div id="stats" class="stats"></div>
+      <div class="grid">
+        <section class="panel" aria-labelledby="errors-title"><div class="section-head"><h2 id="errors-title">오류</h2><span id="error-count"></span></div><div id="errors"></div></section>
+        <section class="panel" aria-labelledby="conversation-title"><div class="section-head"><h2 id="conversation-title">대화 내용</h2><span id="speech-count"></span></div><div id="conversation"></div></section>
+      </div>
+      <section class="panel" aria-labelledby="durations-title"><div class="section-head"><h2 id="durations-title">단계별 처리 시간</h2><span>단위: 초 · 중첩 작업의 합계는 통화 길이와 다를 수 있습니다</span></div><div id="durations"></div></section>
+      <section class="panel" id="timeline" aria-labelledby="timeline-title">
+        <div class="section-head"><h2 id="timeline-title">전체 이벤트</h2><span id="visible-count"></span></div>
+        <div class="controls"><input id="search" type="search" placeholder="단계, 내용, 오류 검색" aria-label="로그 검색"><select id="stageFilter" aria-label="단계 필터"><option value="">모든 단계</option></select><select id="statusFilter" aria-label="상태 필터"><option value="">모든 상태</option><option value="error">오류</option><option value="ok">완료</option><option value="started">시작</option><option value="interrupted">중단</option><option value="event">일반 이벤트</option></select></div>
+        <div class="view-options"><div class="view-switch" role="group" aria-label="시간축 보기"><button id="waterfallView" type="button" aria-pressed="true">Waterfall</button><button id="overviewView" type="button" aria-pressed="false">한 줄 보기</button></div><label class="hide-at"><input id="hideModemAt" type="checkbox" checked>모뎀 AT 명령 숨김</label><details class="stage-visibility"><summary>다른 단계 표시 설정</summary><div id="stageChoices" class="stage-choices"></div></details></div>
+        <div class="event-legend"><span><i class="legend-bar"></i>처리 구간</span><span><i class="legend-point"></i>시작·순간 이벤트</span><span><i class="legend-bar legend-error"></i>오류</span><span>전체 통화 시간 기준 · 좌우로 스크롤 가능</span></div>
+        <div id="overview" hidden><div class="overview-scroll"><div class="overview-inner"><div id="overview-track" class="overview-track" aria-label="전체 이벤트 한 줄 시간축"></div><div id="overview-axis" class="overview-axis"></div></div></div><div id="overview-detail" class="overview-detail"></div></div>
+        <div id="waterfall" class="event-scroll"><div id="time-axis" class="time-axis"></div><div id="events"></div></div><button id="more" class="button secondary" type="button" hidden>더 보기</button>
+      </section>
+    </main>
+  </div>
+  <script>
+    'use strict';
+    const $ = id => document.getElementById(id);
+    const state = { entries: [], invalid: [], name: '', limit: 150, view:'waterfall', hiddenStages:new Set(['modem.at']), selectedLine:null };
+    const labels = {
+      'tts.prepare':'TTS 준비', 'stt':'음성 인식 (STT)', 'jev':'발화 판정 (Jev)',
+      'llm.interpret':'답변 해석 (LLM)', 'modem.at':'모뎀 AT 명령',
+      'modem.wait_for_answer':'전화 연결 대기', 'audio.capture_start':'녹음 시작',
+      'audio.stt_conversion':'STT 음성 변환', 'audio.tts_conversion':'TTS 음성 변환',
+      'audio.playback':'음성 재생', 'audio.utterance':'발화 감지',
+      'assistant.response':'상담사 발화', 'user.transcript':'상대방 발화',
+      'call.error':'통화 오류'
+    };
+    const label = stage => labels[stage] || stage || '알 수 없는 단계';
+    const el = (tag, className, content) => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (content !== undefined && content !== null) node.textContent = String(content);
+      return node;
+    };
+    const seconds = ms => Number.isFinite(Number(ms)) ? (Number(ms) / 1000).toFixed(2) + '초' : '—';
+    const count = n => new Intl.NumberFormat('ko-KR').format(n);
+    const isError = e => e.status === 'error' || e.stage === 'call.error';
+    const statusText = status => ({ok:'완료',error:'오류',started:'시작',interrupted:'중단'})[status] || '기록';
+    function showMessage(text) { $('message').textContent = text; $('message').hidden = !text; }
+    function empty(parent, text) { parent.append(el('div', 'empty', text)); }
+    function parseLog(raw, name) {
+      const entries = [], invalid = [];
+      raw.replace(/^\uFEFF/, '').split(/\r?\n/).forEach((line, index) => {
+        if (!line.trim()) return;
+        try {
+          const value = JSON.parse(line);
+          if (!value || Array.isArray(value) || typeof value !== 'object' || typeof value.stage !== 'string') throw Error('stage가 있는 JSON 객체가 아닙니다');
+          entries.push({ ...value, _line: index + 1, _search: line.toLocaleLowerCase() });
+        } catch (error) { invalid.push({ line: index + 1, reason: error.message }); }
+      });
+      if (!entries.length) { showMessage('분석할 이벤트가 없습니다. JSON 객체가 한 줄에 하나씩 있는 JSONL 파일을 선택하세요.' + (invalid.length ? `\n첫 오류: ${invalid[0].line}행 · ${invalid[0].reason}` : '')); return; }
+      state.entries = entries; state.invalid = invalid; state.name = name; state.limit = 150; state.selectedLine = null;
+      state.hiddenStages = new Set(['modem.at']); $('hideModemAt').checked = true;
+      $('search').value = ''; $('statusFilter').value = '';
+      const stages = [...new Set(entries.map(e => e.stage))].sort();
+      $('stageFilter').replaceChildren(el('option', '', '모든 단계'));
+      $('stageFilter').firstChild.value = '';
+      for (const stage of stages) { const option = el('option', '', `${label(stage)} · ${stage}`); option.value = stage; $('stageFilter').append(option); }
+      $('stageFilter').value = '';
+      const choices = $('stageChoices'); choices.replaceChildren();
+      for (const stage of stages.filter(value => value !== 'modem.at')) {
+        const choice = el('label'), input = el('input');
+        input.type = 'checkbox'; input.value = stage; input.checked = true;
+        choice.append(input,el('span','',`${label(stage)} · ${stage}`)); choices.append(choice);
+      }
+      $('report').hidden = false; $('reset').hidden = false;
+      showMessage(invalid.length ? `${count(invalid.length)}개 줄을 읽지 못해 제외했습니다. 첫 오류: ${invalid[0].line}행 · ${invalid[0].reason}` : '');
+      render();
+      $('report').scrollIntoView({ behavior:'smooth', block:'start' });
+    }
+    function appendInfo(parent, text, strong = false) { parent.append(el(strong ? 'strong' : 'span', '', text)); }
+    function renderSummary() {
+      const entries = state.entries, numeric = entries.map(e => Number(e.elapsed_ms)).filter(Number.isFinite);
+      const elapsed = numeric.length > 1 ? Math.max(...numeric) - Math.min(...numeric) : NaN;
+      const errors = entries.filter(isError).length;
+      const turns = new Set(entries.filter(e => Number.isInteger(e.turn) && e.turn > 0).map(e => e.turn)).size;
+      const speech = entries.filter(e => e.stage === 'assistant.response' || e.stage === 'user.transcript').length;
+      const bar = $('filebar'); bar.replaceChildren();
+      appendInfo(bar, state.name, true);
+      const first = entries.find(e => e.timestamp), last = [...entries].reverse().find(e => e.timestamp);
+      if (first) appendInfo(bar, `시작 ${new Date(first.timestamp).toLocaleString('ko-KR')}`);
+      if (last) appendInfo(bar, `마지막 ${new Date(last.timestamp).toLocaleString('ko-KR')}`);
+      if (entries[0].session_id) appendInfo(bar, `세션 ${entries[0].session_id}`);
+      const stats = [ ['기록 구간', seconds(elapsed)], ['전체 이벤트', count(entries.length)], ['오류 이벤트', count(errors)], ['대화 발화', count(speech)], ['처리 턴', count(turns)] ];
+      const container = $('stats'); container.replaceChildren();
+      for (const [name, value] of stats) { const card = el('div','stat' + (name === '오류 이벤트' && errors ? ' error' : '')); card.append(el('div','label',name),el('div','value',value)); container.append(card); }
+    }
+    function renderErrors() {
+      const errors = state.entries.filter(e => isError(e) && !state.hiddenStages.has(e.stage)), box = $('errors'); box.replaceChildren();
+      $('error-count').textContent = `${count(errors.length)}개 이벤트`;
+      if (!errors.length) { empty(box,'오류로 기록된 이벤트가 없습니다.'); return; }
+      for (const e of errors) {
+        const card = el('article','error-card'), top = el('div','top');
+        top.append(el('strong','',label(e.stage)),el('span','badge error',e.error_type || '오류'),el('span','small',`+${seconds(e.elapsed_ms)}${e.turn ? ` · 턴 ${e.turn}` : ''}`));
+        card.append(top);
+        const detail = e.error !== undefined ? e.error : e.errors !== undefined ? JSON.stringify(e.errors) : '오류 메시지가 기록되지 않았습니다.';
+        card.append(el('p','',detail));
+        if (Number.isFinite(Number(e.duration_ms))) card.append(el('div','small',`처리 시간 ${seconds(e.duration_ms)}`));
+        box.append(card);
+      }
+    }
+    function renderConversation() {
+      const speech = state.entries.filter(e => (e.stage === 'assistant.response' || e.stage === 'user.transcript') && !state.hiddenStages.has(e.stage));
+      const box = $('conversation'); box.replaceChildren(); $('speech-count').textContent = `${count(speech.length)}개 발화`;
+      if (!speech.length) { empty(box,'대화 내용이 기록되지 않았습니다.'); return; }
+      for (const e of speech) {
+        const assistant = e.stage === 'assistant.response';
+        const card = el('article',`speech ${assistant ? 'assistant' : 'user'}`), top = el('div','top');
+        top.append(el('strong','',assistant ? '상담사' : '상대방'),el('span','small',`+${seconds(e.elapsed_ms)}${e.turn ? ` · 턴 ${e.turn}` : ''}`));
+        card.append(top, el('p','',e.text ?? '(텍스트 없음)')); box.append(card);
+      }
+    }
+    function renderDurations() {
+      const groups = new Map();
+      for (const e of state.entries) {
+        if (state.hiddenStages.has(e.stage)) continue;
+        let ms, key = e.stage;
+        if (e.stage === 'turn.response_ready' && Number.isFinite(Number(e.since_utterance_end_ms))) ms = Number(e.since_utterance_end_ms);
+        else if (e.status !== 'started' && Number.isFinite(Number(e.duration_ms))) ms = Number(e.duration_ms);
+        else continue;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(ms);
+      }
+      const box = $('durations'); box.replaceChildren();
+      if (!groups.size) { empty(box,'처리 시간(duration_ms)이 기록된 단계가 없습니다.'); return; }
+      const heading = el('div','duration-row heading');
+      for (const text of ['단계','횟수','합계','평균','최대']) heading.append(el('span','',text));
+      box.append(heading);
+      const rows = [...groups].map(([stage, values]) => ({stage, values, total:values.reduce((a,b) => a+b,0)})).sort((a,b) => b.total-a.total);
+      const max = rows[0].total || 1;
+      for (const row of rows) {
+        const item = el('div','duration-row'), name = el('div','stage',label(row.stage)), track = el('div','bar-track'), bar = el('div','bar');
+        bar.style.width = `${100 * row.total / max}%`; track.append(bar); name.append(track);
+        item.append(name,el('span','',count(row.values.length)),el('span','',seconds(row.total)),el('span','',seconds(row.total/row.values.length)),el('span','',seconds(Math.max(...row.values))));
+        box.append(item);
+      }
+    }
+    function preview(e) {
+      if (e.error !== undefined) return String(e.error);
+      if (e.text !== undefined) return String(e.text);
+      if (e.command !== undefined) return `명령: ${e.command}`;
+      if (e.response !== undefined) return `응답: ${typeof e.response === 'string' ? e.response : JSON.stringify(e.response)}`;
+      if (e.verdict !== undefined) return `판정: ${e.verdict}`;
+      if (e.value !== undefined) return `값: ${typeof e.value === 'string' ? e.value : JSON.stringify(e.value)}`;
+      if (e.error_type !== undefined) return `오류 유형: ${e.error_type}`;
+      return '';
+    }
+    function nextRelated(e, stage) {
+      for (let i = state.entries.indexOf(e) + 1; i < state.entries.length; i++) {
+        const item = state.entries[i];
+        if (item.stage === stage && item.turn === e.turn) return item;
+        if (item.stage === e.stage && item.status === 'started') break;
+      }
+      return null;
+    }
+    function previousRelated(e, stage, sameTurn = false) {
+      for (let i = state.entries.indexOf(e) - 1; i >= 0; i--) {
+        const item = state.entries[i];
+        if (item.stage === stage && (!sameTurn || item.turn === e.turn)) return item;
+      }
+      return null;
+    }
+    function payloadFor(e) {
+      if (!['stt','jev','llm.interpret'].includes(e.stage) || e.status === 'started') return null;
+      let input = e.input, output = e.output, inputLabel = '입력', outputLabel = '결과';
+      if (e.stage === 'stt' && e.status === 'ok' && output === undefined) {
+        const transcript = nextRelated(e,'user.transcript');
+        if (transcript) { output = { text:transcript.text }; outputLabel = 'STT 결과 · 연결된 발화 이벤트'; }
+      }
+      if (e.stage === 'jev') {
+        if (input === undefined) {
+          const user = previousRelated(e,'user.transcript',true), assistant = previousRelated(e,'assistant.response');
+          if (user || assistant) {
+            input = { utterance:user?.text ?? null, assistantSpeech:assistant?.text ?? null };
+            inputLabel = '관련 발화 · 기존 로그에서 추정';
+          }
+        }
+        if (e.status === 'ok' && output === undefined) {
+          const verdict = nextRelated(e,'barge_in');
+          if (verdict) { output = { verdict:verdict.verdict }; outputLabel = 'Jev 결과 · 연결된 판정 이벤트'; }
+        }
+      }
+      if (e.stage === 'llm.interpret' && input === undefined) {
+        const transcript = previousRelated(e,'user.transcript',true);
+        if (transcript) { input = { transcript:transcript.text }; inputLabel = '관련 STT 발화 · 기존 로그에서 추정'; }
+      }
+      return { input, output, inputLabel, outputLabel };
+    }
+    function appendPayload(main,e) {
+      const payload = payloadFor(e);
+      if (!payload) return;
+      const box = el('div','payload');
+      for (const [heading,value] of [[payload.inputLabel,payload.input],[payload.outputLabel,payload.output]]) {
+        if (value === undefined) continue;
+        const block = el('div','payload-block'), content = typeof value === 'string' ? value : JSON.stringify(value,null,2);
+        block.append(el('strong','',heading),el('pre','',content)); box.append(block);
+      }
+      if (box.childElementCount) main.append(box);
+      if (payload.output === undefined) main.append(el('div','payload-note',e.status === 'error' ? '오류로 인해 결과가 기록되지 않았습니다.' : '이 로그에는 결과가 기록되지 않았습니다.'));
+    }
+    function eventMain(e) {
+      const main = el('div','main'), top = el('div','top');
+      top.append(el('strong','',label(e.stage)),el('span',`badge ${e.status || ''}`,statusText(e.status)));
+      if (e.turn !== undefined) top.append(el('span','small',`턴 ${e.turn}`));
+      main.append(top);
+      const summary = preview(e); if (summary) main.append(el('div','preview',summary));
+      appendPayload(main,e);
+      const detail = el('details'), title = el('summary','',`원본 필드 보기 · ${e._line}행`), pre = el('pre','',JSON.stringify(Object.fromEntries(Object.entries(e).filter(([key]) => !key.startsWith('_'))),null,2));
+      detail.append(title,pre); main.append(detail);
+      return main;
+    }
+    function eventTone(e) {
+      if (isError(e)) return 'tone-error';
+      if (e.stage.startsWith('stt') || e.stage === 'audio.stt_conversion') return 'tone-stt';
+      if (e.stage.startsWith('llm') || e.stage === 'turn.response_ready') return 'tone-llm';
+      if (e.stage.startsWith('tts') || e.stage === 'audio.tts_conversion') return 'tone-tts';
+      if (e.stage.startsWith('audio.')) return 'tone-audio';
+      if (e.stage.startsWith('modem.')) return 'tone-modem';
+      return 'tone-event';
+    }
+    function renderTimeAxis(maxMs) {
+      const axis = $('time-axis'), track = el('div','axis-track');
+      axis.replaceChildren(el('span','','시점'),el('span','','이벤트'));
+      for (const percent of [0,25,50,75,100]) {
+        const tick = el('span','axis-tick',seconds(maxMs * percent / 100));
+        tick.style.left = `${percent}%`; track.append(tick);
+      }
+      axis.append(track,el('span','','소요'));
+    }
+    function eventTiming(e, starts) {
+      const end = Number(e.elapsed_ms);
+      if (!Number.isFinite(end) || e.elapsed_ms === null || e.elapsed_ms === '') return null;
+      if (e.status === 'started') return { start:end, end, duration:null };
+      const measured = Number(e.duration_ms);
+      const latency = Number(e.since_utterance_end_ms);
+      const hasMeasured = e.duration_ms !== undefined && e.duration_ms !== null && Number.isFinite(measured) && measured >= 0;
+      const hasLatency = e.stage === 'turn.response_ready' && e.since_utterance_end_ms !== undefined && Number.isFinite(latency) && latency >= 0;
+      const key = `${e.session_id || ''}:${e.operation_id}`;
+      const candidate = e.operation_id && starts.has(key) ? starts.get(key) : null;
+      const matched = candidate !== null && candidate <= end ? candidate : null;
+      const duration = hasMeasured ? measured : hasLatency ? latency : matched !== null ? end - matched : null;
+      const start = matched !== null ? matched : duration !== null ? Math.max(0,end - duration) : end;
+      return { start, end, duration:duration !== null && duration > 0 ? duration : null };
+    }
+    function timingLabel(e,timing) {
+      return timing.duration !== null && timing.start < timing.end
+        ? `${label(e.stage)} · ${seconds(timing.start)} → ${seconds(timing.end)} · 소요 ${seconds(timing.duration)}`
+        : `${label(e.stage)} · +${seconds(timing.end)}`;
+    }
+    function renderOverviewDetail(e,starts) {
+      const box = $('overview-detail'); box.replaceChildren();
+      if (!e) { empty(box,'표시할 이벤트가 없습니다.'); return; }
+      const timing = eventTiming(e,starts);
+      box.append(el('div','detail-meta',timing ? timingLabel(e,timing) : '시간 정보 없음'),eventMain(e));
+    }
+    function renderOverview(filtered,starts,maxMs) {
+      const track = $('overview-track'), axis = $('overview-axis');
+      track.replaceChildren(); axis.replaceChildren();
+      for (const percent of [0,25,50,75,100]) {
+        const tick = el('span','axis-tick',seconds(maxMs * percent / 100));
+        tick.style.left = `${percent}%`; axis.append(tick);
+      }
+      const completed = new Set(filtered.filter(e => e.status !== 'started' && e.operation_id).map(e => `${e.session_id || ''}:${e.operation_id}`));
+      const shown = filtered.filter(e => !(e.status === 'started' && e.operation_id && completed.has(`${e.session_id || ''}:${e.operation_id}`)));
+      const timed = shown.map(e => ({ e, timing:eventTiming(e,starts) })).filter(item => item.timing);
+      const selected = timed.find(item => item.e._line === state.selectedLine) || timed.find(item => item.timing.duration !== null) || timed[0];
+      state.selectedLine = selected?.e._line ?? null;
+      for (const {e,timing} of timed) {
+        const interval = timing.duration !== null && timing.start < timing.end;
+        const startPercent = Math.max(0,Math.min(100,100 * timing.start / maxMs));
+        const width = interval ? Math.min(100 - startPercent,Math.max(0.4,100 * (timing.end - timing.start) / maxMs)) : 0;
+        const mark = el('button',`overview-mark ${interval ? '' : 'point'} ${eventTone(e)}${e._line === state.selectedLine ? ' selected' : ''}`);
+        mark.type = 'button'; mark.style.left = `${interval ? startPercent : Math.max(0.6,Math.min(99.4,startPercent))}%`;
+        if (interval) mark.style.width = `${width}%`;
+        if (interval && width >= 6) mark.textContent = ({stt:'STT',jev:'Jev','llm.interpret':'LLM','tts.prepare':'TTS'})[e.stage] || label(e.stage);
+        mark.title = timingLabel(e,timing); mark.setAttribute('aria-label',mark.title);
+        mark.setAttribute('aria-pressed',String(e._line === state.selectedLine));
+        mark.addEventListener('click',() => {
+          state.selectedLine = e._line;
+          for (const button of track.children) { button.classList.remove('selected'); button.setAttribute('aria-pressed','false'); }
+          mark.classList.add('selected'); mark.setAttribute('aria-pressed','true');
+          renderOverviewDetail(e,starts);
+        });
+        track.append(mark);
+      }
+      renderOverviewDetail(selected?.e ?? null,starts);
+    }
+    function renderWaterfall(filtered,starts,maxMs) {
+      renderTimeAxis(maxMs);
+      const box = $('events'); box.replaceChildren();
+      if (!filtered.length) { empty(box,'조건에 맞는 이벤트가 없습니다.'); $('more').hidden = true; return; }
+      const fragment = document.createDocumentFragment();
+      for (const e of filtered.slice(0,state.limit)) {
+        const timing = eventTiming(e,starts);
+        const card = el('article','event'), time = el('div','event-time',timing ? `+${seconds(timing.end)}` : '—'), main = eventMain(e);
+        const track = el('div',`waterfall-track ${eventTone(e)}`);
+        if (timing) {
+          const interval = timing.duration !== null && timing.start < timing.end;
+          const mark = el('span',interval ? 'waterfall-bar' : 'waterfall-point');
+          const startPercent = Math.max(0,Math.min(100,100 * timing.start / maxMs));
+          mark.style.left = `${interval ? startPercent : Math.max(0.6,Math.min(99.4,startPercent))}%`;
+          if (interval) mark.style.width = `${Math.min(100 - startPercent,Math.max(0.25,100 * (timing.end - timing.start) / maxMs))}%`;
+          mark.title = timingLabel(e,timing);
+          mark.setAttribute('aria-label',mark.title); mark.tabIndex = 0; track.append(mark);
+        }
+        const duration = el('div','event-duration',timing ? (timing.duration !== null ? seconds(timing.duration) : '순간') : '—');
+        card.append(time,main,track,duration); fragment.append(card);
+      }
+      box.append(fragment);
+      $('more').hidden = filtered.length <= state.limit;
+      $('more').textContent = `더 보기 (${count(filtered.length - state.limit)}개 남음)`;
+    }
+    function renderEvents() {
+      const search = $('search').value.trim().toLocaleLowerCase(), stage = $('stageFilter').value, status = $('statusFilter').value;
+      const filtered = state.entries.filter(e => !state.hiddenStages.has(e.stage) && (!stage || e.stage === stage) && (!status || (status === 'event' ? !e.status : e.status === status || (status === 'error' && e.stage === 'call.error'))) && (!search || e._search.includes(search)));
+      $('visible-count').textContent = `${count(filtered.length)}개 검색 결과`;
+      const starts = new Map(); let maxMs = 1;
+      for (const e of state.entries) {
+        const at = Number(e.elapsed_ms);
+        if (e.elapsed_ms !== null && e.elapsed_ms !== '' && Number.isFinite(at)) {
+          maxMs = Math.max(maxMs,at);
+          if (e.status === 'started' && e.operation_id) starts.set(`${e.session_id || ''}:${e.operation_id}`,at);
+        }
+      }
+      $('overview').hidden = state.view !== 'overview'; $('waterfall').hidden = state.view !== 'waterfall';
+      $('overviewView').setAttribute('aria-pressed',String(state.view === 'overview'));
+      $('waterfallView').setAttribute('aria-pressed',String(state.view === 'waterfall'));
+      if (state.view === 'overview') { $('more').hidden = true; renderOverview(filtered,starts,maxMs); }
+      else renderWaterfall(filtered,starts,maxMs);
+    }
+    function render() { renderSummary(); renderErrors(); renderConversation(); renderDurations(); renderEvents(); }
+    $('pick').addEventListener('click', e => { e.stopPropagation(); $('file').click(); });
+    $('dropzone').addEventListener('click', () => $('file').click());
+    $('dropzone').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } });
+    $('file').addEventListener('change', async e => { const file = e.target.files[0]; if (file) parseLog(await file.text(), file.name); e.target.value = ''; });
+    for (const type of ['dragenter','dragover']) $('dropzone').addEventListener(type, e => { e.preventDefault(); $('dropzone').classList.add('dragover'); });
+    for (const type of ['dragleave','drop']) $('dropzone').addEventListener(type, e => { e.preventDefault(); $('dropzone').classList.remove('dragover'); });
+    $('dropzone').addEventListener('drop', async e => { const file = e.dataTransfer.files[0]; if (file) parseLog(await file.text(), file.name); });
+    $('analyzePaste').addEventListener('click', () => parseLog($('paste').value, '붙여넣은 JSONL'));
+    $('reset').addEventListener('click', () => { state.entries = []; state.invalid = []; $('report').hidden = true; $('reset').hidden = true; $('paste').value = ''; showMessage(''); });
+    $('waterfallView').addEventListener('click', () => { state.view = 'waterfall'; document.querySelector('.stage-visibility').open = false; renderEvents(); });
+    $('overviewView').addEventListener('click', () => { state.view = 'overview'; document.querySelector('.stage-visibility').open = false; renderEvents(); });
+    $('hideModemAt').addEventListener('change', e => {
+      if (e.target.checked) state.hiddenStages.add('modem.at'); else state.hiddenStages.delete('modem.at');
+      if (e.target.checked && $('stageFilter').value === 'modem.at') $('stageFilter').value = '';
+      state.limit = 150; renderErrors(); renderConversation(); renderDurations(); renderEvents();
+    });
+    $('stageChoices').addEventListener('change', e => {
+      if (e.target.type !== 'checkbox') return;
+      if (e.target.checked) state.hiddenStages.delete(e.target.value); else state.hiddenStages.add(e.target.value);
+      if (!e.target.checked && $('stageFilter').value === e.target.value) $('stageFilter').value = '';
+      state.limit = 150; renderErrors(); renderConversation(); renderDurations(); renderEvents();
+    });
+    $('stageFilter').addEventListener('change', e => {
+      if (state.hiddenStages.delete(e.target.value)) {
+        if (e.target.value === 'modem.at') $('hideModemAt').checked = false;
+        else { const choice = [...$('stageChoices').querySelectorAll('input')].find(input => input.value === e.target.value); if (choice) choice.checked = true; }
+        renderErrors(); renderConversation(); renderDurations();
+      }
+      state.limit = 150; renderEvents();
+    });
+    for (const id of ['search','statusFilter']) $(id).addEventListener(id === 'search' ? 'input' : 'change', () => { state.limit = 150; renderEvents(); });
+    $('more').addEventListener('click', () => { state.limit += 150; renderEvents(); });
+  </script>
+</body>
+</html>
