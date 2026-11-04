@@ -1,0 +1,521 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "선한레이더 전화 정보 확인",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/verification-call": {
+      "post": {
+        "summary": "Create",
+        "operationId": "create_v1_verification_call_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Created"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/verification-call/{verification_id}": {
+      "get": {
+        "summary": "Get",
+        "operationId": "get_v1_verification_call__verification_id__get",
+        "parameters": [
+          {
+            "name": "verification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Verification Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Answer": {
+        "properties": {
+          "questionId": {
+            "type": "string",
+            "title": "Questionid"
+          },
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "questionId",
+          "field",
+          "value"
+        ],
+        "title": "Answer"
+      },
+      "CallRequest": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "questions": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Confirmation"
+                },
+                {
+                  "$ref": "#/components/schemas/Detection"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "CHANGE_DETECTION": "#/components/schemas/Detection",
+                  "VALUE_CONFIRMATION": "#/components/schemas/Confirmation"
+                }
+              }
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Questions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "questions"
+        ],
+        "title": "CallRequest"
+      },
+      "CallResult": {
+        "properties": {
+          "verificationId": {
+            "type": "string",
+            "title": "Verificationid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "title": "Status"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/Answer"
+            },
+            "type": "array",
+            "title": "Answers"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "connectedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connectedat"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "failureReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failurereason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "verificationId",
+          "status",
+          "answers",
+          "createdAt"
+        ],
+        "title": "CallResult"
+      },
+      "Confirmation": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Field"
+          },
+          "naturalField": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Naturalfield"
+          },
+          "currentValue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              }
+            ],
+            "title": "Currentvalue"
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "VALUE_CONFIRMATION",
+            "title": "Type"
+          },
+          "expectedValue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              }
+            ],
+            "title": "Expectedvalue"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field",
+          "naturalField",
+          "currentValue",
+          "id",
+          "type",
+          "expectedValue"
+        ],
+        "title": "Confirmation"
+      },
+      "Created": {
+        "properties": {
+          "verificationId": {
+            "type": "string",
+            "title": "Verificationid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "verificationId"
+        ],
+        "title": "Created"
+      },
+      "Detection": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "CHANGE_DETECTION",
+            "title": "Type"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldInfo"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "fields"
+        ],
+        "title": "Detection"
+      },
+      "FieldInfo": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Field"
+          },
+          "naturalField": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Naturalfield"
+          },
+          "currentValue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              }
+            ],
+            "title": "Currentvalue"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field",
+          "naturalField",
+          "currentValue"
+        ],
+        "title": "FieldInfo"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Target": {
+        "properties": {
+          "storeLocation": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Storelocation"
+          },
+          "storeName": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Storename"
+          },
+          "phoneNumber": {
+            "type": "string",
+            "title": "Phonenumber"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "storeLocation",
+          "storeName",
+          "phoneNumber"
+        ],
+        "title": "Target"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

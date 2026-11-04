@@ -186,6 +186,9 @@ class Session:
                     text,spoken_text,conversation,overlapping=bool(speech))
                 trace['output'] = result
             verdict = result['verdict']
+            if verdict == 'IGNORE':
+                self.log.emit('turn.ignored',turn=self.turn,reason='context_irrelevant',text=text)
+                continue
             if speech:
                 self.log.emit('barge_in',verdict=verdict,turn=self.turn)
                 if verdict == 'BACKCHANNEL':

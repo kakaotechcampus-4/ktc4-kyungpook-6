@@ -182,7 +182,8 @@
       'audio.stt_conversion':'STT 음성 변환', 'audio.tts_conversion':'TTS 음성 변환',
       'audio.playback':'음성 재생', 'audio.utterance':'발화 감지',
       'assistant.response':'상담사 발화', 'user.transcript':'상대방 발화',
-      'call.error':'통화 오류', 'turn.response_ready':'응답 준비 지연'
+      'call.error':'통화 오류', 'turn.response_ready':'응답 준비 지연',
+      'turn.ignored':'맥락 밖 발화 무시'
     };
     const label = stage => labels[stage] || stage || '알 수 없는 단계';
     const el = (tag, className, content) => {
@@ -260,12 +261,14 @@
     }
     function renderConversation() {
       const speech = state.entries.filter(e => (e.stage === 'assistant.response' || e.stage === 'user.transcript') && !state.hiddenStages.has(e.stage));
+      const ignored = new Set(state.entries.filter(e => e.stage === 'turn.ignored').map(e => `${e.session_id || ''}:${e.turn}`));
       const box = $('conversation'); box.replaceChildren(); $('speech-count').textContent = `${count(speech.length)}개 발화`;
       if (!speech.length) { empty(box,'대화 내용이 기록되지 않았습니다.'); return; }
       for (const e of speech) {
         const assistant = e.stage === 'assistant.response';
         const card = el('article',`speech ${assistant ? 'assistant' : 'user'}`), top = el('div','top');
         top.append(el('strong','',assistant ? '상담사' : '상대방'),el('span','small',`+${seconds(e.elapsed_ms)}${e.turn ? ` · 턴 ${e.turn}` : ''}`));
+        if (!assistant && ignored.has(`${e.session_id || ''}:${e.turn}`)) top.append(el('span','badge ignored','맥락 밖 입력 · 무시됨'));
         card.append(top, el('p','',e.text ?? '(텍스트 없음)')); box.append(card);
       }
     }

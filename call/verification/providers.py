@@ -129,7 +129,9 @@ class Providers:
             if isinstance(p, bool) or not isinstance(p,(float,int)) or not 0 <= p <= 1:
                 raise ValueError('Jev noul 응답 형식 오류')
             scores[key] = p
-        if not overlapping:
+        if scores['irrelevant'] >= s.jev_threshold:
+            verdict = 'IGNORE'
+        elif not overlapping:
             verdict = 'PROCESS'
         elif scores['interrupt'] >= s.jev_threshold:
             verdict = 'INTERRUPT'
