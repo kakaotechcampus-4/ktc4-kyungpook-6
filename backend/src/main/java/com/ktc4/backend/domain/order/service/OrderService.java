@@ -34,7 +34,7 @@ import java.util.function.Consumer;
 @Transactional(readOnly = true)
 public class OrderService {
 
-    /** 아동 한 명의 진행 중 주문을 하나로 묶는 DB 부분 unique 인덱스 이름({@code V7__create_child_order.sql}). */
+    /** 아동 한 명의 진행 중 주문을 하나로 묶는 DB 부분 unique 인덱스 이름({@code V8__create_child_order.sql}). */
     static final String ACTIVE_ORDER_INDEX = "uk_child_order_active";
 
     private final ChildOrderRepository childOrderRepository;
