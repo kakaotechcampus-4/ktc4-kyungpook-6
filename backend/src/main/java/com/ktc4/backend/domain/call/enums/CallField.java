@@ -21,6 +21,8 @@ import java.util.Optional;
  * <p>영업 여부({@link #OPEN})만 참·거짓으로 묻는다. 우리는 영업 상태를 {@code OPEN}·{@code SUSPENDED}·
  * {@code CLOSED} 세 값으로 갖지만, 전화로 "상태가 CLOSED 맞습니까" 를 물을 수는 없다. 그래서 전화에는
  * "지금도 영업하십니까" 한 가지만 묻고, 휴업과 폐업을 가르는 일은 담당자가 답을 보고 한다.
+ *
+ * <p>이 질문이 통화에서 어떻게 들리는지 2026-11-04 에 실제로 걸어 확인했다 — 어색하지 않았다.
  */
 public enum CallField {
     STORE_NAME(ChangeField.NAME, "storeName", "상호명"),
