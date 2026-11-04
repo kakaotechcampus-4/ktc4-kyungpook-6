@@ -56,10 +56,16 @@ const VARIANT = {
     changesLabel: '수정 사항',
     primaryActionLabel: '즉시 수정 반영하기',
   },
-  /** 추가확인. 값을 정할 근거가 부족해 가게에 연락부터 해야 하는 건. */
+  /**
+   * 추가확인. 값을 정할 근거가 부족해 가게에 연락부터 해야 하는 건.
+   *
+   * 주 버튼이 없다. 원래 "메시지 보내기" 였는데 보낼 길이 없어 연결되지 않은 채
+   * 비활성으로 떠 있었고, 이 분류에서 할 일은 가게에 연락하는 것 하나다 —
+   * 그 연락은 아래 "전화로 확인하기" 가 맡는다(PROMPT-165).
+   */
   additional: {
     changesLabel: '추가 확인 사항',
-    primaryActionLabel: '메시지 보내기',
+    primaryActionLabel: null,
   },
   /*
     변화없음. 아직 Figma 노드가 없어 임시로 잡아둔 모양이다.
@@ -92,6 +98,19 @@ const LIST_ITEM =
 /** 근거 출처 텍스트. 링크일 때도 같은 색·굵기다. Figma 112:5491 / 112:5511 */
 const EVIDENCE_SOURCE =
   'flex w-fit items-center gap-1 font-sans text-sm font-semibold leading-5 text-[#3b82f6]';
+
+/**
+ * 확인 전화 상태 한 줄. 전화가 어떻게 됐는지에 따라 색이 다르다 — 실패를 다른 줄과 같은 색으로
+ * 두면 "걸었다" 와 "안 받았다" 가 같아 보이고, 담당자가 다시 걸어야 하는 카드를 넘긴다.
+ */
+const CALL_STATUS_TONE = {
+  /** 아직 통화 중이거나 발신을 기다린다. */
+  progress: 'text-[#475569]',
+  /** 확인을 마쳤다. */
+  done: 'text-[#1d4ed8]',
+  /** 연결 실패·확인 미완료. 다시 걸 수 있다. */
+  failed: 'text-[#b45309]',
+} as const;
 
 /** 하단 버튼 공통. Figma 112:5496 / 112:5498 (h 40, radius 8) */
 const ACTION_BUTTON =
@@ -131,6 +150,18 @@ type AgentSurveyResultCardProps = {
   variant?: TaskClassification;
   /** 주 버튼 클릭. variant에 따라 수정 반영일 수도, 메시지 발송일 수도 있다. */
   onPrimaryAction?: () => void;
+  /**
+   * 이 카드로 건 확인 전화 한 줄. 아직 걸지 않았으면 undefined 다.
+   *
+   * 담당자 확인 기록(verifiedLabel)과 따로 둔다 — 전화는 점주에게 물어본 결과이고,
+   * 확인 기록은 그 답을 읽은 담당자의 판단이다. 전화가 끝나도 카드는 아직 처리 전이다.
+   */
+  callStatus?: { label: string; tone: keyof typeof CALL_STATUS_TONE };
+  /**
+   * "전화로 확인하기" 클릭. **걸 수 없는 카드면 넘기지 않는다** — 그러면 버튼을 그리지 않는다.
+   * 전화는 되돌릴 수 없어서, 눌러도 409 가 날 버튼을 열어 두지 않는다.
+   */
+  onCall?: () => void;
   /** "직접 수정하기" 클릭. 담당자가 값을 직접 고치는 화면으로 보낸다. */
   onEdit?: () => void;
   /** 조사 결과 조회 중일 때만 true. Skeleton은 이 값으로만 노출한다. */
@@ -147,6 +178,10 @@ type AgentSurveyResultCardProps = {
  * 어떤 조치가 필요한지 보여주고, 처리 방법을 고르게 한다.
  * Figma 112:5474(수정 사항·근거 링크) / 112:5502(추가 확인 사항·링크 없음)
  *
+ * 확인 전화는 Figma 에 아직 노드가 없다. 두 분류(우선확인·추가확인)에서 가게에 직접 물어야 하는
+ * 일이 생겨 붙였고(PROMPT-165), 새 색·뱃지를 만들지 않고 이미 쓰는 색만 써서 디자인이 나왔을 때
+ * 지울 코드를 줄였다 — 변화없음(unchanged) 때 했던 것과 같은 방식이다.
+ *
  * 근거와 수정 사항을 한 흐름(gap 8px)으로 이어 붙인 것은 Figma 112:5478 그대로다.
  * 담당자가 "왜 바꾸는지"를 읽은 직후에 "무엇이 바뀌는지"를 보게 하려는 배치라,
  * 두 섹션을 따로 떼어 간격을 벌리지 않는다.
@@ -158,8 +193,10 @@ function AgentSurveyResultCard({
   changes = [],
   failureReason,
   verifiedLabel,
+  callStatus,
   variant = 'priority',
   onPrimaryAction,
+  onCall,
   onEdit,
   isLoading = false,
   isProcessing = false,
@@ -289,6 +326,15 @@ function AgentSurveyResultCard({
           onPrimaryAction 이 없으면 눌러도 아무 일이 없다. 색까지 그대로면 먹통처럼 보이므로
           아래 '직접 수정하기' 와 같게 비활성으로 둔다 — additional(메시지 보내기)이 그 경우다.
         */}
+        {callStatus ? (
+          <p
+            role="status"
+            className={`flex w-full items-center gap-1 font-sans text-sm font-semibold leading-5 ${CALL_STATUS_TONE[callStatus.tone]}`}
+          >
+            <Icon icon="material-symbols:call" className="size-4 shrink-0" />
+            {callStatus.label}
+          </p>
+        ) : null}
         {primaryActionLabel && !verifiedLabel ? (
           <button
             type="button"
@@ -297,6 +343,21 @@ function AgentSurveyResultCard({
             className={`${ACTION_BUTTON} bg-[#eab308] text-white focus-visible:outline-[#eab308] disabled:opacity-60`}
           >
             {primaryActionLabel}
+          </button>
+        ) : null}
+        {/*
+          확인 전화. 담당자가 이미 처리한 카드에는 내린다 — 답이 나온 뒤에 가게로 전화가 가면 민폐다
+          (백엔드도 같은 이유로 409 로 막는다).
+        */}
+        {onCall && !verifiedLabel ? (
+          <button
+            type="button"
+            onClick={onCall}
+            disabled={isLoading || isProcessing}
+            className={`${ACTION_BUTTON} border border-solid border-[#3b82f6] text-[#3b82f6] focus-visible:outline-[#3b82f6] disabled:opacity-60`}
+          >
+            <Icon icon="material-symbols:call" className="size-4 shrink-0" />
+            전화로 확인하기
           </button>
         ) : null}
         {/*

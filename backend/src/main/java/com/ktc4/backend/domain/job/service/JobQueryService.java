@@ -1,5 +1,7 @@
 package com.ktc4.backend.domain.job.service;
 
+import com.ktc4.backend.domain.call.dto.CallResponse;
+import com.ktc4.backend.domain.call.service.CallService;
 import com.ktc4.backend.domain.job.dto.JobResultResponse;
 import com.ktc4.backend.domain.job.entity.Job;
 import com.ktc4.backend.domain.job.repository.JobRepository;
@@ -25,6 +27,8 @@ import java.util.Map;
  *
  * <p>가게별 확인 기록도 같은 이유로 여기서 붙인다 — {@code VerificationService} 가 반영할 때 {@code TaskService} 로
  * Task 를 잠그므로, {@code TaskService} 가 확인 기록을 읽으면 둘 사이에 순환이 생긴다.
+ *
+ * <p>확인 전화 기록도 마찬가지다 — {@code CallService} 도 전화를 걸 때 {@code TaskService} 로 Task 를 잠근다.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,6 +38,7 @@ public class JobQueryService {
     private final JobRepository jobRepository;
     private final TaskService taskService;
     private final VerificationService verificationService;
+    private final CallService callService;
 
     /**
      * 조사 한 건의 진행도와 지금까지 끝난 가게의 결과를 읽는다.
@@ -45,7 +50,7 @@ public class JobQueryService {
     public JobResultResponse getJob(Long jobId) {
         Job job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new CustomException(ErrorCode.JOB_NOT_FOUND));
-        return JobResultResponse.of(job, withVerifications(taskService.findResults(jobId)));
+        return JobResultResponse.of(job, withRecords(taskService.findResults(jobId)));
     }
 
     /**
@@ -57,17 +62,21 @@ public class JobQueryService {
     public JobResultResponse getLatest() {
         Job job = jobRepository.findFirstByOrderByJobIdDesc()
                 .orElseThrow(() -> new CustomException(ErrorCode.JOB_NOT_FOUND));
-        return JobResultResponse.of(job, withVerifications(taskService.findResults(job.getJobId())));
+        return JobResultResponse.of(job, withRecords(taskService.findResults(job.getJobId())));
     }
 
-    private List<TaskResultResponse> withVerifications(List<TaskResultResponse> tasks) {
+    // 확인 기록과 전화 기록을 각각 한 쿼리로 읽어 붙인다 — 카드마다 따로 읽으면 가게 수만큼 쿼리가 나간다.
+    private List<TaskResultResponse> withRecords(List<TaskResultResponse> tasks) {
         if (tasks.isEmpty()) {
             return tasks;
         }
-        Map<Long, VerificationResponse> byTask = verificationService.findByTaskIds(
-                tasks.stream().map(TaskResultResponse::taskId).toList());
+        List<Long> taskIds = tasks.stream().map(TaskResultResponse::taskId).toList();
+        Map<Long, VerificationResponse> verifications = verificationService.findByTaskIds(taskIds);
+        Map<Long, CallResponse> calls = callService.findByTaskIds(taskIds);
         return tasks.stream()
-                .map(task -> task.withVerification(byTask.get(task.taskId())))
+                .map(task -> task
+                        .withVerification(verifications.get(task.taskId()))
+                        .withCall(calls.get(task.taskId())))
                 .toList();
     }
 }

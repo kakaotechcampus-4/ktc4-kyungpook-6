@@ -161,3 +161,19 @@ ai:
   biz-cert-read-timeout-ms: ${AI_BIZ_CERT_READ_TIMEOUT_MS:25000}
   # AI 일시 오류(5xx·연결 실패)를 다시 시도하기 전 기다리는 시간. 두 번째 시도 전 한 번만 기다린다.
   retry-backoff-ms: 2000
+
+call:
+  # 확인 전화 API 서버. 주소나 키가 비어 있으면 전화 기능만 꺼진다 — 앱은 뜨고 전화를 걸 때 503 이다.
+  # 시크릿 기본값은 두지 않음(public repo) — 배포는 서버 .env 로 주입한다.
+  base-url: ${VERIFICATION_API_BASE_URL:}
+  api-key: ${VERIFICATION_API_KEY:}
+  connect-timeout-ms: 3000
+  # 전화 API 는 요청을 접수하고 바로 답한다(202). 통화가 끝나기를 기다리지 않으므로 짧게 둔다.
+  read-timeout-ms: 5000
+  # 끝나지 않은 전화의 상태를 받아 오는 주기. 담당자가 결과 화면을 보며 기다리는 시간이라 짧게 둔다.
+  poll-interval-ms: ${CALL_POLL_INTERVAL_MS:10000}
+  # 한 차례에 보는 전화 수. 전화 API 가 느려진 날 한 바퀴가 끝나지 않아 다음 차례가 밀리는 것을 막는다.
+  poll-batch-size: ${CALL_POLL_BATCH_SIZE:20}
+  # 이 시간이 지나도 끝나지 않은 전화는 실패로 닫는다. 전화 API 문서에 통화 제한 시간이 없어 우리가 정한다.
+  # 닫지 않으면 폴러가 그 전화를 끝없이 다시 읽고 화면에도 "전화 중" 이 영영 남는다.
+  max-wait-minutes: ${CALL_MAX_WAIT_MINUTES:15}

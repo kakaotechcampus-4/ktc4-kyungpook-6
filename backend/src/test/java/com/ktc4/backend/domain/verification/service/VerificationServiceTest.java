@@ -25,6 +25,7 @@ import com.ktc4.backend.domain.verification.enums.VerificationResult;
 import com.ktc4.backend.domain.verification.repository.VerificationRepository;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import com.ktc4.backend.support.CallWithoutApiConfig;
 import com.ktc4.backend.support.PostgresContainerTest;
 import com.ktc4.backend.support.StoreChangeHistoryRow;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,7 +61,7 @@ import static org.assertj.core.api.Assertions.tuple;
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
 @Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
-        InvestigationTargetSelector.class, VerificationService.class})
+        InvestigationTargetSelector.class, VerificationService.class, CallWithoutApiConfig.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("수정안 반영·확인 (VerificationService)")
 class VerificationServiceTest extends PostgresContainerTest {

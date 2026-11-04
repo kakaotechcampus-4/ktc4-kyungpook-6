@@ -8,6 +8,7 @@ import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.domain.task.service.TaskService;
 import com.ktc4.backend.domain.verification.service.VerificationService;
+import com.ktc4.backend.support.CallWithoutApiConfig;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
 @Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
-        InvestigationTargetSelector.class, VerificationService.class})
+        InvestigationTargetSelector.class, VerificationService.class, CallWithoutApiConfig.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("서버 재시작 정리 (JobService.failUnfinishedBefore)")
 class JobServiceCleanupTest extends PostgresContainerTest {

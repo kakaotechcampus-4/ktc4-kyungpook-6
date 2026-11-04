@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.task.dto;
 
+import com.ktc4.backend.domain.call.dto.CallResponse;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.verification.dto.VerificationResponse;
@@ -46,12 +47,23 @@ public record TaskResultResponse(
 
         @Schema(description = "담당자의 확인 기록. **있으면 카드가 \"확인 완료됨\"**, 아직 확인하지 않았으면 null",
                 nullable = true)
-        VerificationResponse verification
+        VerificationResponse verification,
+
+        @Schema(description = "이 결과로 건 확인 전화. 아직 걸지 않았으면 null. **확인 기록과 다른 것이다** — "
+                + "전화는 점주에게 물어본 결과이고, 확인 기록은 그 답을 읽은 담당자의 판단이다",
+                nullable = true)
+        CallResponse call
 ) {
 
     /** 확인 기록만 바꾼 새 응답을 만든다. 조사 결과와 확인 기록은 서로 다른 서비스가 읽어 마지막에 합친다. */
     public TaskResultResponse withVerification(VerificationResponse verification) {
         return new TaskResultResponse(taskId, storeId, storeName, storeAddress, storeStatus, storePhone, lastCheckedAt,
-                classification, failureReason, proposedChanges, evidences, verification);
+                classification, failureReason, proposedChanges, evidences, verification, call);
+    }
+
+    /** 전화 기록만 바꾼 새 응답을 만든다. 확인 기록과 같은 이유로 조사 결과와 따로 읽어 마지막에 합친다. */
+    public TaskResultResponse withCall(CallResponse call) {
+        return new TaskResultResponse(taskId, storeId, storeName, storeAddress, storeStatus, storePhone, lastCheckedAt,
+                classification, failureReason, proposedChanges, evidences, verification, call);
     }
 }
