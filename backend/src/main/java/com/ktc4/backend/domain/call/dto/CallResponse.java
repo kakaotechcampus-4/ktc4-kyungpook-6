@@ -42,6 +42,7 @@ public record CallResponse(
                 + "- `RETRY_LATER` 이따 다시 걸면 됩니다 (통화 중·안 받음·꺼짐·중간에 끊김)\n"
                 + "- `FIX_NUMBER` 번호가 잘못됐습니다 — 다시 걸어도 같습니다. 번호를 고쳐야 합니다\n"
                 + "- `NOT_BY_PHONE` 전화로는 확인할 수 없습니다 (수신 거부·자동응답)\n"
+                + "- `PARTY_UNCONFIRMED` 연결은 됐는데 상대를 확인하지 못했습니다 — 다시 걸어 보고, 또 그러면 번호를 보세요\n"
                 + "- `OUR_SIDE` **가게와 무관합니다** — 전화 API 나 서버 문제입니다. 가게 탓으로 보이면 안 됩니다\n"
                 + "- `UNKNOWN` 아직 분류하지 못한 코드입니다. `failureReason` 을 그대로 보여 주세요\n\n"
                 + "문구는 화면이 붙입니다.", nullable = true, example = "RETRY_LATER")

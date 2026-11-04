@@ -31,6 +31,21 @@ class CallFailureKindTest {
         assertThat(CallFailureKind.of(CallFailureKind.GAVE_UP_WAITING)).isEqualTo(CallFailureKind.OUR_SIDE);
     }
 
+    @Test
+    @DisplayName("연결된 뒤 상대가 끊은 것은 다시 걸면 된다")
+    void 상대가_끊음() {
+        // 2026-11-04 16:26 에 실제로 받은 코드다. startedAt·connectedAt 이 둘 다 찍혀 있었다
+        assertThat(CallFailureKind.of("REMOTE_HANGUP")).isEqualTo(CallFailureKind.RETRY_LATER);
+    }
+
+    @Test
+    @DisplayName("상대를 확인하지 못한 것은 다시 걸어 보고 번호를 보는 쪽이다 — 일시적인지 번호가 틀린지 코드로는 못 가린다")
+    void 상대_확인_실패() {
+        // 2026-11-04 에 실제로 받은 코드다. 받고 나서 아무 말도 하지 않으면 전화 API 가
+        // "응답 확인이 어려워 통화를 마칩니다" 라고 알리고 끊는다
+        assertThat(CallFailureKind.of("IDENTITY_UNCONFIRMED")).isEqualTo(CallFailureKind.PARTY_UNCONFIRMED);
+    }
+
     @ParameterizedTest(name = "[{0}]")
     @ValueSource(strings = {"NO_ANSWER", "BUSY", "처음 보는 코드", "PROCESSING_ERROR_X"})
     @DisplayName("모르는 코드는 UNKNOWN 이다 — 비슷해 보인다고 끼워 맞추지 않는다")

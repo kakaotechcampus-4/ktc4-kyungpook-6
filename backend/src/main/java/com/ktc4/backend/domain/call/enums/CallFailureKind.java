@@ -29,6 +29,16 @@ public enum CallFailureKind {
     /** 전화로는 확인할 수 없다 — 수신 거부, 자동응답만 받음. 다른 방법으로 확인해야 한다. */
     NOT_BY_PHONE,
 
+    /**
+     * 연결은 됐는데 <b>상대가 맞는지 확인하지 못했다</b>. 한 번은 다시 걸어 보고, 또 그러면 번호를 본다.
+     *
+     * <p>{@link #RETRY_LATER} 와 {@link #FIX_NUMBER} 를 가를 수 없는 자리라 따로 둔다. 전화가 꺼져 있어
+     * 통신사 안내음에 연결된 것일 수도 있고(다시 걸면 된다), 번호가 낡아 가게와 무관한 곳에 닿은
+     * 것일 수도 있다(번호를 고쳐야 한다). 사유 코드 하나로는 둘을 가릴 수 없고, 담당자가 한 번 더
+     * 걸어 보면 갈린다.
+     */
+    PARTY_UNCONFIRMED,
+
     /** 가게와 무관하다 — 전화 API 나 우리 쪽 문제. 가게 탓으로 읽으면 안 된다. */
     OUR_SIDE,
 
@@ -44,13 +54,24 @@ public enum CallFailureKind {
     /**
      * 아는 코드. 전화 API 쪽 코드 목록을 받으면 여기를 채운다.
      *
-     * <p>지금 아는 것은 둘뿐이다 — 우리가 직접 적는 {@link #GAVE_UP_WAITING} 과,
-     * 2026-11-04 에 실제로 받아 본 {@code PROCESSING_ERROR}(전화 API 안에서 즉시 터졌고
-     * {@code startedAt} 이 비어 있었다 — 발신 시도 전이다).
+     * <p>전부 2026-11-04 에 실제로 받아 본 코드이거나 우리가 적는 코드다. 문서에서 베끼지 않았다.
+     *
+     * <ul>
+     *   <li>{@code REMOTE_HANGUP} — 연결된 뒤 상대가 끊었다({@code connectedAt} 이 찍혀 있다).
+     *       다시 걸면 받을 수 있으니 {@link #RETRY_LATER} 다</li>
+     *   <li>{@code IDENTITY_UNCONFIRMED} — 연결된 뒤({@code connectedAt} 이 찍힌다) 상대가 맞는지
+     *       확인하지 못했다. 받고 나서 아무 말도 하지 않으면 통화를 마친다고 알리고 끊는다(실측).
+     *       받는 사람이 없어도, 번호가 낡아 엉뚱한 곳에 닿아도 같은 코드로 보여
+     *       {@link #PARTY_UNCONFIRMED} 로 둔다</li>
+     *   <li>{@code PROCESSING_ERROR} — 전화 API 안에서 즉시 터졌고 {@code startedAt} 이 비어 있었다.
+     *       발신 시도 전이라 가게와 무관하다</li>
+     * </ul>
      */
     private static final Map<String, CallFailureKind> BY_REASON = Map.of(
             GAVE_UP_WAITING, OUR_SIDE,
-            "PROCESSING_ERROR", OUR_SIDE);
+            "PROCESSING_ERROR", OUR_SIDE,
+            "REMOTE_HANGUP", RETRY_LATER,
+            "IDENTITY_UNCONFIRMED", PARTY_UNCONFIRMED);
 
     /**
      * 실패 사유 코드를 담당자가 할 일로 바꾼다.

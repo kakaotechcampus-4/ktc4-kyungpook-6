@@ -67,6 +67,8 @@ const FAILURE_GUIDE: Record<CallFailureKindResponse, string> = {
   RETRY_LATER: '이따 다시 걸어 보세요',
   FIX_NUMBER: '번호가 잘못됐습니다 — 다시 걸어도 같습니다. 번호를 고쳐 주세요',
   NOT_BY_PHONE: '전화로는 확인할 수 없습니다 — 다른 방법으로 확인해 주세요',
+  PARTY_UNCONFIRMED:
+    '상대를 확인하지 못했습니다 — 다시 걸어 보고, 또 그러면 번호를 확인해 주세요',
   OUR_SIDE: '가게 문제가 아닙니다 — 전화 기능 쪽 문제입니다',
   UNKNOWN: '',
 };

@@ -72,6 +72,7 @@ export type CallFailureKindResponse =
   | 'RETRY_LATER'
   | 'FIX_NUMBER'
   | 'NOT_BY_PHONE'
+  | 'PARTY_UNCONFIRMED'
   | 'OUR_SIDE'
   | 'UNKNOWN';
 
