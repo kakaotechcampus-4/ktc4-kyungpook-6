@@ -209,7 +209,7 @@ public class CallService {
         if (call.getRequestedAt().isBefore(now.minus(Duration.ofMinutes(maxWaitMinutes)))) {
             log.warn("확인 전화를 기다리다 닫았다 - callId={}, verificationId={}, {}분 경과",
                     callId, call.getExternalId(), maxWaitMinutes);
-            return call.giveUp(maxWaitMinutes + "분 안에 통화가 끝나지 않았습니다", now);
+            return call.giveUp(now);
         }
 
         CallSnapshot snapshot;

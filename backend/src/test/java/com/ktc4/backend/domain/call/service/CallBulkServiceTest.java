@@ -65,7 +65,7 @@ class CallBulkServiceTest {
 
     private static CallResponse call(CallStatus status) {
         return new CallResponse(9L, status, CallReason.CHANGE_DETECTED,
-                LocalDateTime.of(2026, 11, 4, 11, 0), null, null, List.of());
+                LocalDateTime.of(2026, 11, 4, 11, 0), null, null, null, List.of());
     }
 
     private void givenTasks(TaskResultResponse... tasks) {

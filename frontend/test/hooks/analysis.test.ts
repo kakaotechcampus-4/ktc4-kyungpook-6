@@ -162,6 +162,7 @@ const CALL: CallResponse = {
   requestedAt: '2026-11-04T11:03:00',
   endedAt: '2026-11-04T11:04:10',
   failureReason: null,
+  failureKind: null,
   answers: [],
 };
 
@@ -219,11 +220,55 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
 
   it('실패 사유 코드는 번역하지 않고 그대로 보여준다 — 삼키면 원인이 사라진다', () => {
     const result = toCallStatusLabel(
-      call({ status: 'FAILED', failureReason: 'NO_ANSWER' }),
+      call({ status: 'FAILED', failureReason: 'NO_ANSWER', failureKind: 'RETRY_LATER' }),
     );
 
     expect(result?.tone).toBe('failed');
-    expect(result?.label).toBe('전화 확인 실패 · NO_ANSWER');
+    expect(result?.label).toContain('NO_ANSWER');
+  });
+
+  it.each([
+    ['RETRY_LATER', '이따 다시'],
+    ['FIX_NUMBER', '번호를 고쳐'],
+    ['NOT_BY_PHONE', '다른 방법'],
+  ] as const)('%s 는 담당자가 할 일을 같이 적는다', (failureKind, expected) => {
+    const result = toCallStatusLabel(
+      call({ status: 'FAILED', failureReason: 'X', failureKind }),
+    );
+
+    expect(result?.label).toContain(expected);
+  });
+
+  it('우리 쪽 문제는 "전화를 걸지 못했습니다" 로 가른다 — 가게 탓으로 읽히면 멀쩡한 가게가 넘어간다', () => {
+    const result = toCallStatusLabel(
+      call({ status: 'FAILED', failureReason: 'PROCESSING_ERROR', failureKind: 'OUR_SIDE' }),
+    );
+
+    expect(result?.label).toContain('전화를 걸지 못했습니다');
+    expect(result?.label).not.toContain('전화 확인 실패');
+    expect(result?.label).toContain('가게 문제가 아닙니다');
+  });
+
+  it('모르는 코드는 받은 코드만 보여주고 엉뚱한 안내를 붙이지 않는다', () => {
+    const result = toCallStatusLabel(
+      call({ status: 'FAILED', failureReason: 'WAT', failureKind: 'UNKNOWN' }),
+    );
+
+    expect(result?.label).toBe('전화 확인 실패 · WAT');
+  });
+
+  it('통화가 중간에 끊겨도 그때까지 들은 답을 버리지 않는다', () => {
+    // 전화 API 명세: "진행 중이거나 실패한 통화의 부분 결과도 포함될 수 있습니다"
+    const result = toCallStatusLabel(
+      call({
+        status: 'FAILED',
+        failureReason: 'HANGUP',
+        failureKind: 'RETRY_LATER',
+        answers: [{ field: 'status', naturalField: '영업 여부', value: 'false' }],
+      }),
+    );
+
+    expect(result?.label).toContain('들은 것 — 영업 여부: 영업 안 함');
   });
 });
 

@@ -59,6 +59,22 @@ export type CallStatusResponse =
 /** 왜 걸었는가. CHANGE_DETECTED(변화가 잡혀서) · PERIODIC_RECHECK(90일 넘게 확인하지 않아서). */
 export type CallReasonResponse = 'CHANGE_DETECTED' | 'PERIODIC_RECHECK';
 
+/**
+ * 전화가 왜 실패했는지를 **담당자가 할 일**로 묶은 값.
+ *
+ * 같은 "실패" 라도 할 일이 정반대다 — 통화 중이라 못 들은 것은 이따 다시 걸면 되고,
+ * 없는 번호는 다시 걸어도 같아서 번호를 고쳐야 한다.
+ *
+ * `OUR_SIDE` 를 가려내는 것이 특히 중요하다. 전화 API 나 서버 문제를 다른 실패와 같은 모양으로
+ * 보여 주면 담당자가 **가게 탓으로 읽고** 멀쩡한 가게를 "연락이 안 되는 가게" 로 넘긴다.
+ */
+export type CallFailureKindResponse =
+  | 'RETRY_LATER'
+  | 'FIX_NUMBER'
+  | 'NOT_BY_PHONE'
+  | 'OUR_SIDE'
+  | 'UNKNOWN';
+
 /** 통화에서 들은 답 한 건. */
 export type CallAnswerResponse = {
   /** 우리 쪽 항목 키 — 수정안의 field 와 같은 값이다. 모르는 항목은 전화 API 의 키가 그대로 온다. */
@@ -87,8 +103,10 @@ export type CallResponse = {
   requestedAt: string | null;
   /** 통화 처리가 끝난 시각. 진행 중이면 null. */
   endedAt: string | null;
-  /** 실패 사유. 실패가 아니면 null. */
+  /** 실패 사유 코드. 실패가 아니면 null. 전화 API 가 정하는 값이라 번역하지 않는다. */
   failureReason: string | null;
+  /** 실패 사유를 담당자가 할 일로 묶은 값. 실패가 아니면 null. */
+  failureKind: CallFailureKindResponse | null;
   /** 진행 중이거나 실패한 통화의 부분 결과도 들어온다. */
   answers: CallAnswerResponse[] | null;
 };

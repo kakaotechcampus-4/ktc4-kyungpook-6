@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.call.entity;
 
+import com.ktc4.backend.domain.call.enums.CallFailureKind;
 import com.ktc4.backend.domain.call.enums.CallReason;
 import com.ktc4.backend.domain.call.enums.CallStatus;
 import com.ktc4.backend.domain.store.entity.Store;
@@ -172,16 +173,19 @@ public class VerificationCall extends BaseTimeEntity {
      * 전화를 폴러가 정리할 때 부른다 — 닫지 않으면 폴러가 그 전화를 끝없이 다시 읽고, 담당자 화면에도
      * "전화 중" 이 영영 남는다.
      *
-     * @param reason    왜 닫는지. 화면에 나가므로 정해 둔 문구를 넘긴다
+     * <p>사유로 {@link CallFailureKind#GAVE_UP_WAITING} 코드를 적는다. 실패 사유 칸은 늘 코드여야
+     * 담당자가 할 일로 분류할 수 있다 — 여기만 사람 문장을 넣으면 그 한 경우가 분류에서 빠진다.
+     * 사람이 읽는 문구는 화면이 붙인다.
+     *
      * @param closedAt  닫은 시각
      * @return 실제로 닫았으면 true. 이미 끝난 전화면 false
      */
-    public boolean giveUp(String reason, LocalDateTime closedAt) {
+    public boolean giveUp(LocalDateTime closedAt) {
         if (status.isFinished()) {
             return false;
         }
         this.status = CallStatus.FAILED;
-        this.failureReason = truncate(reason);
+        this.failureReason = CallFailureKind.GAVE_UP_WAITING;
         this.endedAt = closedAt;
         return true;
     }

@@ -9,6 +9,7 @@ import {
   requestCallsForJob,
 } from '../services/analysis';
 import type {
+  CallFailureKindResponse,
   CallResponse,
   JobResultResponse,
   TaskClassificationResponse,
@@ -57,6 +58,20 @@ export type CallStatusLabel = {
 };
 
 /**
+ * 실패했을 때 담당자가 할 일. 백엔드가 분류(`failureKind`)만 주고 문구는 화면이 붙인다.
+ *
+ * `OUR_SIDE` 만 "전화를 걸지 못했습니다" 로 시작한다 — 나머지와 같은 말로 적으면 담당자가
+ * **가게 탓으로 읽고** 멀쩡한 가게를 "연락이 안 되는 가게" 로 넘긴다.
+ */
+const FAILURE_GUIDE: Record<CallFailureKindResponse, string> = {
+  RETRY_LATER: '이따 다시 걸어 보세요',
+  FIX_NUMBER: '번호가 잘못됐습니다 — 다시 걸어도 같습니다. 번호를 고쳐 주세요',
+  NOT_BY_PHONE: '전화로는 확인할 수 없습니다 — 다른 방법으로 확인해 주세요',
+  OUR_SIDE: '가게 문제가 아닙니다 — 전화 기능 쪽 문제입니다',
+  UNKNOWN: '',
+};
+
+/**
  * 확인 전화 기록을 카드에 찍을 한 줄로 만든다.
  *
  * 끝난 전화는 **들은 답을 그 줄에 같이 적는다.** 답을 따로 열어 봐야 하면 담당자가 전화를 건
@@ -75,26 +90,44 @@ export function toCallStatusLabel(
     };
   }
 
+  /*
+    통화가 중간에 끊겨도 그때까지 들은 답은 온다(전화 API 명세: "진행 중이거나 실패한 통화의 부분
+    결과도 포함될 수 있습니다"). 그 답을 버리면 담당자가 "폐업이라고 들었는데 끊긴 전화" 를
+    그냥 실패로 보고 처음부터 다시 건다.
+  */
+  const answers = answerText(call);
+
   if (call.status === 'FAILED') {
-    /* 사유 코드는 전화 API 가 정하는 값이라 우리가 번역하지 않는다 — 모르는 코드를 삼키면 원인이 사라진다. */
+    /* 사유 코드는 전화 API 가 정하는 값이라 번역하지 않는다 — 모르는 코드를 삼키면 원인이 사라진다. */
+    const guide = FAILURE_GUIDE[call.failureKind ?? 'UNKNOWN'];
+    const head =
+      call.failureKind === 'OUR_SIDE' ? '전화를 걸지 못했습니다' : '전화 확인 실패';
     return {
       tone: 'failed',
-      label: call.failureReason
-        ? `전화 확인 실패 · ${call.failureReason}`
-        : '전화 확인 실패',
+      label: [
+        call.failureReason ? `${head} · ${call.failureReason}` : head,
+        guide,
+        answers && `들은 것 — ${answers}`,
+      ]
+        .filter(Boolean)
+        .join(' · '),
     };
   }
 
-  const answers = (call.answers ?? [])
+  return {
+    tone: 'done',
+    label: answers ? `전화 확인 완료 · ${answers}` : '전화 확인 완료 · 답 없음',
+  };
+}
+
+/** 통화에서 들은 답을 한 줄로 잇는다. 아직 들은 것이 없으면 빈 문자열. */
+function answerText(call: CallResponse): string {
+  return (call.answers ?? [])
     .map(
       (answer) =>
         `${answer.naturalField}: ${callAnswerLabel(answer.field, answer.value)}`,
     )
     .join(' · ');
-  return {
-    tone: 'done',
-    label: answers ? `전화 확인 완료 · ${answers}` : '전화 확인 완료 · 답 없음',
-  };
 }
 
 /** 분석 결과 화면이 카드 하나에 넘기는 값. */

@@ -6,6 +6,7 @@ import com.ktc4.backend.domain.call.client.CallTransientError;
 import com.ktc4.backend.domain.call.dto.CallOrder;
 import com.ktc4.backend.domain.call.dto.CallResponse;
 import com.ktc4.backend.domain.call.entity.VerificationCall;
+import com.ktc4.backend.domain.call.enums.CallFailureKind;
 import com.ktc4.backend.domain.call.enums.CallReason;
 import com.ktc4.backend.domain.call.enums.CallStatus;
 import com.ktc4.backend.domain.call.repository.VerificationCallRepository;
@@ -306,7 +307,9 @@ class CallServiceTest {
             assertThat(callService.refresh(9L)).isTrue();
             assertThat(call.getStatus()).isEqualTo(CallStatus.FAILED);
             assertThat(call.getEndedAt()).isNotNull();
-            assertThat(call.getFailureReason()).contains(String.valueOf(MAX_WAIT_MINUTES));
+            // 사유는 늘 코드다 — 사람 문장을 넣으면 이 한 경우가 담당자 분류에서 빠진다
+            assertThat(call.getFailureReason()).isEqualTo(CallFailureKind.GAVE_UP_WAITING);
+            assertThat(CallFailureKind.of(call.getFailureReason())).isEqualTo(CallFailureKind.OUR_SIDE);
             verifyNoInteractions(callClient);
         }
 
