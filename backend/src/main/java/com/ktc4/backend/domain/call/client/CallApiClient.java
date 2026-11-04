@@ -219,8 +219,10 @@ public class CallApiClient implements CallClient {
     /**
      * {@code POST /v1/verification-call} 요청 본문. 칸 이름이 곧 전화 API 와의 약속이다.
      *
-     * <p>{@code null} 인 칸은 보내지 않는다 — 두 질문 방식이 쓰는 칸이 달라, 안 쓰는 칸을 {@code null} 로
-     * 실어 보내면 전화 API 가 "빈 값을 보냈다" 로 읽을 수 있다.
+     * <p><b>{@code null} 인 칸은 보내지 않는다. 선택이 아니라 필수다.</b> 전화 API 의 요청 스키마는
+     * {@code additionalProperties: false} 라(실제 서버의 {@code /openapi.json} 에서 확인), 그 질문 방식이
+     * 쓰지 않는 칸을 {@code null} 로라도 실어 보내면 422 로 거절당한다 — 확인 질문에 {@code fields} 를
+     * 붙이거나 변화 확인 질문에 {@code field}·{@code expectedValue} 를 붙이는 경우다.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record CreateRequest(Target target, List<Question> questions) {
