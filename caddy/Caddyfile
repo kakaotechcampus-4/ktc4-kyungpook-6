@@ -7,12 +7,25 @@
 # 도메인은 PUBLIC_DOMAIN 으로 받는다. Let's Encrypt 는 IP 로는 인증서를 내주지 않으므로
 # 이름이 반드시 필요하다.
 #
+# 이름을 바꾸는 동안에는 PUBLIC_DOMAIN_PREVIOUS 에 옛 이름을 넣어 둘을 함께 받는다.
+# 한쪽만 받으면, 새 이름이 인증서를 받기 전에 SNI 가 옛 이름인 요청이 맞는 블록을
+# 찾지 못해 TLS 가 끊긴다 — 2026-11-03 에 그렇게 운영이 40분 멈췄다. 전환이 끝나면
+# PUBLIC_DOMAIN_PREVIOUS 를 지운다. 기본값 localhost 는 Caddy 내부 CA 가 처리하므로
+# 공개 ACME 를 건드리지 않는다.
+#
+# 두 이름을 한 변수에 담지는 못한다. Caddyfile 은 사이트 주소를 "콤마 뒤 공백" 으로만
+# 가르는데(붙여 쓰면 addresses() 가 거부한다), 공백을 넣으면 deploy-main.yml 이 값을
+# 따옴표 없이 export 해서 배포가 죽는다. 그래서 변수를 둘로 나눈다.
+#
+# 두 변수에 같은 값을 넣지 않는다 — Caddy 가 ambiguous site definition 으로 거부한다.
+# deploy-main.yml 이 먼저 막는다.
+#
 # ACME 계정 이메일은 두지 않는다. Let's Encrypt 는 admin@example.com 같은 자리채움 주소를
 # invalidContact 로 거부하고 빈 문자열도 invalidEmail 로 거부하므로, 기본값을 둘 방법이 없다.
 # 이메일을 아예 안 주면 익명으로 등록된다 — 쓸 곳은 만료 알림뿐이었고 Let's Encrypt 는 그
 # 발송을 끝냈다. 갱신은 Caddy 가 알아서 한다.
 
-{$PUBLIC_DOMAIN} {
+(app) {
 	encode gzip
 
 	# 업로드(사업자등록증 10MB)가 막히지 않게 한다. 실제 상한은 백엔드가 다시 본다.
@@ -41,4 +54,12 @@
 	handle {
 		reverse_proxy frontend:80
 	}
+}
+
+{$PUBLIC_DOMAIN} {
+	import app
+}
+
+{$PUBLIC_DOMAIN_PREVIOUS:localhost} {
+	import app
 }

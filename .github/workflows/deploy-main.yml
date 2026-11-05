@@ -60,6 +60,9 @@ jobs:
           # 위 경고는 비밀값에 대한 것이다. 서버 .env 를 고치지 않고 넘기는 이유는 compose 가
           # 셸 환경변수를 --env-file 보다 먼저 읽기 때문이다(dev 가 PUBLIC_BACKEND_URL 에 쓰는 방식).
           PUBLIC_DOMAIN: ${{ vars.PUBLIC_DOMAIN }}
+          # 전환 중에만 채운다. 비워 두면 compose 가 localhost 로 떨어뜨려 Caddy 가
+          # 내부 CA 로 처리한다 — 공개 ACME 를 건드리지 않는다.
+          PUBLIC_DOMAIN_PREVIOUS: ${{ vars.PUBLIC_DOMAIN_PREVIOUS }}
           # 브라우저가 읽는 주소. Caddy 를 세운 뒤에는 화면과 API 가 같은 이름을 쓴다.
           PUBLIC_BACKEND_URL: ${{ vars.PUBLIC_BACKEND_URL_PROD }}
         run: |
@@ -68,11 +71,27 @@ jobs:
             exit 1
           fi
 
+          # 아래 send-command 는 값을 **따옴표 없이** 셸에 넣는다. 공백이 들어오면
+          # `export PUBLIC_DOMAIN=a b` 가 되어 set -eu 에서 배포가 죽는다.
+          for name in PUBLIC_DOMAIN PUBLIC_DOMAIN_PREVIOUS; do
+            value="${!name:-}"
+            if [[ "$value" =~ [[:space:]] ]]; then
+              echo "::error::저장소 변수 $name 에 공백이 있습니다 — 이름 하나만 넣으세요"
+              exit 1
+            fi
+          done
+
+          # 같은 값이면 Caddy 가 ambiguous site definition 으로 거부하고 아예 뜨지 않는다.
+          if [[ -n "${PUBLIC_DOMAIN_PREVIOUS:-}" && "$PUBLIC_DOMAIN_PREVIOUS" == "$PUBLIC_DOMAIN" ]]; then
+            echo "::error::PUBLIC_DOMAIN 과 PUBLIC_DOMAIN_PREVIOUS 가 같습니다 — 전환이 끝났으면 뒤쪽을 지우세요"
+            exit 1
+          fi
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.ec2.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ github.sha }} to prod" \
-            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin '"${REF}"'","git reset --hard FETCH_HEAD","export PUBLIC_DOMAIN='"${PUBLIC_DOMAIN}"'","export PUBLIC_BACKEND_URL='"${PUBLIC_BACKEND_URL}"'","./scripts/deploy.sh prod up -d --build --remove-orphans","docker image prune -f"]}' \
+            --parameters '{"commands":["set -eu","cd /home/ubuntu/ktc4-kyungpook-6","git fetch origin '"${REF}"'","git reset --hard FETCH_HEAD","export PUBLIC_DOMAIN='"${PUBLIC_DOMAIN}"'","export PUBLIC_DOMAIN_PREVIOUS='"${PUBLIC_DOMAIN_PREVIOUS}"'","export PUBLIC_BACKEND_URL='"${PUBLIC_BACKEND_URL}"'","./scripts/deploy.sh prod up -d --build --remove-orphans","docker image prune -f"]}' \
             --query "Command.CommandId" \
             --output text)
 
