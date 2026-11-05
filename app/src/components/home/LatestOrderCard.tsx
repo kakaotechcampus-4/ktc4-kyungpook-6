@@ -31,7 +31,7 @@ function LatestOrderCard({ order, onCheckIn, onCancel, isCanceling }: LatestOrde
           disabled={isCanceling}
           className="flex h-10 flex-1 items-center justify-center rounded-[10px] bg-[#e3b23c] disabled:opacity-50 text-sm leading-[normal] font-semibold text-white"
         >
-          직접 확인
+          체크인
         </button>
         <button
           type="button"

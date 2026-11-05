@@ -1,6 +1,7 @@
 import logo from "../assets/good-radar-logo.png";
 import LatestOrderCard from "../components/home/LatestOrderCard";
 import OpenStatusCard from "../components/home/OpenStatusCard";
+import CheckInMethodSheet from "../components/order/CheckInMethodSheet";
 import OwnerTabBar from "../components/owner/OwnerTabBar";
 import { useOwnerHome } from "../hooks/ownerHome";
 
@@ -62,7 +63,7 @@ function OwnerHomePage() {
           {home.latestOrder && (
             <LatestOrderCard
               order={home.latestOrder}
-              onCheckIn={home.checkInLatest}
+              onCheckIn={home.openCheckIn}
               onCancel={home.cancelLatest}
               isCanceling={home.isCancelingLatest}
             />
@@ -71,6 +72,15 @@ function OwnerHomePage() {
       )}
 
       <OwnerTabBar />
+
+      {home.isCheckInSheetOpen && home.latestOrder && (
+        <CheckInMethodSheet
+          orderNo={home.latestOrder.orderId}
+          onSelectQr={home.checkInByQr}
+          onSelectManual={home.checkInManually}
+          onClose={home.closeCheckIn}
+        />
+      )}
     </main>
   );
 }

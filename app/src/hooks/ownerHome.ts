@@ -10,6 +10,7 @@ import type { ScheduleStatus } from "../utils/openStatus";
 import { getScheduleStatus } from "../utils/openStatus";
 import { toOrderErrorMessage } from "../utils/orderError";
 import type { CheckInResultState } from "./checkInResult";
+import { QR_SCAN_PATH } from "./checkInResult";
 import { CHECK_IN_RESULT_PATH } from "./qrCheckIn";
 import { useStoreOrders } from "./storeOrders";
 
@@ -57,8 +58,15 @@ export type UseOwnerHomeResult = {
   doneCount: number;
   /** 가장 최근에 들어온 대기 주문. 없으면 null — 화면은 카드를 그리지 않는다. */
   latestOrder: Order | null;
-  /** 최근 주문의 "직접 확인": 체크인 결과 화면으로 간다. */
-  checkInLatest: () => void;
+  /** 최근 주문의 체크인 방법 시트(QR·직접 확인)가 열려 있는가. */
+  isCheckInSheetOpen: boolean;
+  /** 최근 주문의 "체크인": 방법 선택 시트를 연다(주문 화면과 같다). */
+  openCheckIn: () => void;
+  closeCheckIn: () => void;
+  /** 시트의 "QR로 확인": QR 스캔 화면으로 간다. */
+  checkInByQr: () => void;
+  /** 시트의 "직접 확인": 체크인 결과 화면으로 간다. */
+  checkInManually: () => void;
   /** 최근 주문의 "주문 취소"(POST cancel). */
   cancelLatest: () => void;
   /** 취소하는 중이면 true. 최근 주문 카드의 버튼을 잠근다. */
@@ -90,6 +98,7 @@ export const useOwnerHome = (): UseOwnerHomeResult => {
   const queryClient = useQueryClient();
   const now = useNow();
   const [notice, setNotice] = useState<string | null>(null);
+  const [isCheckInSheetOpen, setIsCheckInSheetOpen] = useState(false);
 
   const meQuery = useQuery({ queryKey: ["me"], queryFn: () => getMe(), enabled: !USE_STORE_MOCK });
   const linkedStore = USE_STORE_MOCK ? MOCK_LINKED_STORE : meQuery.data?.stores[0];
@@ -169,7 +178,11 @@ export const useOwnerHome = (): UseOwnerHomeResult => {
     cookingCount: orders.filter((order) => order.status === "COOKING").length,
     doneCount: orders.filter((order) => order.status === "DONE").length,
     latestOrder,
-    checkInLatest: () => {
+    isCheckInSheetOpen: isCheckInSheetOpen && latestOrder !== null,
+    openCheckIn: () => setIsCheckInSheetOpen(true),
+    closeCheckIn: () => setIsCheckInSheetOpen(false),
+    checkInByQr: () => navigate(QR_SCAN_PATH),
+    checkInManually: () => {
       if (!latestOrder) return;
       // 직접 확인은 따로 남길 API 가 없어 누른 시각을 확인 시각으로 넘긴다(주문 화면과 같다).
       const state: CheckInResultState = { checkedInAt: toLocalDateTime(new Date()), order: latestOrder };
