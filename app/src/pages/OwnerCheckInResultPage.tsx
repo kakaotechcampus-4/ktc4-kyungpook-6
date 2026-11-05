@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import checkCircleIcon from "../assets/check-circle-icon.svg";
+import BackButton from "../components/ui/BackButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import ReceiveTypeBadge from "../components/order/ReceiveTypeBadge";
 import CheckInInfoCard from "../components/qr/CheckInInfoCard";
@@ -27,6 +28,11 @@ function OwnerCheckInResultPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
+      {/* QR 화면처럼 왼쪽 위에 뒤로가기. QR 은 스캔 화면을 replace 로 넘어오므로 어느 쪽이든 주문·홈으로 돌아간다. */}
+      <header className="pt-3">
+        <BackButton />
+      </header>
+
       <div className="flex justify-center pt-10 pb-5">
         <div className="flex size-20 items-center justify-center rounded-full bg-[#ddf5e7]">
           <img src={checkCircleIcon} alt="" width={40} height={40} />
