@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Order } from "../src/services/order";
-import { applyMockAction, orderTabOf, replaceOrder } from "../src/services/order";
+import { applyMockAction, orderTabOf, replaceOrder, sortByFinishedDesc } from "../src/services/order";
 
 const order = (orderId: number, status: Order["status"]): Order => ({
   orderId,
@@ -67,5 +67,14 @@ describe("applyMockAction", () => {
 
   it("취소는 취소로 바꾸고 취소 시각을 채운다", () => {
     expect(applyMockAction(order(1, "RECEIVED"), "cancel", at)).toMatchObject({ status: "CANCELED", canceledAt: at });
+  });
+});
+
+describe("sortByFinishedDesc", () => {
+  it("늦게 들어온 주문을 먼저 취소하고 일찍 들어온 주문을 나중에 완료하면, 완료한 주문이 위에 온다", () => {
+    const canceled = applyMockAction(order(1025, "RECEIVED"), "cancel", "2026-10-27T13:00:00");
+    const done = applyMockAction(order(1023, "COOKING"), "complete", "2026-10-27T13:05:00");
+
+    expect(sortByFinishedDesc([canceled, done]).map((o) => o.orderId)).toEqual([1023, 1025]);
   });
 });

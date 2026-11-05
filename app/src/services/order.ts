@@ -40,6 +40,16 @@ export const ORDERS_QUERY_KEY = ["orders"];
 /** 그 주문이 들어갈 탭. */
 export const orderTabOf = (status: OrderStatus): OrderTab => (status === "CANCELED" ? "DONE" : status);
 
+/** 끝난 시각(전달 완료나 취소). 안 끝났으면 null. */
+const finishedAt = (order: Order) => order.completedAt ?? order.canceledAt;
+
+/**
+ * 완료 탭 순서: 최근에 끝낸 것이 위. 서버는 주문번호 순으로 주어서, 늦게 들어온 주문을 먼저 취소하고
+ * 일찍 들어온 주문을 나중에 완료하면 순서가 뒤집혀 보인다. 시각은 같은 형식의 문자열이라 문자열로 비교한다.
+ */
+export const sortByFinishedDesc = (orders: Order[]): Order[] =>
+  [...orders].sort((a, b) => (finishedAt(b) ?? "").localeCompare(finishedAt(a) ?? "") || b.orderId - a.orderId);
+
 /**
  * 이 가게의 오늘 주문 전부와, 날짜와 상관없이 끝나지 않은 주문(접수 대기·조리 중). 최근 순이다.
  * 점주는 연결된 가게만 볼 수 있다(아니면 403).

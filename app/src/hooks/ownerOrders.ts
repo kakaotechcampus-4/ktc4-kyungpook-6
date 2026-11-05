@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { Order, OrderAction, OrderTab } from "../services/order";
-import { orderTabOf } from "../services/order";
+import { orderTabOf, sortByFinishedDesc } from "../services/order";
 import { toLocalDateTime } from "../utils/format";
 import { toOrderErrorMessage } from "../utils/orderError";
 import type { CheckInResultState } from "./checkInResult";
@@ -28,7 +28,7 @@ export type UseOwnerOrdersResult = {
   /** "체크인"을 누르면 방법 선택 시트를 연다. */
   openCheckIn: (order: Order) => void;
   closeCheckIn: () => void;
-  /** 시트의 "QR로 확인": 고른 주문을 들고 QR 스캔 화면으로 간다. */
+  /** 시트의 "QR로 확인": QR 스캔 화면으로 간다. 주문은 체크인 응답이 그 아동의 것으로 알려 준다. */
   checkInByQr: () => void;
   /** 시트의 "직접 확인": 주문번호로 확인했다고 보고 체크인 결과 화면으로 간다. */
   checkInManually: () => void;
@@ -57,6 +57,8 @@ export const useOwnerOrders = (): UseOwnerOrdersResult => {
   const counts: Record<OrderTab, number> = { RECEIVED: 0, COOKING: 0, DONE: 0 };
   for (const order of orders) counts[orderTabOf(order.status)] += 1;
 
+  const tabOrders = orders.filter((order) => orderTabOf(order.status) === tab);
+
   const act = (order: Order, action: OrderAction) => {
     setActionError(null);
     changeStatus(order, action).catch((error: unknown) => setActionError(toOrderErrorMessage(error)));
@@ -65,7 +67,7 @@ export const useOwnerOrders = (): UseOwnerOrdersResult => {
   return {
     tab,
     setTab,
-    orders: orders.filter((order) => orderTabOf(order.status) === tab),
+    orders: tab === "DONE" ? sortByFinishedDesc(tabOrders) : tabOrders,
     counts,
     isLoading,
     checkInTarget,
@@ -73,7 +75,7 @@ export const useOwnerOrders = (): UseOwnerOrdersResult => {
     closeCheckIn: () => setCheckInTarget(null),
     checkInByQr: () => {
       if (!checkInTarget) return;
-      navigate(QR_SCAN_PATH, { state: { order: checkInTarget } });
+      navigate(QR_SCAN_PATH);
     },
     checkInManually: () => {
       if (!checkInTarget) return;
