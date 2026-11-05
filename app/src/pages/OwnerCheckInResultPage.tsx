@@ -9,7 +9,7 @@ import { QR_SCAN_PATH, useCheckInResult } from "../hooks/checkInResult";
 
 /** QR 체크인 성공: 아동이 확인됐다. */
 function OwnerCheckInResultPage() {
-  const { checkedAt, order, startCooking } = useCheckInResult();
+  const { checkedAt, order, startCooking, isStarting, errorMessage } = useCheckInResult();
 
   // 주소로 바로 들어오는 등 체크인 결과가 없으면 보여 줄 게 없다.
   if (checkedAt === null) return <Navigate to={QR_SCAN_PATH} replace />;
@@ -18,8 +18,8 @@ function OwnerCheckInResultPage() {
   const rows: CheckInInfoRow[] = [
     ...(order
       ? [
-          { label: "주문번호", value: `#${order.orderNo}` },
-          { label: "메뉴", value: order.menuSummary },
+          { label: "주문번호", value: `#${order.orderId}` },
+          { label: "메뉴", value: order.menuName },
           { label: "받는 방법", value: <ReceiveTypeBadge receiveType={order.receiveType} /> },
         ]
       : []),
@@ -48,7 +48,15 @@ function OwnerCheckInResultPage() {
 
       <div className="flex-1" />
 
-      <PrimaryButton onClick={startCooking}>조리 시작하기</PrimaryButton>
+      {errorMessage && (
+        <p role="alert" className="pb-3 text-center text-sm leading-[normal] text-[#e5484d]">
+          {errorMessage}
+        </p>
+      )}
+
+      <PrimaryButton onClick={startCooking} disabled={isStarting}>
+        조리 시작하기
+      </PrimaryButton>
     </main>
   );
 }

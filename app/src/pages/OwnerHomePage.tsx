@@ -61,6 +61,7 @@ function OwnerHomePage() {
               order={home.latestOrder}
               onCheckIn={home.checkInLatest}
               onCancel={home.cancelLatest}
+              isCanceling={home.isCancelingLatest}
             />
           )}
         </div>
