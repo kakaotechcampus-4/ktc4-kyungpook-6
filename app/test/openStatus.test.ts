@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BusinessHour } from "../src/services/store";
-import { isOpenAt } from "../src/utils/openStatus";
+import { getScheduleStatus, isOpenAt } from "../src/utils/openStatus";
 
 // 2026-10-26 은 월요일이다. 기기 시간대 그대로 만든다.
 const at = (day: number, time: string) => {
@@ -51,5 +51,38 @@ describe("isOpenAt", () => {
   it("일요일 밤에 열어 월요일 새벽에 닫는 줄도 본다", () => {
     const hours: BusinessHour[] = [{ day: "SUN", open: "22:00", close: "03:00" }];
     expect(isOpenAt(hours, at(MON, "02:00"))).toBe(true);
+  });
+});
+
+describe("getScheduleStatus", () => {
+  const hours: BusinessHour[] = [
+    { day: "MON", open: "11:00", close: "15:00" },
+    { day: "MON", open: "17:00", close: "21:00" },
+  ];
+
+  it("여는 시각 전이면 영업 전이다", () => {
+    expect(getScheduleStatus(hours, at(MON, "10:59"))).toBe("BEFORE_OPEN");
+  });
+
+  it("영업시간 안이면 영업중이다", () => {
+    expect(getScheduleStatus(hours, at(MON, "11:00"))).toBe("OPEN");
+  });
+
+  it("브레이크타임에는 다음 시간이 남아 영업 전이다", () => {
+    expect(getScheduleStatus(hours, at(MON, "16:00"))).toBe("BEFORE_OPEN");
+  });
+
+  it("오늘 시간이 다 끝났으면 영업종료다", () => {
+    expect(getScheduleStatus(hours, at(MON, "21:00"))).toBe("ENDED");
+  });
+
+  it("오늘 요일에 시간이 하나도 없으면 휴무다", () => {
+    expect(getScheduleStatus(hours, at(TUE, "12:00"))).toBe("CLOSED_TODAY");
+  });
+
+  it("전날 밤에 열어 새벽에 닫는 줄은 오늘 시간이 없어도 영업중이다", () => {
+    const overnight: BusinessHour[] = [{ day: "MON", open: "21:00", close: "02:00" }];
+
+    expect(getScheduleStatus(overnight, at(TUE, "01:00"))).toBe("OPEN");
   });
 });

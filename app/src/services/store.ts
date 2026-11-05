@@ -20,6 +20,16 @@ export type Menu = {
   onSale: boolean;
 };
 
+/** 점주 홈의 영업 상태 방식. SCHEDULE(영업시간대로) · MANUAL(직접 켜고 끄기). */
+export type OpenMode = "SCHEDULE" | "MANUAL";
+
+/** 백엔드 OpenSettingRequest·OpenSettingResponse. */
+export type OpenSetting = {
+  mode: OpenMode;
+  /** 직접 켜고 끄기에서 켜 두었는지. false 면 아동 앱에 "쉬는중" 으로 보인다. 영업시간대로일 때도 값은 남는다. */
+  manualOpen: boolean;
+};
+
 /** 백엔드 StoreDetailResponse. GET /api/stores/{storeId} 의 응답. */
 export type StoreDetailResponse = {
   storeId: number;
@@ -31,6 +41,10 @@ export type StoreDetailResponse = {
   phone: string | null;
   businessHours: BusinessHour[];
   menus: Menu[];
+  /** 영업 상태 방식. 홈의 "영업시간대로 · 직접 켜고 끄기". */
+  openMode: OpenMode;
+  /** 직접 켜고 끄기에서 켜 두었는지. */
+  manualOpen: boolean;
 };
 
 /** 백엔드 MenuRequest. menuId 가 없으면 새 메뉴다. */
@@ -68,6 +82,8 @@ export const mockStoreDetail = (storeId: number, name: string): StoreDetailRespo
     { menuId: 1, name: "후라이드 치킨", onSale: true },
     { menuId: 2, name: "치킨마요 덮밥", onSale: false },
   ],
+  openMode: "SCHEDULE",
+  manualOpen: true,
 });
 
 /** 가게 상세. 관리자와 그 가게에 연결된 점주만 부를 수 있다(아니면 403). */
@@ -78,4 +94,14 @@ export const getStoreDetail = (storeId: number) => {
 /** 가게 관리 "저장". 전부 반영되거나 하나도 반영되지 않는다. 저장된 가게 상세를 돌려준다. */
 export const saveOperatingInfo = (storeId: number, payload: OperatingInfoRequest) => {
   return putRequest<StoreDetailResponse>(`/api/stores/${storeId}/operating-info`, payload);
+};
+
+/**
+ * 홈의 영업 상태 저장. 방식과 켜고 끈 값을 함께 보낸다 — 영업시간대로로 바꿀 때도 manualOpen 을 보내야
+ * 다시 직접 켜고 끄기로 바꿨을 때 그 값으로 돌아간다. 관리자와 그 가게에 연결된 점주만 부를 수 있다(아니면 403).
+ *
+ * 영업중·영업전 같은 상태는 서버가 계산하지 않는다. 앱이 이 값과 영업시간으로 계산한다(utils/openStatus.ts).
+ */
+export const saveOpenSetting = (storeId: number, payload: OpenSetting) => {
+  return putRequest<OpenSetting>(`/api/stores/${storeId}/open-setting`, payload);
 };

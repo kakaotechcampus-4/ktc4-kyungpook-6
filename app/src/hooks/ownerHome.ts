@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { getMe } from "../services/auth";
 import type { Order } from "../services/order";
-import { getStoreDetail, mockStoreDetail } from "../services/store";
+import type { OpenMode, OpenSetting, StoreDetailResponse } from "../services/store";
+import { getStoreDetail, mockStoreDetail, saveOpenSetting } from "../services/store";
 import { toLocalDateTime } from "../utils/format";
-import { isOpenAt } from "../utils/openStatus";
+import type { ScheduleStatus } from "../utils/openStatus";
+import { getScheduleStatus } from "../utils/openStatus";
 import { toOrderErrorMessage } from "../utils/orderError";
 import type { CheckInResultState } from "./checkInResult";
 import { CHECK_IN_RESULT_PATH } from "./qrCheckIn";
@@ -18,17 +20,15 @@ const MOCK_LINKED_STORE = { storeId: 0, name: "맛나 치킨" };
 /** 영업시간대로 볼 때 영업 상태를 다시 계산하는 간격(ms). */
 const CLOCK_TICK_MS = 30_000;
 
-/** 영업시간대로(가게 관리의 영업시간을 따름) · 직접 켜고 끄기. */
-export type OpenMode = "SCHEDULE" | "MANUAL";
+const OPEN_SETTING_ERROR_MESSAGE = "영업 상태를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
 
-type OpenSetting = { mode: OpenMode; manualOpen: boolean };
-
-/*
-  TODO(백엔드 영업 상태 API): 영업 상태를 저장하는 API 가 없어 고른 방법·켜고 끈 값은 앱 안(react-query 캐시)에만 둔다.
-  탭을 오가도 남지만 앱을 다시 켜면 처음(영업시간대로)으로 돌아가고, 손님 쪽에는 전해지지 않는다.
-*/
-const OPEN_SETTING_QUERY_KEY = ["open-setting"];
-const DEFAULT_OPEN_SETTING: OpenSetting = { mode: "SCHEDULE", manualOpen: true };
+/** 영업시간대로일 때 카드에 보이는 상태. 피그마 "div.status-card". 오늘 영업시간이 하나도 없으면 휴무중이다. */
+const SCHEDULE_LABEL: Record<ScheduleStatus, string> = {
+  OPEN: "영업중",
+  BEFORE_OPEN: "영업전",
+  ENDED: "영업종료",
+  CLOSED_TODAY: "휴무중",
+};
 
 export type UseOwnerHomeResult = {
   isLoading: boolean;
@@ -36,9 +36,16 @@ export type UseOwnerHomeResult = {
   loadErrorMessage: string | null;
   storeName: string;
   addressRoad: string;
-  /** 지금 영업 중인지. 영업시간대로면 영업시간과 기기 시각으로, 직접이면 켜고 끈 대로. */
-  isOpen: boolean;
+  /**
+   * 카드의 큰 글자. 영업시간대로면 영업시간과 기기 시각으로 영업전·영업중·영업종료·휴무중,
+   * 직접 켜고 끄기면 주문 ON·주문 OFF(OFF 면 아동 앱에 "쉬는중").
+   */
+  statusLabel: string;
   openMode: OpenMode;
+  /** 직접 켜고 끄기의 스위치가 켜져 있는가. */
+  manualOpen: boolean;
+  /** 영업 상태를 저장하는 중이면 true. 스위치·방식 버튼을 잠근다. */
+  isSavingOpenSetting: boolean;
   setOpenMode: (mode: OpenMode) => void;
   /** 직접 켜고 끄기의 스위치. */
   toggleOpen: () => void;
@@ -71,7 +78,10 @@ const useNow = () => {
 
 /**
  * 점주 홈. 내 정보(GET /api/auth/me)의 첫 번째 가게를 불러와(GET /api/stores/{storeId}) 상호명·주소와
- * 영업시간대로의 영업 상태를 보여 주고, 오늘 주문 수와 최근 대기 주문 한 건을 보여 준다.
+ * 영업 상태를 보여 주고, 오늘 주문 수와 최근 대기 주문 한 건을 보여 준다.
+ *
+ * 영업 상태 방식·켜고 끈 값은 가게 상세의 openMode·manualOpen 으로 읽고, 바꾸면 PUT open-setting 으로 저장한다.
+ * 화면은 먼저 바꿔 두고, 저장에 실패하면 문구를 띄우고 서버 값으로 되돌린다.
  *
  * 주문은 주문 화면과 같은 목록을 쓴다(hooks/storeOrders.ts).
  */
@@ -85,30 +95,47 @@ export const useOwnerHome = (): UseOwnerHomeResult => {
   const linkedStore = USE_STORE_MOCK ? MOCK_LINKED_STORE : meQuery.data?.stores[0];
 
   // 가게 관리에서 저장한 영업시간이 바로 보이도록 홈에 들어올 때마다 다시 불러온다(기본값).
+  const storeQueryKey = ["store-detail", linkedStore?.storeId];
   const storeQuery = useQuery({
-    queryKey: ["store-detail", linkedStore?.storeId],
+    queryKey: storeQueryKey,
     enabled: linkedStore !== undefined,
     queryFn: () =>
       USE_STORE_MOCK
         ? mockStoreDetail(linkedStore!.storeId, linkedStore!.name)
         : getStoreDetail(linkedStore!.storeId),
+    // 목업은 다시 불러오면 바꾼 영업 상태가 처음으로 돌아가서 막는다.
+    ...(USE_STORE_MOCK && { staleTime: Infinity }),
   });
 
-  const { data: openSetting = DEFAULT_OPEN_SETTING } = useQuery({
-    queryKey: OPEN_SETTING_QUERY_KEY,
-    queryFn: () => DEFAULT_OPEN_SETTING,
-    initialData: DEFAULT_OPEN_SETTING,
-    staleTime: Infinity,
-    gcTime: Infinity,
+  const writeOpenSetting = ({ mode, manualOpen }: OpenSetting) =>
+    queryClient.setQueryData<StoreDetailResponse>(storeQueryKey, (store) =>
+      store ? { ...store, openMode: mode, manualOpen } : store,
+    );
+
+  const openSettingMutation = useMutation({
+    mutationFn: (next: OpenSetting) =>
+      USE_STORE_MOCK ? Promise.resolve(next) : saveOpenSetting(linkedStore!.storeId, next),
+    onMutate: (next) => {
+      setNotice(null);
+      writeOpenSetting(next);
+    },
+    onSuccess: writeOpenSetting,
+    onError: () => {
+      setNotice(OPEN_SETTING_ERROR_MESSAGE);
+      void queryClient.invalidateQueries({ queryKey: storeQueryKey });
+    },
   });
-  const saveOpenSetting = (next: OpenSetting) => queryClient.setQueryData(OPEN_SETTING_QUERY_KEY, next);
+  const changeOpenSetting = (next: OpenSetting) => openSettingMutation.mutate(next);
 
   // 주문 화면과 같은 목록이라 거기서 바꾼 상태가 홈 수에도 바로 반영된다.
   const { orders, changeStatus, changingOrderId } = useStoreOrders();
 
   const store = storeQuery.data;
-  const scheduleOpen = store ? isOpenAt(store.businessHours, now) : false;
-  const isOpen = openSetting.mode === "MANUAL" ? openSetting.manualOpen : scheduleOpen;
+  const openMode = store?.openMode ?? "SCHEDULE";
+  const manualOpen = store?.manualOpen ?? true;
+  const scheduleStatus = store ? getScheduleStatus(store.businessHours, now) : "ENDED";
+  const statusLabel =
+    openMode === "MANUAL" ? (manualOpen ? "주문 ON" : "주문 OFF") : SCHEDULE_LABEL[scheduleStatus];
 
   const waiting = orders.filter((order) => order.status === "RECEIVED");
   // orderedAt 은 같은 모양의 LocalDateTime 문자열이라 글자 순서가 곧 시간 순서다.
@@ -127,11 +154,17 @@ export const useOwnerHome = (): UseOwnerHomeResult => {
     loadErrorMessage,
     storeName: store?.name ?? "",
     addressRoad: store?.addressRoad ?? "",
-    isOpen,
-    openMode: openSetting.mode,
-    // 직접으로 바꿀 때는 지금 보이는 상태에서 시작해 화면이 갑자기 바뀌지 않게 한다.
-    setOpenMode: (mode) => saveOpenSetting({ mode, manualOpen: mode === "MANUAL" ? isOpen : openSetting.manualOpen }),
-    toggleOpen: () => saveOpenSetting({ ...openSetting, manualOpen: !openSetting.manualOpen }),
+    statusLabel,
+    openMode,
+    manualOpen,
+    isSavingOpenSetting: openSettingMutation.isPending,
+    setOpenMode: (mode) => {
+      if (mode === openMode) return;
+      // 직접으로 바꿀 때는 지금 영업중인지에서 시작해 손님 쪽 상태가 갑자기 바뀌지 않게 한다.
+      // 영업시간대로로 바꿀 때는 켜고 끈 값을 그대로 보낸다(서버가 기억해 둔다).
+      changeOpenSetting({ mode, manualOpen: mode === "MANUAL" ? scheduleStatus === "OPEN" : manualOpen });
+    },
+    toggleOpen: () => changeOpenSetting({ mode: openMode, manualOpen: !manualOpen }),
     waitingCount: waiting.length,
     cookingCount: orders.filter((order) => order.status === "COOKING").length,
     doneCount: orders.filter((order) => order.status === "DONE").length,

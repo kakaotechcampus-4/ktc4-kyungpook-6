@@ -36,8 +36,10 @@ function OwnerHomePage() {
           </header>
 
           <OpenStatusCard
-            isOpen={home.isOpen}
+            statusLabel={home.statusLabel}
             mode={home.openMode}
+            manualOpen={home.manualOpen}
+            disabled={home.isSavingOpenSetting}
             onModeChange={home.setOpenMode}
             onToggle={home.toggleOpen}
           />
