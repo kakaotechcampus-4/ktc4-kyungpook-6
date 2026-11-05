@@ -45,8 +45,9 @@ function OwnerHomePage() {
           <section className="flex flex-col gap-2.5 pt-1.5">
             <h2 className="text-base leading-[normal] font-bold text-[#1f2937]">오늘 주문</h2>
             <div className="flex gap-2.5">
-              <StatCard label="대기" value={home.waitingCount} valueClassName="text-[#b8891a]" />
-              <StatCard label="완료" value={home.doneCount} valueClassName="text-[#1f2937]" />
+              <StatCard label="접수 대기" value={home.waitingCount} valueClassName="text-[#b8891a]" />
+              <StatCard label="조리 중" value={home.cookingCount} valueClassName="text-[#1f2937]" />
+              <StatCard label="전달 완료" value={home.doneCount} valueClassName="text-[#1f2937]" />
             </div>
           </section>
 

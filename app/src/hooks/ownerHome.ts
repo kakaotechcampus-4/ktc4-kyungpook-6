@@ -44,7 +44,9 @@ export type UseOwnerHomeResult = {
   toggleOpen: () => void;
   /** 접수 대기 주문 수. */
   waitingCount: number;
-  /** 전달 완료 주문 수. 조리 중·취소는 세지 않는다. */
+  /** 조리 중 주문 수. */
+  cookingCount: number;
+  /** 전달 완료 주문 수. 취소는 세지 않는다. */
   doneCount: number;
   /** 가장 최근에 들어온 대기 주문. 없으면 null — 화면은 카드를 그리지 않는다. */
   latestOrder: Order | null;
@@ -131,6 +133,7 @@ export const useOwnerHome = (): UseOwnerHomeResult => {
     setOpenMode: (mode) => saveOpenSetting({ mode, manualOpen: mode === "MANUAL" ? isOpen : openSetting.manualOpen }),
     toggleOpen: () => saveOpenSetting({ ...openSetting, manualOpen: !openSetting.manualOpen }),
     waitingCount: waiting.length,
+    cookingCount: orders.filter((order) => order.status === "COOKING").length,
     doneCount: orders.filter((order) => order.status === "DONE").length,
     latestOrder,
     checkInLatest: () => {
