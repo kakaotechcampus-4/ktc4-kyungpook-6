@@ -144,6 +144,16 @@ external:
   nts:
     base-url: https://api.odcloud.kr/api/nts-businessman/v1/status
     service-key: ${NTS_SERVICE_KEY:}
+  # 가게 주소 → 좌표(주소 검색). AI 서버가 장소 검색에 쓰는 키와 같다. 비우면 좌표 채우기만 꺼진다
+  kakao:
+    base-url: https://dapi.kakao.com
+    rest-api-key: ${KAKAO_REST_API_KEY:}
+
+# 좌표가 없는 가게의 좌표를 주소로 채우는 배치(StoreGeocodeScheduler). 못 찾은 주소는 retry-after-days 동안 다시 묻지 않는다
+geocode:
+  interval-ms: ${GEOCODE_INTERVAL_MS:600000}
+  batch-size: ${GEOCODE_BATCH_SIZE:50}
+  retry-after-days: ${GEOCODE_RETRY_AFTER_DAYS:7}
 
 ai:
   # AI 조사 서버(FastAPI). 로컬은 uvicorn 기본 포트, 배포는 환경변수로 덮어쓴다.

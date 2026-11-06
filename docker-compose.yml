@@ -41,6 +41,7 @@ services:
       NTS_SERVICE_KEY: ${NTS_SERVICE_KEY:-}
       VERIFICATION_API_BASE_URL: ${VERIFICATION_API_BASE_URL:-}
       VERIFICATION_API_KEY: ${VERIFICATION_API_KEY:-}
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
       # 올라온 파일(가게 사진·사업자등록증)을 두는 폴더. 아래 volumes 의 경로와 같아야 한다.
       UPLOAD_DIR: /app/uploads
     volumes:
