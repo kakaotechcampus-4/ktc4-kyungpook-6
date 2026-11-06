@@ -1,9 +1,11 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { CheckInResponse } from "../services/checkIn";
 import type { Order } from "../services/order";
-import { MOCK_ORDERS, ORDERS_QUERY_KEY, markOrderDone } from "../services/order";
 import { formatHourMinute } from "../utils/format";
+import { toOrderErrorMessage } from "../utils/orderError";
+import type { OwnerOrdersState } from "./ownerOrders";
+import { useStoreOrders } from "./storeOrders";
 
 /** 결과 없이 들어왔을 때 돌려보낼 QR 스캔 화면. */
 export const QR_SCAN_PATH = "/owner/qr";
@@ -12,42 +14,56 @@ export const QR_SCAN_PATH = "/owner/qr";
 const AFTER_CHECK_IN_PATH = "/owner/orders";
 
 /**
- * 결과 화면이 location.state 로 받는 값. QR 체크인은 CheckInResponse 를, 주문 화면의 "직접 확인"은 누른 시각을 넘긴다.
- * 주문 화면에서 들어왔으면 체크인한 주문(order)도 함께 넘긴다. 아래 탭 "QR 확인"으로 바로 찍었으면 주문이 없다.
+ * 결과 화면이 location.state 로 받는 값.
+ * - QR 체크인: 체크인 시각과, 서버가 찾아 준 그 아동의 접수 대기 주문. 주문 없이 왔거나 이미 조리 중이면 주문이 없다
+ * - 주문 화면의 "직접 확인": 누른 시각과 고른 주문
  */
 export type CheckInResultState = Pick<CheckInResponse, "checkedInAt"> & { order?: Order };
 
 export type UseCheckInResultResult = {
   /** 확인 시각("12:31"). 결과 없이 들어왔으면 null — 화면은 QR 스캔으로 돌려보낸다. */
   checkedAt: string | null;
-  /** 체크인한 주문. 주문 화면을 거치지 않았으면 null. */
+  /** 체크인한 주문. 없으면(주문 없이 온 아동) null. */
   order: Order | null;
-  /** "조리 시작하기". 주문 화면에서 들어왔으면 그 주문을 완료로 옮기고 주문 화면으로 간다. */
+  /**
+   * 아래 버튼. 주문이 있으면 "조리 시작하기" — 조리를 시작하고(POST start-cooking) 주문 화면의 조리 중 탭으로 간다.
+   * 없으면 "주문 목록 보기" — 주문 화면으로만 간다.
+   */
   startCooking: () => void;
+  /** 조리 시작 요청 중이면 true. 버튼을 잠근다. */
+  isStarting: boolean;
+  /** 조리 시작 실패 문구. 없으면 null. */
+  errorMessage: string | null;
 };
 
 /**
  * 체크인 결과 화면. QR 스캔 화면이나 주문 화면이 location.state 로 넘긴 CheckInResultState 를 읽는다.
  *
- * 체크인 API 는 주문 정보를 주지 않아서(백엔드 PR #50) 주문 정보는 주문 화면이 넘긴 것을 쓴다.
+ * 주문이 없으면(주문 없이 온 아동, 이미 조리 중) 시작할 주문이 없어 주문 화면으로만 보낸다.
  */
 export const useCheckInResult = (): UseCheckInResultResult => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const result = useLocation().state as CheckInResultState | null;
   const order = result?.order ?? null;
+  const { changeStatus, changingOrderId } = useStoreOrders();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const goOrders = (state?: OwnerOrdersState) => navigate(AFTER_CHECK_IN_PATH, { replace: true, state });
 
   return {
     checkedAt: result?.checkedInAt ? formatHourMinute(result.checkedInAt) : null,
     order,
     startCooking: () => {
-      // TODO(주문 API 가 생기면): 서버에 완료를 보내고, 성공하면 주문 목록을 다시 불러온다.
-      if (order) {
-        queryClient.setQueryData<Order[]>(ORDERS_QUERY_KEY, (orders = MOCK_ORDERS) =>
-          markOrderDone(orders, order.orderId),
-        );
+      if (!order) {
+        goOrders();
+        return;
       }
-      navigate(AFTER_CHECK_IN_PATH, { replace: true });
+      setErrorMessage(null);
+      changeStatus(order, "start-cooking")
+        .then(() => goOrders({ tab: "COOKING" }))
+        .catch((error: unknown) => setErrorMessage(toOrderErrorMessage(error)));
     },
+    isStarting: order !== null && changingOrderId === order.orderId,
+    errorMessage,
   };
 };

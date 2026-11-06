@@ -5,7 +5,7 @@ import type { ChildStoreOpenStatus } from "../../utils/childStoreStatus";
 
 const BADGE_CLASS = "flex h-[19px] items-center gap-[5px] rounded-[10px] px-2 text-[11px] leading-[normal] font-medium";
 
-/** 영업중만 초록, 나머지(쉬는중·오늘 휴무·영업 전·영업종료)는 모두 빨강. */
+/** 영업중만 초록, 나머지(쉬는중·휴무중·영업전·영업종료)는 모두 빨강. */
 export function ChildStoreStatusBadge({ status }: { status: ChildStoreOpenStatus }) {
   const isOpen = status === "OPEN";
   return (

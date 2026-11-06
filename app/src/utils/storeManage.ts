@@ -19,6 +19,7 @@ export const MAX_BUSINESS_HOUR_LINES = 21;
 export const MAX_MENU_COUNT = 50;
 export const MAX_MENU_NAME_LENGTH = 50;
 export const MAX_PHONE_LENGTH = 20;
+export const MAX_OWNER_NOTE_LENGTH = 100;
 
 // 백엔드 BusinessHourRequest 의 정규식 그대로. 닫는 시간은 00:00 대신 24:00 으로 적는다.
 const OPEN_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -43,7 +44,11 @@ export const nextBusinessHour = (hours: BusinessHour[]): BusinessHour => {
  * 저장 전에 백엔드와 같은 규칙으로 검사한다. 틀린 곳이 있으면 첫 번째 문구, 없으면 null.
  * 같은 요일 시간이 겹치는지는 백엔드 서비스가 본다(400).
  */
-export const validateOperatingInfo = ({ phone, businessHours, menus }: OperatingInfoRequest) => {
+export const validateOperatingInfo = ({
+  phone,
+  businessHours,
+  menus,
+}: Pick<OperatingInfoRequest, "phone" | "businessHours" | "menus">) => {
   if (phone.trim() === "") return "가게 전화번호를 입력해 주세요.";
   if (phone.length > MAX_PHONE_LENGTH) return `가게 전화번호는 ${MAX_PHONE_LENGTH}자를 넘을 수 없어요.`;
 
