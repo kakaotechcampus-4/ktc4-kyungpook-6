@@ -2,7 +2,9 @@ package com.ktc4.backend.domain.store.repository;
 
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.StoreStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,11 +12,32 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 public interface StoreRepository extends JpaRepository<Store, Long> {
+
+    /**
+     * 좌표 채우기 대상 — 좌표가 없고, 폐업이 아니고, 최근에 못 찾은 적이 없는 가게. 오래된 가게부터.
+     * 주소가 비어 있으면 물을 것이 없어 뺀다(물으면 카카오가 거절한다).
+     *
+     * <p>가게 엔티티가 아니라 ID·주소만 읽는다 — 이 목록을 들고 바깥(카카오)에 묻는 동안 엔티티를 쥐고 있지 않게.
+     *
+     * @param retryBefore 이 시각 전에 못 찾은 가게는 다시 묻는다
+     * @param limit       한 번에 읽을 가게 수
+     */
+    @Query("""
+            select new com.ktc4.backend.domain.store.repository.GeocodeTarget(s.storeId, s.addressRoad)
+            from Store s
+            where (s.lat is null or s.lng is null)
+              and s.addressRoad is not null and trim(s.addressRoad) <> ''
+              and s.status <> com.ktc4.backend.domain.store.enums.StoreStatus.CLOSED
+              and (s.geocodeAttemptedAt is null or s.geocodeAttemptedAt < :retryBefore)
+            order by s.storeId
+            """)
+    List<GeocodeTarget> findGeocodeTargets(@Param("retryBefore") LocalDateTime retryBefore, Limit limit);
 
     List<Store> findByNameNormalizedIn(Collection<String> nameNormalized);
 
@@ -161,4 +184,61 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Store s where s.storeId = :storeId")
     Optional<Store> findByIdForUpdate(@Param("storeId") Long storeId);
+
+    /**
+     * 위경도 사각형 안의 가게를 가운데에서 가까운 순으로 — 주변 가게 찾기의 첫 거름(아동 앱). 실제 거리로는 부르는 쪽이 다시 거른다.
+     *
+     * <p>좌표가 없는 가게는 {@code BETWEEN} 에서 빠진다.
+     *
+     * <p>DB 에서 가까운 순으로 정렬해 {@code limit} 만큼만 읽는다 — 도심에서 반경을 넓히면 사각형 안의 가게를 전부 엔티티로
+     * 올리게 되기 때문이다. 정렬 없이 자르면 가까운 가게가 잘려 나갈 수 있어 반드시 정렬한 뒤 자른다. 정렬 거리는 경도 차에
+     * {@code cos²(위도)} 를 곱한 평면 근사({@code lngWeight})로, 반경 5km 안에서는 하버사인과 순서가 사실상 같다.
+     *
+     * @param lat              가운데 위도
+     * @param lng              가운데 경도
+     * @param lngWeight        경도 차의 제곱에 곱할 값 — {@code cos²(lat)}
+     * @param excludedStatuses 빼는 영업 상태(폐업·휴업)
+     * @param limit            읽을 가게 수 상한
+     */
+    @Query("""
+            select s from Store s
+            where s.lat between :minLat and :maxLat
+              and s.lng between :minLng and :maxLng
+              and s.status not in :excludedStatuses
+            order by (s.lat - :lat) * (s.lat - :lat) + (s.lng - :lng) * (s.lng - :lng) * :lngWeight, s.storeId
+            """)
+    List<Store> findInBox(@Param("minLat") double minLat, @Param("maxLat") double maxLat,
+                          @Param("minLng") double minLng, @Param("maxLng") double maxLng,
+                          @Param("lat") double lat, @Param("lng") double lng, @Param("lngWeight") double lngWeight,
+                          @Param("excludedStatuses") Collection<StoreStatus> excludedStatuses,
+                          Limit limit);
+
+    /**
+     * {@link #findInBox} 에 검색어를 더한다 — 상호명이나 지우지 않은 메뉴 이름에 검색어가 들어간 가게. 정렬·상한도 같다.
+     *
+     * <p>상호명은 원본(소문자)과 정규화 값(공백·법인표기를 뺀 값) 둘 다 본다 — "예시 분식" 으로 찾아도 "예시분식" 이 나오게.
+     * 패턴의 {@code %}·{@code _} 는 부르는 쪽이 {@code \} 로 이스케이프해 넘긴다.
+     *
+     * @param rawPattern        소문자 검색어를 {@code %} 로 감싼 패턴 — 상호명 원본·메뉴 이름에 쓴다
+     * @param normalizedPattern 정규화한 검색어를 {@code %} 로 감싼 패턴 — 정규화 상호명에 쓴다
+     */
+    @Query("""
+            select s from Store s
+            where s.lat between :minLat and :maxLat
+              and s.lng between :minLng and :maxLng
+              and s.status not in :excludedStatuses
+              and (lower(s.name) like :rawPattern escape '\\'
+                   or s.nameNormalized like :normalizedPattern escape '\\'
+                   or exists (select 1 from StoreMenu m
+                              where m.store = s and m.deletedAt is null
+                                and lower(m.name) like :rawPattern escape '\\'))
+            order by (s.lat - :lat) * (s.lat - :lat) + (s.lng - :lng) * (s.lng - :lng) * :lngWeight, s.storeId
+            """)
+    List<Store> searchInBox(@Param("minLat") double minLat, @Param("maxLat") double maxLat,
+                            @Param("minLng") double minLng, @Param("maxLng") double maxLng,
+                            @Param("lat") double lat, @Param("lng") double lng, @Param("lngWeight") double lngWeight,
+                            @Param("excludedStatuses") Collection<StoreStatus> excludedStatuses,
+                            @Param("rawPattern") String rawPattern,
+                            @Param("normalizedPattern") String normalizedPattern,
+                            Limit limit);
 }

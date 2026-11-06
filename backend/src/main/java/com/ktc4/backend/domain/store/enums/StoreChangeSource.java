@@ -14,5 +14,13 @@ public enum StoreChangeSource {
     /** 점주 승인·다시 연결 때 가입 신청서의 가게 정보를 빈 항목에 옮겨 적기 */
     SIGNUP_FILL,
     /** 가게 관리 저장 ({@code PUT /api/stores/{storeId}/operating-info}) */
-    OPERATING_INFO_SAVE
+    OPERATING_INFO_SAVE,
+    /**
+     * 확인 전화 결과 자동 반영 — 어느 전화인지 같이 남긴다.
+     *
+     * <p>사람이 누른 것이 아니라 통화가 끝나면서 저절로 바뀐 자리다. 그래서 다른 출처와 꼭 나눠야 한다 —
+     * 전화로 바뀐 값만 추려 되돌릴 수 있어야 하고, 담당자가 "내가 안 고쳤는데 값이 바뀌었다" 를
+     * 변경 기록에서 설명할 수 있어야 한다.
+     */
+    CALL_APPLY
 }

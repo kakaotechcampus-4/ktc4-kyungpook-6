@@ -4,6 +4,8 @@ import com.ktc4.backend.domain.checkin.dto.CheckInResponse;
 import com.ktc4.backend.domain.checkin.entity.CheckIn;
 import com.ktc4.backend.domain.checkin.repository.CheckInRepository;
 import com.ktc4.backend.domain.member.service.StoreAccessService;
+import com.ktc4.backend.domain.order.dto.OrderResponse;
+import com.ktc4.backend.domain.order.service.OrderService;
 import com.ktc4.backend.domain.qr.dto.QrResolution;
 import com.ktc4.backend.domain.qr.service.QrCredentialService;
 import com.ktc4.backend.domain.store.entity.Store;
@@ -26,6 +28,7 @@ public class CheckInService {
     private final StoreService storeService;
     private final QrCredentialService qrCredentialService;
     private final StoreAccessService storeAccessService;
+    private final OrderService orderService;
 
     /**
      * 점주가 스캔한 아동 QR 로 체크인을 기록한다.
@@ -42,7 +45,7 @@ public class CheckInService {
      * @param storeId    체크인할 가게 ID
      * @param qrPayload  점주 앱이 스캔한 QR 문자열
      * @param authMember 로그인한 사용자
-     * @return 체크인 기록 ID 와 시각. 아동 정보는 담지 않는다
+     * @return 체크인 기록 ID 와 시각, 이 아동이 이 가게에 낸 접수 대기 주문(없으면 null). 아동 정보는 담지 않는다
      * @throws CustomException 로그인 정보가 없으면 {@code UNAUTHORIZED},
      *                         점주가 연결되지 않은 가게면(없는 가게 포함) {@code FORBIDDEN},
      *                         가게가 없으면 {@code STORE_NOT_FOUND}, QR 이 맞지 않으면 {@code INVALID_QR_TOKEN}
@@ -61,6 +64,8 @@ public class CheckInService {
         };
 
         CheckIn checkIn = checkInRepository.save(CheckIn.of(childId, store));
-        return CheckInResponse.from(checkIn);
+        // 체크인은 주문을 바꾸지 않는다 — 조리 시작은 점주가 결과 화면에서 따로 누른다
+        OrderResponse order = orderService.findReceivedAt(childId, storeId).orElse(null);
+        return CheckInResponse.from(checkIn, order);
     }
 }

@@ -6,6 +6,7 @@ import StoreStepProgress from "../components/signup/StoreStepProgress";
 import { MenuCard, NewMenuCard } from "../components/signup/MenuCards";
 import { useSignupDraft } from "../hooks/signupDraft";
 import { useSignupMenus } from "../hooks/signupMenus";
+import SignupBottomBar from "../components/signup/SignupBottomBar";
 
 const SECTION_TITLE_CLASS_NAME = "pb-3 text-sm leading-[normal] font-semibold text-[#6b7280]";
 
@@ -35,7 +36,7 @@ function OwnerSignupMenusPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
+    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)]">
       <LogoHeader title="가게 등록" description="제공할 메뉴를 알려주세요." />
 
       <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
@@ -66,18 +67,20 @@ function OwnerSignupMenusPage() {
         )}
 
         {/* 가입 신청 실패 문구 자리. 높이를 고정해 문구가 떠도 버튼이 움직이지 않는다. */}
-        <div className="mt-auto flex min-h-12 items-center justify-center pt-6">
-          {errorMessage && (
-            <p role="alert" className="text-center text-[13px] leading-[1.4] text-[#e5484d]">
-              {errorMessage}
-            </p>
-          )}
-        </div>
+        <SignupBottomBar>
+          <div className="flex min-h-12 items-center justify-center pt-6">
+            {errorMessage && (
+              <p role="alert" className="text-center text-[13px] leading-[1.4] text-[#e5484d]">
+                {errorMessage}
+              </p>
+            )}
+          </div>
 
-        <StoreStepProgress current={3} />
-        <PrimaryButton type="submit" disabled={!canProceed}>
-          다음
-        </PrimaryButton>
+          <StoreStepProgress current={3} />
+          <PrimaryButton type="submit" disabled={!canProceed}>
+            다음
+          </PrimaryButton>
+        </SignupBottomBar>
       </form>
     </main>
   );

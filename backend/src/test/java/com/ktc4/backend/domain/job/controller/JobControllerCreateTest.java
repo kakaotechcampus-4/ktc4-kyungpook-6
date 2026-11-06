@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.job.controller;
 
+import com.ktc4.backend.domain.call.service.CallBulkService;
 import com.ktc4.backend.domain.investigation.dto.InvestigationPlan;
 import com.ktc4.backend.domain.investigation.service.InvestigationRunner;
 import com.ktc4.backend.domain.job.dto.CreatedJob;
@@ -65,6 +66,9 @@ class JobControllerCreateTest {
 
     @Autowired
     private JwtProvider jwtProvider;
+
+    @MockitoBean
+    private CallBulkService callBulkService;
 
     @MockitoBean
     private JobService jobService;

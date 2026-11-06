@@ -1,6 +1,5 @@
 import { AxiosError, AxiosHeaders } from "axios";
 import { describe, expect, it } from "vitest";
-import type { OperatingInfoRequest } from "../src/services/store";
 import {
   formatTimeInput,
   nextBusinessHour,
@@ -21,7 +20,7 @@ const httpError = (status: number, data: unknown = undefined) => {
   });
 };
 
-const valid: OperatingInfoRequest = {
+const valid: Parameters<typeof validateOperatingInfo>[0] = {
   phone: "053-123-4567",
   businessHours: [{ day: "MON", open: "11:00", close: "21:00" }],
   menus: [{ name: "김치찌개", onSale: true }],

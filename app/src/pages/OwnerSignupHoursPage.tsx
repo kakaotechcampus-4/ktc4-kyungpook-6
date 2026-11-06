@@ -7,6 +7,7 @@ import BusinessHourRow from "../components/signup/BusinessHourRow";
 import StoreStepProgress from "../components/signup/StoreStepProgress";
 import { useSignupDraft } from "../hooks/signupDraft";
 import { useSignupHours } from "../hooks/signupHours";
+import SignupBottomBar from "../components/signup/SignupBottomBar";
 
 /** 가게 등록 2: 영업시간. */
 function OwnerSignupHoursPage() {
@@ -22,7 +23,7 @@ function OwnerSignupHoursPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
+    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)]">
       <LogoHeader title="가게 등록" description="영업시간을 알려주세요." />
 
       <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
@@ -48,12 +49,12 @@ function OwnerSignupHoursPage() {
           />
         ))}
 
-        <div className="flex-1 pb-6" />
-
-        <StoreStepProgress current={2} />
-        <PrimaryButton type="submit" disabled={!canProceed}>
-          다음
-        </PrimaryButton>
+        <SignupBottomBar className="pt-6">
+          <StoreStepProgress current={2} />
+          <PrimaryButton type="submit" disabled={!canProceed}>
+            다음
+          </PrimaryButton>
+        </SignupBottomBar>
       </form>
     </main>
   );

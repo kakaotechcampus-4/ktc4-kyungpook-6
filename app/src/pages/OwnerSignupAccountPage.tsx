@@ -6,6 +6,7 @@ import TextField from "../components/ui/TextField";
 import PasswordVisibilityToggle from "../components/login/PasswordVisibilityToggle";
 import { useSignupAccount } from "../hooks/signupAccount";
 import { EMAIL_MAX_LENGTH, PASSWORD_MAX_LENGTH } from "../utils/signupValidation";
+import SignupBottomBar from "../components/signup/SignupBottomBar";
 
 /** 회원가입 1단계: 아이디(이메일)·비밀번호. */
 function OwnerSignupAccountPage() {
@@ -32,7 +33,7 @@ function OwnerSignupAccountPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)] pb-[calc(40px+env(safe-area-inset-bottom))]">
+    <main className="flex min-h-screen flex-col bg-white px-5 pt-[env(safe-area-inset-top)]">
       <LogoHeader title="회원가입" description="가입 요청 후 승인되면 사용할 수 있어요." />
 
       <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
@@ -94,9 +95,11 @@ function OwnerSignupAccountPage() {
         />
         <FieldErrorSlot id="signup-password-confirm-error" message={errors.passwordConfirm} />
 
-        <PrimaryButton type="submit" className="mt-auto" disabled={!canProceed}>
-          다음
-        </PrimaryButton>
+        <SignupBottomBar>
+          <PrimaryButton type="submit" disabled={!canProceed}>
+            다음
+          </PrimaryButton>
+        </SignupBottomBar>
       </form>
     </main>
   );

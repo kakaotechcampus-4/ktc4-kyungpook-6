@@ -1,5 +1,7 @@
 package com.ktc4.backend.domain.job.controller;
 
+import com.ktc4.backend.domain.call.dto.CallBulkResponse;
+import com.ktc4.backend.domain.call.service.CallBulkService;
 import com.ktc4.backend.domain.investigation.service.InvestigationRunner;
 import com.ktc4.backend.domain.job.dto.CreatedJob;
 import com.ktc4.backend.domain.job.dto.JobCreateRequest;
@@ -18,6 +20,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +28,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
@@ -40,6 +44,7 @@ public class JobController {
     private final JobService jobService;
     private final JobQueryService jobQueryService;
     private final InvestigationRunner investigationRunner;
+    private final CallBulkService callBulkService;
 
     @Operation(
             summary = "조사 시작",
@@ -123,5 +128,48 @@ public class JobController {
     @GetMapping("/latest")
     public JobResultResponse getLatest() {
         return jobQueryService.getLatest();
+    }
+
+    @Operation(
+            summary = "전화 대상에 한 번에 전화 걸기",
+            description = """
+                    이 조사 결과에서 **전화를 걸 만한 가게 전부**에 확인 전화를 요청합니다.
+                    카드를 하나씩 눌러 한 통씩 걸던 일을 한 번으로 줄이는 API 입니다.
+
+                    **대기열은 전화 API 가 갖고 있습니다.** 여기서 요청을 한꺼번에 넣으면 전화 API 가 차례대로
+                    발신합니다 — 우리가 순서나 동시 통화 수를 정하지 않습니다.
+
+                    대상은 다음을 모두 만족하는 결과입니다.
+
+                    - 판정이 `PRIORITY_CHECK`(변화가 잡힘) 또는 `ADDITIONAL_CHECK`(확인 후 90일 이상)
+                    - 담당자가 아직 확인하지 않았다 (`verification` 이 null)
+                    - 걸어 둔 전화가 없다. **실패한 전화가 있는 결과는 다시 대상이 됩니다**
+
+                    번호가 없거나 물을 질문이 만들어지지 않는 가게는 `skipped` 로 셉니다 — 한 건이 안 됐다고
+                    나머지를 멈추지 않습니다. 어느 결과가 빠졌는지는 결과를 다시 조회해 `call` 이 비어 있는 것으로 압니다.
+
+                    통화 결과는 기다리지 않습니다. `GET /api/jobs/{jobId}` 를 다시 조회해 각 카드의 `call` 로 봅니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "202", description = "요청이 들어감 — 대상 수와 실제로 들어간 수"),
+            @ApiResponse(responseCode = "404", description = "jobId 에 해당하는 조사가 없음 (job-not-found)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "전화 API 주소·키가 없음 (call-not-available)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "로그인하지 않음",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "관리자가 아님",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @PostMapping("/{jobId}/calls")
+    public CallBulkResponse callAll(
+            @Parameter(description = "조사(Job) ID", example = "1") @PathVariable Long jobId,
+            @AuthenticationPrincipal AuthMember admin) {
+        return callBulkService.requestAll(jobId, admin.memberId());
     }
 }

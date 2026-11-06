@@ -1,10 +1,9 @@
 import { useCallback, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { getMe } from "../services/auth";
 import { checkIn } from "../services/checkIn";
 import type { CheckInResponse } from "../services/checkIn";
-import type { Order } from "../services/order";
 import type { CheckInResultState } from "./checkInResult";
 import { toCheckInErrorMessage } from "../utils/checkInError";
 
@@ -35,8 +34,6 @@ export type UseQrCheckInResult = {
  */
 export const useQrCheckIn = (): UseQrCheckInResult => {
   const navigate = useNavigate();
-  // 주문 화면의 "QR로 확인"으로 들어왔으면 그 주문을 결과 화면까지 넘긴다.
-  const order = (useLocation().state as { order?: Order } | null)?.order;
   const meQuery = useQuery({ queryKey: ["me"], queryFn: () => getMe() });
   const storeId = meQuery.data?.stores[0]?.storeId;
 
@@ -50,7 +47,9 @@ export const useQrCheckIn = (): UseQrCheckInResult => {
       return checkIn(storeId, qrPayload);
     },
     onSuccess: (result: CheckInResponse) => {
-      const state: CheckInResultState = { checkedInAt: result.checkedInAt, order };
+      // 주문은 서버가 찾아 준 그 아동의 접수 대기 주문을 쓴다. 주문 화면에서 고른 주문이 아니다 —
+      // 다른 아이의 QR 을 찍었으면 고른 주문의 조리를 시작하게 된다.
+      const state: CheckInResultState = { checkedInAt: result.checkedInAt, order: result.order ?? undefined };
       navigate(CHECK_IN_RESULT_PATH, { replace: true, state });
     },
     onError: (_error, qrPayload) => {

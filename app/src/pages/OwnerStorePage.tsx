@@ -2,11 +2,12 @@ import plusSmallIcon from "../assets/plus-small-icon.svg";
 import OwnerTabBar from "../components/owner/OwnerTabBar";
 import BusinessHourRow from "../components/store/BusinessHourRow";
 import { MenuRegisterRow, MenuRow } from "../components/store/MenuRow";
-import { StoreInputField, StoreReadOnlyField } from "../components/store/StoreField";
+import { StoreInputField, StoreReadOnlyField, StoreTextAreaField } from "../components/store/StoreField";
 import StorePhotoField from "../components/store/StorePhotoField";
 import StoreSectionHeader from "../components/store/StoreSectionHeader";
+import StoreVisitOptions from "../components/store/StoreVisitOptions";
 import { useStoreManage } from "../hooks/storeManage";
-import { MAX_MENU_NAME_LENGTH, MAX_PHONE_LENGTH } from "../utils/storeManage";
+import { MAX_MENU_NAME_LENGTH, MAX_OWNER_NOTE_LENGTH, MAX_PHONE_LENGTH } from "../utils/storeManage";
 
 /** 구역 사이의 굵은 회색 줄. 화면 양옆 여백까지 꽉 채운다. */
 function SectionDivider() {
@@ -60,6 +61,12 @@ function OwnerStorePage() {
           <section>
             <StoreSectionHeader title="기본 정보" className="pt-5" />
             <div className="flex flex-col gap-4">
+              <StorePhotoField
+                id="store-photo"
+                photoUrl={store.photoUrl}
+                onSelect={store.selectPhoto}
+                onRemove={store.removePhoto}
+              />
               <StoreReadOnlyField label="상호명" value={store.name} />
               <StoreReadOnlyField label="주소" value={store.addressRoad} />
               <StoreInputField
@@ -73,11 +80,21 @@ function OwnerStorePage() {
                 value={store.phone}
                 onChange={(event) => store.setPhone(event.target.value)}
               />
-              <StorePhotoField
-                id="store-photo"
-                photoUrl={store.photoUrl}
-                onSelect={store.selectPhoto}
-                onRemove={store.removePhoto}
+              <StoreVisitOptions
+                companion={store.companion}
+                onCompanionChange={store.setCompanion}
+                takeoutAvailable={store.takeoutAvailable}
+                dineInAvailable={store.dineInAvailable}
+                onToggleTakeout={store.toggleTakeout}
+                onToggleDineIn={store.toggleDineIn}
+              />
+              <StoreTextAreaField
+                id="store-owner-note"
+                label="사장님 한마디"
+                placeholder="아이들에게 전하고 싶은 말을 적어 주세요 (예: 브레이크타임 15:00 – 17:00)"
+                maxLength={MAX_OWNER_NOTE_LENGTH}
+                value={store.ownerNote}
+                onChange={(event) => store.setOwnerNote(event.target.value)}
               />
             </div>
           </section>
@@ -123,6 +140,8 @@ function OwnerStorePage() {
             <MenuRegisterRow
               value={store.newMenuName}
               onChange={store.setNewMenuName}
+              photo={store.newMenuPhoto}
+              onSelectPhoto={store.setNewMenuPhoto}
               canRegister={store.canRegisterMenu}
               onRegister={store.registerMenu}
               maxLength={MAX_MENU_NAME_LENGTH}
@@ -135,6 +154,7 @@ function OwnerStorePage() {
                 <MenuRow
                   key={menu.key}
                   name={menu.name}
+                  photo={menu.photo}
                   onSale={menu.onSale}
                   onToggleSale={() => store.toggleMenuOnSale(menu.key)}
                   onRemove={() => store.removeMenu(menu.key)}

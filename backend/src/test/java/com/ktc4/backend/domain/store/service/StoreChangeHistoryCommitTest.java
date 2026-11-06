@@ -16,6 +16,7 @@ import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
 import com.ktc4.backend.domain.task.service.TaskService;
 import com.ktc4.backend.domain.verification.service.VerificationService;
+import com.ktc4.backend.support.CallWithoutApiConfig;
 import com.ktc4.backend.support.PostgresContainerTest;
 import com.ktc4.backend.support.StoreChangeHistoryRow;
 import jakarta.persistence.EntityManager;
@@ -59,7 +60,7 @@ import static org.mockito.Mockito.verify;
  */
 // 조사 쪽 DB 테스트와 같은 빈 묶음. StoreService 를 감시(spy)하므로 컨텍스트는 따로 뜬다
 @Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
-        InvestigationTargetSelector.class, VerificationService.class})
+        InvestigationTargetSelector.class, VerificationService.class, CallWithoutApiConfig.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DisplayName("가게 변경 기록 커밋 (관리자 수정·조사 반영)")

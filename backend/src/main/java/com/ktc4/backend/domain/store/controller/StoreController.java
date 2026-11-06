@@ -1,5 +1,7 @@
 package com.ktc4.backend.domain.store.controller;
 
+import com.ktc4.backend.domain.store.dto.OpenSettingRequest;
+import com.ktc4.backend.domain.store.dto.OpenSettingResponse;
 import com.ktc4.backend.domain.store.dto.OperatingInfoRequest;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
@@ -243,5 +245,42 @@ public class StoreController {
             @Valid @RequestBody OperatingInfoRequest request,
             @AuthenticationPrincipal AuthMember authMember) {
         return storeManagementService.save(storeId, request, authMember);
+    }
+
+    @Operation(
+            summary = "가게 영업 상태 저장 (점주 앱 홈)",
+            description = """
+                    점주 앱 홈의 영업 상태 방식과 켜고 끈 값을 저장합니다. 아동 앱이 이 값으로 "쉬는중" 을 보여 줍니다.
+
+                    - `mode` — `SCHEDULE`(영업시간대로) 또는 `MANUAL`(직접 켜고 끄기)
+                    - `manualOpen` — 직접 켜고 끄기에서 켜 두었는지. `false` 면 아동 앱에 "쉬는중" 으로 보입니다.
+                      영업시간대로로 바꿀 때도 보내 주세요 — 다시 직접 켜고 끄기로 바꾸면 그 값으로 돌아갑니다.
+                    - 영업중·영업 전·영업종료 같은 상태는 서버가 계산하지 않습니다. 앱이 이 값과 영업시간으로 계산합니다.
+                    - 관리자와 **그 가게에 연결된 점주**만 부를 수 있습니다.
+                    - 지금 값은 `GET /api/stores/{storeId}` 의 `openMode`·`manualOpen` 으로 읽습니다.
+                    """)
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "저장 성공 — 저장된 방식과 켜고 끈 값"),
+            @ApiResponse(responseCode = "400", description = "mode 나 manualOpen 이 없거나 mode 값이 잘못된 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "토큰이 없거나 유효하지 않은 경우",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "관리자도 아니고 이 가게에 연결된 점주도 아닌 경우. "
+                    + "점주에게는 없는 가게 번호여도 403 입니다(가게가 있는지 알려 주지 않음, 체크인과 같음)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "storeId 에 해당하는 가게가 없는 경우 (관리자만)",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ApiProblemDetail.class)))
+    })
+    @PutMapping("/{storeId}/open-setting")
+    public OpenSettingResponse saveOpenSetting(
+            @Parameter(description = "가게 ID", example = "12")
+            @PathVariable Long storeId,
+            @Valid @RequestBody OpenSettingRequest request,
+            @AuthenticationPrincipal AuthMember authMember) {
+        return storeManagementService.saveOpenSetting(storeId, request, authMember);
     }
 }

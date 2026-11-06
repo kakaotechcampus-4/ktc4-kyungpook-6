@@ -1,5 +1,6 @@
 package com.ktc4.backend.domain.task.controller;
 
+import com.ktc4.backend.domain.call.service.CallService;
 import com.ktc4.backend.domain.member.enums.MemberRole;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.domain.task.dto.ProposedChangeResponse;
@@ -56,6 +57,9 @@ class TaskControllerTest {
     private JwtProvider jwtProvider;
 
     @MockitoBean
+    private CallService callService;
+
+    @MockitoBean
     private VerificationService verificationService;
 
     private ResultActions postAs(String path, MemberRole role) throws Exception {
@@ -67,7 +71,8 @@ class TaskControllerTest {
         return new TaskResultResponse(1L, 5L, "맛나 치킨", "대구광역시 북구 대학로 80", StoreStatus.CLOSED, "053-111-1111",
                 LocalDateTime.of(2026, 10, 7, 12, 0), TaskClassification.PRIORITY_CHECK, null,
                 List.of(new ProposedChangeResponse("status", "CLOSED")), List.of(),
-                new VerificationResponse(action, LocalDateTime.of(2026, 10, 7, 12, 0)));
+                new VerificationResponse(action, LocalDateTime.of(2026, 10, 7, 12, 0)),
+                null);
     }
 
     @Test

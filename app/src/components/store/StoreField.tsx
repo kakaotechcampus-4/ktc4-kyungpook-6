@@ -21,6 +21,37 @@ export function StoreReadOnlyField({ label, value }: StoreReadOnlyFieldProps) {
   );
 }
 
+type StoreTextAreaFieldProps = ComponentPropsWithoutRef<"textarea"> & {
+  id: string;
+  label: string;
+  value: string;
+  maxLength: number;
+};
+
+/** 여러 줄로 보이는 글 칸(사장님 한마디). 오른쪽 아래에 글자 수를 보여 준다. */
+export function StoreTextAreaField({ id, label, value, maxLength, ...props }: StoreTextAreaFieldProps) {
+  return (
+    <div>
+      <label htmlFor={id} className={LABEL_CLASS}>
+        {label}
+      </label>
+      <div className="rounded-xl bg-[#f1f4f8] px-3.5 pt-3 pb-2 focus-within:ring-2 focus-within:ring-[#e3b23c]">
+        <textarea
+          id={id}
+          rows={3}
+          value={value}
+          maxLength={maxLength}
+          className="block w-full resize-none bg-transparent text-[15px] leading-[1.45] text-[#1f2937] outline-none placeholder:text-[#9ca3af]"
+          {...props}
+        />
+        <p className="pt-1 text-right text-xs leading-[normal] text-[#9ca3af]">
+          {value.length}/{maxLength}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 type StoreInputFieldProps = ComponentPropsWithoutRef<"input"> & {
   id: string;
   label: string;

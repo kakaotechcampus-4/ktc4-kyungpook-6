@@ -14,13 +14,14 @@ type TextFieldProps = ComponentPropsWithoutRef<"input"> & {
 
 const BOX_BASE = "flex h-13 items-center gap-2 rounded-xl border px-4";
 
+/** 입력 중인 칸은 노란 테두리와 그림자. 두 모양 모두 같다(영업시간 고르기 칸도 같은 값을 쓴다). */
+export const FOCUS_RING_CLASS_NAME =
+  "focus-within:border-[#e3b23c] focus-within:shadow-[0px_2px_4px_0px_rgba(0,0,0,0.25)]";
+
 const boxClassName = (variant: "filled" | "outlined", invalid: boolean) => {
   if (invalid) return `${BOX_BASE} border-[#e5484d] bg-white`;
-  if (variant === "outlined") {
-    // 입력 중인 칸은 노란 테두리와 그림자.
-    return `${BOX_BASE} border-[#a9afbb] bg-white focus-within:border-[#e3b23c] focus-within:shadow-[0px_2px_4px_0px_rgba(0,0,0,0.25)]`;
-  }
-  return `${BOX_BASE} border-transparent bg-[#f1f4f8]`;
+  if (variant === "outlined") return `${BOX_BASE} border-[#a9afbb] bg-white ${FOCUS_RING_CLASS_NAME}`;
+  return `${BOX_BASE} border-transparent bg-[#f1f4f8] ${FOCUS_RING_CLASS_NAME}`;
 };
 
 /** 라벨이 위에 붙은 입력 칸. */

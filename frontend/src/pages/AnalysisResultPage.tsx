@@ -41,10 +41,16 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
     groups,
     isPending,
     isError,
+    noJobYet,
     progressLabel,
     processingTaskId,
     actionErrorMessage,
     applyChanges,
+    requestOneCall,
+    callTargetCount,
+    requestAllCalls,
+    isRequestingAllCalls,
+    bulkCallMessage,
   } = useAnalysisResultPage();
   const storeEdit = useStoreEditModal();
 
@@ -89,6 +95,12 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
           </nav>
         </div>
 
+        {noJobYet && (
+          <p role="status" className="px-3.5 pt-3.5 text-sm text-[#64748b]">
+            아직 조사한 기록이 없습니다. 가게 목록에서 조사를 시작해 주세요.
+          </p>
+        )}
+
         {isError && (
           <p role="status" className="px-3.5 pt-3.5 text-sm text-[#64748b]">
             조사 결과를 불러오지 못해 목업 데이터를 표시합니다.
@@ -105,6 +117,31 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
           <p role="alert" className="px-3.5 pt-3.5 text-sm text-[#b91c1c]">
             {actionErrorMessage}
           </p>
+        )}
+
+        {bulkCallMessage && (
+          <p role="status" className="px-3.5 pt-3.5 text-sm text-[#1d4ed8]">
+            {bulkCallMessage}
+          </p>
+        )}
+
+        {/*
+          전화 대상이 하나도 없으면 내린다 — 눌러도 "0곳에 넣었습니다" 만 나오는 버튼이다.
+          대기열은 전화 API 가 갖고 있어서 한 번 누르면 차례대로 걸린다. 화면이 한 통씩
+          기다리며 다음을 넣지 않는다.
+        */}
+        {callTargetCount > 0 && (
+          <div className="flex w-full shrink-0 items-center gap-2 px-3.5 pt-3.5">
+            <button
+              type="button"
+              onClick={requestAllCalls}
+              disabled={isRequestingAllCalls}
+              className="flex h-10 shrink-0 items-center justify-center gap-1 rounded-lg border border-solid border-[#3b82f6] px-3 font-sans text-sm font-semibold leading-5 text-[#3b82f6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6] disabled:opacity-60"
+            >
+              <Icon icon="material-symbols:call" className="size-4 shrink-0" />
+              전화 대상 {callTargetCount}곳에 한 번에 전화 걸기
+            </button>
+          </div>
         )}
 
         {/* Funnel Analysis Window. Figma 112:5452 */}
@@ -136,8 +173,8 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                     ))
                   : tasks.map((task) => (
                       /*
-                        "메시지 보내기"(additional)는 아직 보낼 길이 없어 연결하지 않았다 —
-                        누르면 수정안 반영으로 처리돼 엉뚱한 일이 일어나므로 priority 만 건다.
+                        주 버튼("즉시 수정 반영하기")은 우선확인에만 있다. 추가확인에서 할 일은
+                        가게에 연락하는 것 하나라, 그 분류의 행동은 "전화로 확인하기" 가 맡는다.
                       */
                       <AgentSurveyResultCard
                         key={task.id}
@@ -148,10 +185,16 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                         changes={task.changes}
                         failureReason={task.failureReason}
                         verifiedLabel={task.verifiedLabel}
+                        callStatus={task.callStatus}
                         isProcessing={processingTaskId === task.taskId}
                         onPrimaryAction={
                           task.classification === 'priority'
                             ? () => applyChanges(task.taskId)
+                            : undefined
+                        }
+                        onCall={
+                          task.canCall
+                            ? () => requestOneCall(task.taskId)
                             : undefined
                         }
                         onEdit={() =>

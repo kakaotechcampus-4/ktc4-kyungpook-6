@@ -7,13 +7,21 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,6 +49,9 @@ class QrCredentialReissueCommitTest extends PostgresContainerTest {
     @Autowired
     private QrCredentialRepository qrCredentialRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     // 이 테스트가 넣은 줄만 지운다. 테이블 전체를 지우면 나중에 테스트를 병렬로 돌릴 때 다른 클래스 데이터까지 사라진다.
     @AfterEach
     void cleanUp() {
@@ -64,5 +75,38 @@ class QrCredentialReissueCommitTest extends PostgresContainerTest {
 
         String storedHash = qrCredentialRepository.findByChildId(CHILD_ID).orElseThrow().getTokenHash();
         assertThat(storedHash).isEqualTo(sha256Hex(reissued.substring("v1.".length())));
+    }
+
+    @Test
+    @DisplayName("처음 발급을 동시에 여러 번 눌러도 모두 200 이고 줄은 하나다 — 마지막에 저장된 QR 하나만 살아 있다")
+    void concurrentFirstIssue() throws Exception {
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<String>> results = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return qrCredentialService.issue(CHILD_ID).qrPayload();
+                }));
+            }
+            start.countDown();
+
+            List<String> payloads = new ArrayList<>();
+            for (Future<String> result : results) {
+                // 하나라도 unique 제약에 걸려 예외로 끝나면 get() 이 그 예외를 던져 테스트가 실패한다
+                payloads.add(result.get(30, TimeUnit.SECONDS));
+            }
+
+            Integer rows = jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM qr_credential WHERE child_id = ?", Integer.class, CHILD_ID);
+            String storedHash = qrCredentialRepository.findByChildId(CHILD_ID).orElseThrow().getTokenHash();
+            assertThat(rows).isEqualTo(1);
+            assertThat(payloads).filteredOn(payload -> sha256Hex(payload.substring("v1.".length())).equals(storedHash))
+                    .hasSize(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 }

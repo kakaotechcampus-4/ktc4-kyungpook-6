@@ -47,6 +47,23 @@ export function changeValueLabel(field: string, value: string | null): string {
   return value;
 }
 
+/**
+ * 확인 전화에서 들은 답을 화면 글자로 옮긴다.
+ *
+ * **영업 상태만 규칙이 다르다.** 전화로는 "지금도 영업하십니까" 한 가지만 물어서 답이
+ * `"true"`·`"false"` 로 온다 — 휴업인지 폐업인지는 전화로 가를 수 없고 담당자가 정한다.
+ * 그래서 `changeValueLabel` 의 영업 상태 라벨(영업중·휴업·폐업)을 쓸 수 없다.
+ *
+ * 모르는 값은 버리지 않고 받은 값을 그대로 보여준다(이 파일의 다른 함수와 같은 규칙).
+ */
+export function callAnswerLabel(field: string, value: string | null): string {
+  if (value === null || value === '') return '답 없음';
+  if (field !== 'status') return value;
+  if (value === 'true') return '영업 중';
+  if (value === 'false') return '영업 안 함';
+  return value;
+}
+
 export function evidenceSourceLabel(source: string | null): string | undefined {
   if (!source) return undefined;
   return SOURCE_LABEL[source as EvidenceSource] ?? undefined;

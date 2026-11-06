@@ -23,6 +23,7 @@ import com.ktc4.backend.domain.task.entity.Task;
 import com.ktc4.backend.domain.task.enums.TaskClassification;
 import com.ktc4.backend.domain.task.repository.TaskRepository;
 import com.ktc4.backend.domain.verification.service.VerificationService;
+import com.ktc4.backend.support.CallWithoutApiConfig;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 // 조사 쪽 DB 테스트는 같은 빈 묶음을 써서 스프링 테스트 컨텍스트(와 DB 연결 풀) 하나를 함께 쓴다
 @Import({JobQueryService.class, JobService.class, TaskService.class, StoreService.class, StoreChangeHistoryService.class,
-        InvestigationTargetSelector.class, VerificationService.class})
+        InvestigationTargetSelector.class, VerificationService.class, CallWithoutApiConfig.class})
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DisplayName("조사 결과 저장 (TaskService)")
 class TaskServiceTest extends PostgresContainerTest {

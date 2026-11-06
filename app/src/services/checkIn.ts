@@ -1,4 +1,5 @@
 import { postRequest } from "./api";
+import type { Order } from "./order";
 
 /** 백엔드 CheckInResponse. 아동을 알아볼 수 있는 값은 일부러 없다. */
 export type CheckInResponse = {
@@ -8,6 +9,11 @@ export type CheckInResponse = {
    * Date 로 바꾸면 기기 시간대로 다시 해석되므로 글자 그대로 쓴다.
    */
   checkedInAt: string;
+  /**
+   * 이 아동이 이 가게에 낸 접수 대기 주문. 주문 없이 왔거나 이미 조리 중이면 null.
+   * 결과 화면이 이 주문을 보여 주고 "조리 시작하기"로 조리를 시작한다.
+   */
+  order: Order | null;
 };
 
 /**
