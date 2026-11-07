@@ -22,9 +22,10 @@ const INFO_ROW_CLASS = "flex items-center gap-3 border-b border-[#e6e9ee] px-4 p
 
 /** 아동 가게 정보. 영업시간·이용 방법·메뉴를 보고, 영업중이면 주문하러 간다. */
 function ChildStoreDetailPage() {
-  const { store, openStatus, today, isHoursExpanded, toggleHours, canOrder, goOrder } = useChildStoreDetail();
+  const { store, isLoading, openStatus, today, isHoursExpanded, toggleHours, canOrder, goOrder } = useChildStoreDetail();
 
   // 없는 가게 번호로 들어오면 목록으로 돌려보낸다.
+  if (isLoading) return <main className="min-h-screen bg-white" />;
   if (!store) return <Navigate to="/child/stores" replace />;
 
   const receiveTypes = [store.takeoutAvailable && "포장", store.dineInAvailable && "매장 식사"].filter(Boolean);
