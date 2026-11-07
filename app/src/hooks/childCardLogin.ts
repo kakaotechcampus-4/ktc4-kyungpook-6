@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { saveAuthToken } from "../services/authToken";
 import { authenticateChildCard } from "../services/childAuth";
+import { clearQrPayload } from "../services/childQrToken";
 import { toChildCardAuthErrorMessage } from "../utils/childCardAuthError";
 
 /** 급식카드 번호 자릿수. */
@@ -36,6 +37,8 @@ export const useChildCardLogin = (): UseChildCardLoginResult => {
     mutationFn: async (number: string) => {
       const response = await authenticateChildCard(number);
       await saveAuthToken(response, "CHILD");
+      // 다른 카드로 인증했을 수 있으니 앞 아동의 QR 은 지운다. 내 QR 화면이 새로 발급받는다.
+      await clearQrPayload();
     },
     onSuccess: () => navigate(AFTER_AUTH_PATH, { replace: true }),
   });

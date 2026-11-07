@@ -1,4 +1,5 @@
-import type { OrderReceiveType } from "./order";
+import { getRequest, postRequest } from "./api";
+import type { Order, OrderReceiveType } from "./order";
 
 /** 아동 주문의 진행 단계. 점주가 체크인 결과 화면에서 "조리 시작하기"를 누르면 COOKING 이 된다. */
 export type ChildOrderStatus = "RECEIVED" | "COOKING";
@@ -23,10 +24,9 @@ export const FEEDBACK_WINDOW_MS = 2 * 60 * 60 * 1000;
 export const CHILD_ACTIVE_ORDER_QUERY_KEY = ["child-active-order"];
 
 /*
-  백엔드에 아동 주문 API 가 아직 없어서 피그마 시안의 주문으로 화면을 채운다.
+  VITE_STORE_MOCK=true 로 백엔드 없이 화면을 볼 때 쓰는 주문. 피그마 시안의 주문이다.
   주문 취소는 앱 안(react-query 캐시)에서만 바뀌고, 앱을 다시 켜면 처음으로 돌아간다.
   조리 시작 뒤 화면을 보려면 status 를 "COOKING" 으로, cookingStartedAt 을 2시간 안의 시각으로 바꾼다.
-  TODO(주문 API 가 생기면): 이 목업을 지우고 API 를 부른다.
 */
 export const MOCK_CHILD_ACTIVE_ORDER: ChildActiveOrder = {
   orderId: 1,
@@ -43,3 +43,27 @@ export const isOrderFinished = (order: ChildActiveOrder, at: Date) =>
   order.status === "COOKING" &&
   order.cookingStartedAt !== null &&
   at.getTime() - new Date(order.cookingStartedAt).getTime() >= FEEDBACK_WINDOW_MS;
+
+/** 서버 주문을 내 QR 화면의 주문으로. 진행 중 주문만 오니 상태는 접수 대기·조리 중 둘뿐이다. */
+const toChildActiveOrder = (order: Order): ChildActiveOrder => ({
+  orderId: order.orderId,
+  orderNo: order.orderId,
+  storeName: order.storeName,
+  menuName: order.menuName,
+  receiveType: order.receiveType,
+  status: order.status === "COOKING" ? "COOKING" : "RECEIVED",
+  cookingStartedAt: order.cookingStartedAt,
+});
+
+/**
+ * 진행 중 주문(GET /api/children/me/orders/active). 접수 대기·조리 중인 내 주문, 없으면 null.
+ * 점주가 전달 완료하거나 취소되면 진행 중 주문이 아니다.
+ */
+export const getActiveChildOrder = async (): Promise<ChildActiveOrder | null> => {
+  const { order } = await getRequest<{ order: Order | null }>("/api/children/me/orders/active");
+  return order ? toChildActiveOrder(order) : null;
+};
+
+/** 주문 취소(POST /api/children/me/orders/{orderId}/cancel). 접수 대기일 때만 된다 — 아니면 409 order-status-conflict. */
+export const cancelChildOrder = (orderId: number) =>
+  postRequest<Order>(`/api/children/me/orders/${orderId}/cancel`, undefined);

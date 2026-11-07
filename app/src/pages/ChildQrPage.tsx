@@ -1,5 +1,6 @@
 import qrMock from "../assets/child-qr-mock.svg";
 import ChildOrderSteps from "../components/child/ChildOrderSteps";
+import ChildQrCode from "../components/child/ChildQrCode";
 import { useChildQr } from "../hooks/childQr";
 import type { OrderReceiveType } from "../services/order";
 
@@ -15,7 +16,7 @@ const BOX_CLASS = "w-full rounded-[18px] border border-[#e6e9ee] bg-white p-5";
   아래 탭 바는 가게 목록 브랜치(PROMPT-180)의 ChildTabBar 를 머지한 뒤 붙인다. 겹치지 않게 아래 여백은 미리 둔다.
 */
 function ChildQrPage() {
-  const { order, canCancel, cancelOrder, goStores } = useChildQr();
+  const { isLoading, order, qrPayload, canCancel, cancelOrder, errorMessage, goStores } = useChildQr();
   // 조리가 시작됐으면 이미 체크인한 뒤라 QR 을 감춘다.
   const isCooking = order?.status === "COOKING";
 
@@ -25,7 +26,13 @@ function ChildQrPage() {
         <h1 className="text-xl leading-[normal] font-bold text-[#1f2937]">내 QR</h1>
       </div>
 
-      {order ? (
+      {errorMessage && (
+        <p role="alert" className="px-5 pt-3 text-center text-[13px] leading-[normal] text-[#e5484d]">
+          {errorMessage}
+        </p>
+      )}
+
+      {isLoading ? null : order ? (
         <div className="flex flex-col gap-3 px-4 pt-3">
           <section className={`${BOX_CLASS} flex flex-col items-center gap-1.5`}>
             <div className="flex flex-col items-center gap-1 text-center">
@@ -41,10 +48,16 @@ function ChildQrPage() {
               )}
             </div>
 
-            {/* TODO(아동 QR API 가 생기면): 서버가 준 QR 토큰으로 그린다. 지금은 시안의 QR 그림이라 찍어도 체크인되지 않는다. */}
+            {/* 서버가 준 QR 값으로 그린다. 목업 화면에서는 시안의 QR 그림이라 찍어도 체크인되지 않는다. */}
             {!isCooking && (
               <div className="px-2 pt-5 pb-2">
-                <img src={qrMock} alt="내 QR 코드" width={164} height={164} />
+                {qrPayload ? (
+                  <ChildQrCode value={qrPayload} size={164} />
+                ) : import.meta.env.VITE_STORE_MOCK === "true" ? (
+                  <img src={qrMock} alt="내 QR 코드" width={164} height={164} />
+                ) : (
+                  <div className="size-[164px]" />
+                )}
               </div>
             )}
 
