@@ -17,7 +17,7 @@ const BOX_CLASS = "w-full rounded-[18px] border border-[#e6e9ee] bg-white p-5";
 */
 function ChildQrPage() {
   const { isLoading, order, qrPayload, canCancel, cancelOrder, errorMessage, goStores } = useChildQr();
-  // 조리가 시작됐으면(조리 중·전달 완료) 이미 체크인한 뒤라 QR 을 감춘다.
+  // 조리가 시작됐으면(조리 중·조리 완료) 이미 체크인한 뒤라 QR 을 감춘다.
   const isCooking = order !== null && order.status !== "RECEIVED";
 
   return (

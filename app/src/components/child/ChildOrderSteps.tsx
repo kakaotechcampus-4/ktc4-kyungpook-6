@@ -3,10 +3,10 @@ import type { ChildOrderStatus } from "../../services/childQr";
 const STEPS: { status: ChildOrderStatus; label: string }[] = [
   { status: "RECEIVED", label: "접수 대기" },
   { status: "COOKING", label: "조리 중" },
-  { status: "DONE", label: "전달 완료" },
+  { status: "DONE", label: "조리 완료" },
 ];
 
-/** 내 QR 의 주문 상태 단계(점주 앱의 접수 대기·조리 중·전달 완료와 같다). 지금 단계까지 동그라미를 노랗게 칠하고, 글자는 지금 단계만 굵게 한다. */
+/** 내 QR 의 주문 상태 단계(점주 앱의 접수 대기·조리 중·조리 완료와 같다). 지금 단계까지 동그라미를 노랗게 칠하고, 글자는 지금 단계만 굵게 한다. */
 function ChildOrderSteps({ status }: { status: ChildOrderStatus }) {
   const currentIndex = STEPS.findIndex((step) => step.status === status);
 

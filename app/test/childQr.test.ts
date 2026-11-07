@@ -18,7 +18,7 @@ describe("isOrderFinished", () => {
 });
 
 describe("reconcileActiveOrder", () => {
-  it("조리 중이던 주문이 사라지면 전달 완료로 남긴다", () => {
+  it("조리 중이던 주문이 사라지면 조리 완료로 남긴다", () => {
     expect(reconcileActiveOrder(cooking, null)?.status).toBe("DONE");
   });
 
