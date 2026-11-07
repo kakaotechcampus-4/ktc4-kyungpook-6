@@ -7,6 +7,7 @@ import {
   cancelChildOrder,
   getActiveChildOrder,
   isOrderFinished,
+  reconcileActiveOrder,
 } from "../services/childQr";
 import type { ChildActiveOrder } from "../services/childQr";
 import { getOrIssueQrPayload } from "../services/childQrToken";
@@ -18,8 +19,8 @@ const USE_STORE_MOCK = import.meta.env.VITE_STORE_MOCK === "true";
 /** 2시간이 지났는지 다시 보는 주기. */
 const CLOCK_TICK_MS = 60_000;
 
-/** 접수 대기 중에 점주가 QR 을 찍었는지(조리 중이 됐는지) 다시 보는 주기. */
-const RECEIVED_POLL_MS = 10_000;
+/** 점주가 QR 을 찍었는지(조리 중), 전달했는지(전달 완료) 다시 보는 주기. */
+const STATUS_POLL_MS = 10_000;
 
 /* 아동 가게 목록. "가게 찾아보기"로 간다. */
 const STORE_LIST_PATH = "/child/stores";
@@ -59,7 +60,8 @@ const toCancelErrorMessage = (error: unknown) =>
 
 /**
  * 아동 내 QR. 점주가 찍을 QR 과 진행 중인 주문의 상태를 보여 준다.
- * 진행 중 주문은 GET /api/children/me/orders/active 로 읽고, 접수 대기 중에는 점주가 찍었는지 주기적으로 다시 읽는다.
+ * 진행 중 주문은 GET /api/children/me/orders/active 로 읽고, 전달 완료 전까지 주기적으로 다시 읽는다.
+ * 조리 중이던 주문이 사라지면 전달 완료로 보여 준다(services/childQr.ts 의 reconcileActiveOrder).
  * 취소는 POST /api/children/me/orders/{orderId}/cancel.
  * QR 값은 처음 한 번 발급받아 폰에 저장해 두고 계속 쓴다(services/childQrToken.ts).
  */
@@ -69,9 +71,18 @@ export const useChildQr = (): UseChildQrResult => {
   const now = useNow();
   const orderQuery = useQuery<ChildActiveOrder | null>({
     queryKey: CHILD_ACTIVE_ORDER_QUERY_KEY,
-    queryFn: () => (USE_STORE_MOCK ? MOCK_CHILD_ACTIVE_ORDER : getActiveChildOrder()),
-    ...(USE_STORE_MOCK && { staleTime: Infinity, gcTime: Infinity }),
-    refetchInterval: (query) => (!USE_STORE_MOCK && query.state.data?.status === "RECEIVED" ? RECEIVED_POLL_MS : false),
+    queryFn: async () => {
+      if (USE_STORE_MOCK) return MOCK_CHILD_ACTIVE_ORDER;
+      const previous = queryClient.getQueryData<ChildActiveOrder | null>(CHILD_ACTIVE_ORDER_QUERY_KEY);
+      return reconcileActiveOrder(previous, await getActiveChildOrder());
+    },
+    // 전달 완료는 서버에서 다시 읽을 수 없으니(사라진 주문) 앱 안에 남겨 둔다.
+    staleTime: USE_STORE_MOCK ? Infinity : 0,
+    gcTime: Infinity,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return !USE_STORE_MOCK && (status === "RECEIVED" || status === "COOKING") ? STATUS_POLL_MS : false;
+    },
   });
 
   const cancelMutation = useMutation({

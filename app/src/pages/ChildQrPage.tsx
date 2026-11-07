@@ -17,8 +17,8 @@ const BOX_CLASS = "w-full rounded-[18px] border border-[#e6e9ee] bg-white p-5";
 */
 function ChildQrPage() {
   const { isLoading, order, qrPayload, canCancel, cancelOrder, errorMessage, goStores } = useChildQr();
-  // 조리가 시작됐으면 이미 체크인한 뒤라 QR 을 감춘다.
-  const isCooking = order?.status === "COOKING";
+  // 조리가 시작됐으면(조리 중·전달 완료) 이미 체크인한 뒤라 QR 을 감춘다.
+  const isCooking = order !== null && order.status !== "RECEIVED";
 
   return (
     <main className="flex min-h-screen flex-col bg-[#f3f5f8] pt-[env(safe-area-inset-top)] pb-[calc(84px+env(safe-area-inset-bottom))]">

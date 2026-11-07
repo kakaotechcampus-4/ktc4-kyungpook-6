@@ -1,8 +1,11 @@
 import { getRequest, postRequest } from "./api";
 import type { Order, OrderReceiveType } from "./order";
 
-/** 아동 주문의 진행 단계. 점주가 체크인 결과 화면에서 "조리 시작하기"를 누르면 COOKING 이 된다. */
-export type ChildOrderStatus = "RECEIVED" | "COOKING";
+/**
+ * 아동 주문의 진행 단계. 점주 앱과 같은 세 단계다.
+ * 점주가 체크인 결과 화면에서 "조리 시작하기"를 누르면 COOKING, "조리 완료"를 누르면 DONE(전달 완료).
+ */
+export type ChildOrderStatus = "RECEIVED" | "COOKING" | "DONE";
 
 /** 내 QR 화면에 보이는 진행 중인 주문. */
 export type ChildActiveOrder = {
@@ -38,9 +41,9 @@ export const MOCK_CHILD_ACTIVE_ORDER: ChildActiveOrder = {
   cookingStartedAt: null,
 };
 
-/** 조리 시작 뒤 2시간이 지나 끝난 주문인지. */
+/** 조리 시작 뒤 2시간이 지나 끝난 주문인지(조리 중·전달 완료 모두). */
 export const isOrderFinished = (order: ChildActiveOrder, at: Date) =>
-  order.status === "COOKING" &&
+  order.status !== "RECEIVED" &&
   order.cookingStartedAt !== null &&
   at.getTime() - new Date(order.cookingStartedAt).getTime() >= FEEDBACK_WINDOW_MS;
 
@@ -67,3 +70,17 @@ export const getActiveChildOrder = async (): Promise<ChildActiveOrder | null> =>
 /** 주문 취소(POST /api/children/me/orders/{orderId}/cancel). 접수 대기일 때만 된다 — 아니면 409 order-status-conflict. */
 export const cancelChildOrder = (orderId: number) =>
   postRequest<Order>(`/api/children/me/orders/${orderId}/cancel`, undefined);
+
+/**
+ * 진행 중 주문을 다시 읽은 값에 지난 값을 맞춘다. 서버는 전달 완료된 주문을 진행 중 주문으로 주지 않아(null),
+ * 조리 중이던 주문이 사라지면 전달 완료로 남긴다 — 점주는 조리 중인 주문을 취소할 수 없어 사라졌다면 전달된 것이다.
+ * 접수 대기였던 주문이 사라지면 취소된 것이라 비운다.
+ */
+export const reconcileActiveOrder = (
+  previous: ChildActiveOrder | null | undefined,
+  next: ChildActiveOrder | null,
+): ChildActiveOrder | null => {
+  if (next) return next;
+  if (previous && previous.status !== "RECEIVED") return { ...previous, status: "DONE" };
+  return null;
+};
