@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -6,7 +5,6 @@ import {
   MOCK_CHILD_ACTIVE_ORDER,
   cancelChildOrder,
   getActiveChildOrder,
-  isOrderFinished,
   reconcileActiveOrder,
 } from "../services/childQr";
 import type { ChildActiveOrder } from "../services/childQr";
@@ -15,9 +13,6 @@ import { toChildOrderErrorType } from "../utils/childOrderError";
 
 /** VITE_STORE_MOCK=true 면 서버 없이 시안의 주문을 보여 준다. */
 const USE_STORE_MOCK = import.meta.env.VITE_STORE_MOCK === "true";
-
-/** 2시간이 지났는지 다시 보는 주기. */
-const CLOCK_TICK_MS = 60_000;
 
 /** 점주가 QR 을 찍었는지(조리 중), 조리를 끝냈는지(조리 완료) 다시 보는 주기. */
 const STATUS_POLL_MS = 10_000;
@@ -28,7 +23,7 @@ const STORE_LIST_PATH = "/child/stores";
 export type UseChildQrResult = {
   /** 처음 불러오는 중. 빈 안내를 잠깐 보여 주지 않게 한다. */
   isLoading: boolean;
-  /** 진행 중인 주문. 없거나 취소했거나 조리 시작 뒤 2시간이 지났으면 null — 화면은 빈 안내를 보여 준다. */
+  /** 진행 중인 주문(또는 방금 조리 완료된 주문). 없거나 취소했으면 null — 화면은 빈 안내를 보여 준다. */
   order: ChildActiveOrder | null;
   /**
    * QR 에 담을 값. 목업이면 null(시안 그림을 보여 준다). 받는 중이거나 받지 못했어도 null.
@@ -41,16 +36,6 @@ export type UseChildQrResult = {
   /** 불러오기·취소 실패 문구. 없으면 null. */
   errorMessage: string | null;
   goStores: () => void;
-};
-
-/** 기기 시각. 화면을 켜 둔 채 2시간이 지나도 비워지도록 주기적으로 새로 읽는다. */
-const useNow = () => {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), CLOCK_TICK_MS);
-    return () => window.clearInterval(id);
-  }, []);
-  return now;
 };
 
 const toCancelErrorMessage = (error: unknown) =>
@@ -68,7 +53,6 @@ const toCancelErrorMessage = (error: unknown) =>
 export const useChildQr = (): UseChildQrResult => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const now = useNow();
   const orderQuery = useQuery<ChildActiveOrder | null>({
     queryKey: CHILD_ACTIVE_ORDER_QUERY_KEY,
     queryFn: async () => {
@@ -76,9 +60,7 @@ export const useChildQr = (): UseChildQrResult => {
       const previous = queryClient.getQueryData<ChildActiveOrder | null>(CHILD_ACTIVE_ORDER_QUERY_KEY);
       return reconcileActiveOrder(previous, await getActiveChildOrder());
     },
-    // 조리 완료는 서버에서 다시 읽을 수 없으니(사라진 주문) 앱 안에 남겨 둔다.
-    staleTime: USE_STORE_MOCK ? Infinity : 0,
-    gcTime: Infinity,
+    ...(USE_STORE_MOCK && { staleTime: Infinity, gcTime: Infinity }),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       return !USE_STORE_MOCK && (status === "RECEIVED" || status === "COOKING") ? STATUS_POLL_MS : false;
@@ -96,8 +78,7 @@ export const useChildQr = (): UseChildQrResult => {
     },
   });
 
-  const storedOrder = orderQuery.data ?? null;
-  const order = storedOrder && !isOrderFinished(storedOrder, now) ? storedOrder : null;
+  const order = orderQuery.data ?? null;
   const canCancel = order?.status === "RECEIVED" && !cancelMutation.isPending;
 
   // 저장한 값을 읽거나 처음이면 발급받는다. 한 번 받으면 바뀌지 않으니 다시 부르지 않는다.

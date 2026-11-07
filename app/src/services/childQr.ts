@@ -20,16 +20,13 @@ export type ChildActiveOrder = {
   cookingStartedAt: string | null;
 };
 
-/** 조리 시작 뒤 이 시간(ms)이 지나면 주문이 끝난 것으로 보고 내 QR 을 비운다(피드백 창이 닫힌다). */
-export const FEEDBACK_WINDOW_MS = 2 * 60 * 60 * 1000;
-
 /** 진행 중인 주문을 담는 react-query 키. 주문 취소하면 null 로 바꾼다. */
 export const CHILD_ACTIVE_ORDER_QUERY_KEY = ["child-active-order"];
 
 /*
   VITE_STORE_MOCK=true 로 백엔드 없이 화면을 볼 때 쓰는 주문. 피그마 시안의 주문이다.
   주문 취소는 앱 안(react-query 캐시)에서만 바뀌고, 앱을 다시 켜면 처음으로 돌아간다.
-  조리 시작 뒤 화면을 보려면 status 를 "COOKING" 으로, cookingStartedAt 을 2시간 안의 시각으로 바꾼다.
+  조리 중·조리 완료 화면을 보려면 status 를 "COOKING"·"DONE" 으로, cookingStartedAt 을 아무 시각으로 바꾼다.
 */
 export const MOCK_CHILD_ACTIVE_ORDER: ChildActiveOrder = {
   orderId: 1,
@@ -41,11 +38,6 @@ export const MOCK_CHILD_ACTIVE_ORDER: ChildActiveOrder = {
   cookingStartedAt: null,
 };
 
-/** 조리 시작 뒤 2시간이 지나 끝난 주문인지(조리 중·조리 완료 모두). */
-export const isOrderFinished = (order: ChildActiveOrder, at: Date) =>
-  order.status !== "RECEIVED" &&
-  order.cookingStartedAt !== null &&
-  at.getTime() - new Date(order.cookingStartedAt).getTime() >= FEEDBACK_WINDOW_MS;
 
 /** 서버 주문을 내 QR 화면의 주문으로. 진행 중 주문만 오니 상태는 접수 대기·조리 중 둘뿐이다. */
 const toChildActiveOrder = (order: Order): ChildActiveOrder => ({
@@ -73,14 +65,15 @@ export const cancelChildOrder = (orderId: number) =>
 
 /**
  * 진행 중 주문을 다시 읽은 값에 지난 값을 맞춘다. 서버는 조리 완료된 주문을 진행 중 주문으로 주지 않아(null),
- * 조리 중이던 주문이 사라지면 조리 완료로 남긴다 — 점주는 조리 중인 주문을 취소할 수 없어 사라졌다면 조리를 끝낸 것이다.
- * 접수 대기였던 주문이 사라지면 취소된 것이라 비운다.
+ * 조리 중이던 주문이 사라지면 그때 한 번 조리 완료로 보여 준다 — 점주는 조리 중인 주문을 취소할 수 없어 사라졌다면 조리를 끝낸 것이다.
+ * 그 뒤 다시 불러오면(화면에 다시 들어오거나 앱을 다시 켜면) 서버대로 비운다. 접수 대기였던 주문이 사라지면 취소된 것이라 비운다.
+ * 시간으로 끝내는 규칙은 두지 않는다 — 서버가 주는 동안은 계속 보여 줘야 새 주문이 409 로 막히는 이유를 아이가 안다.
  */
 export const reconcileActiveOrder = (
   previous: ChildActiveOrder | null | undefined,
   next: ChildActiveOrder | null,
 ): ChildActiveOrder | null => {
   if (next) return next;
-  if (previous && previous.status !== "RECEIVED") return { ...previous, status: "DONE" };
+  if (previous?.status === "COOKING") return { ...previous, status: "DONE" };
   return null;
 };
