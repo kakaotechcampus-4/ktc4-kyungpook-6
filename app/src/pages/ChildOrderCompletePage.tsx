@@ -6,7 +6,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 const GLOW_BACKGROUND =
   "radial-gradient(circle closest-side, rgb(255 248 225) 0%, rgb(253 239 196) 60%, rgb(253 239 196 / 0) 100%)";
 
-/* 아동 내 QR 화면. 아직 없어서 누르면 빈 화면이 뜬다. 화면이 생기면 App.tsx 에 같은 주소로 붙인다. */
+/** 아동 내 QR 화면. */
 const MY_QR_PATH = "/child/qr";
 
 /** 아동 주문 완료. 주문하기를 누르면 온다. */
