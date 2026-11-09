@@ -27,7 +27,8 @@ const toMinutes = (time: string) => {
  *
  * - 직접 켜고 끄기(MANUAL)면 켜져 있으면 영업중, 꺼져 있으면 쉬는중
  * - 영업시간대로(SCHEDULE)면 영업시간 안이면 영업중. 자정 넘김·브레이크타임은 utils/openStatus.ts 의 isOpenAt 이 본다
- * - 영업시간 밖이면: 오늘 요일에 등록된 시간이 없으면 휴무중, 오늘 아직 열 시간이 남았으면 영업전, 다 끝났으면 영업종료
+ * - 영업시간 밖이면: 오늘 요일에 등록된 시간이 없으면 휴무중, 오늘 이미 열었다가 다시 열 시간이 남았으면(브레이크타임)
+ *   쉬는중, 아직 한 번도 안 열었으면 영업전, 다 끝났으면 영업종료
  */
 export const getChildStoreOpenStatus = (
   store: Pick<ChildStore, "openMode" | "manualOpen" | "businessHours">,
@@ -41,7 +42,10 @@ export const getChildStoreOpenStatus = (
   if (todayHours.length === 0) return "CLOSED_TODAY";
 
   const now = at.getHours() * 60 + at.getMinutes();
-  return todayHours.some(({ open }) => toMinutes(open) > now) ? "BEFORE_OPEN" : "ENDED";
+  const opensLater = todayHours.some(({ open }) => toMinutes(open) > now);
+  if (!opensLater) return "ENDED";
+  const openedEarlier = todayHours.some(({ open }) => toMinutes(open) <= now);
+  return openedEarlier ? "BREAK" : "BEFORE_OPEN";
 };
 
 /** 1km 미만은 m, 이상은 소수 한 자리 km("350m", "1.2km"). */

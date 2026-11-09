@@ -9,7 +9,7 @@ const formatCardNumber = (cardNumber: string) => cardNumber.replace(/(\d{4})(?=\
 
 /** 아동이 역할 선택에서 "식사하러 왔어요"를 고르면 오는 급식카드 인증 화면. */
 function ChildCardLoginPage() {
-  const { cardNumber, setCardNumber, canSubmit, submit } = useChildCardLogin();
+  const { cardNumber, setCardNumber, canSubmit, submit, errorMessage } = useChildCardLogin();
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -49,6 +49,11 @@ function ChildCardLoginPage() {
             // 16자리 + 띄어쓰기 3칸
             maxLength={19}
           />
+          {errorMessage && (
+            <p role="alert" className="pt-2 text-[13px] leading-[normal] text-[#e5484d]">
+              {errorMessage}
+            </p>
+          )}
         </div>
 
         <div className="px-5 pt-3 pb-[calc(30px+env(safe-area-inset-bottom))]">

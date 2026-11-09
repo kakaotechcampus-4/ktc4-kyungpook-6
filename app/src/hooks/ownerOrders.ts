@@ -44,7 +44,7 @@ export type UseOwnerOrdersResult = {
 
 /**
  * 점주 "주문" 탭. 접수 대기·조리 중·완료 주문을 보여 주고, 접수 대기 주문은 체크인·취소, 조리 중 주문은 조리 완료를 한다.
- * 완료 탭에는 전달 완료와 취소한 주문이 함께 들어간다(피그마 "주문 -완료").
+ * 완료 탭에는 조리 완료와 취소한 주문이 함께 들어간다(피그마 "주문 -완료").
  */
 export const useOwnerOrders = (): UseOwnerOrdersResult => {
   const navigate = useNavigate();

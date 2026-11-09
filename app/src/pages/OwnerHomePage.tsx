@@ -50,7 +50,7 @@ function OwnerHomePage() {
             <div className="flex gap-2.5">
               <StatCard label="접수 대기" value={home.waitingCount} valueClassName="text-[#b8891a]" />
               <StatCard label="조리 중" value={home.cookingCount} valueClassName="text-[#1f2937]" />
-              <StatCard label="전달 완료" value={home.doneCount} valueClassName="text-[#1f2937]" />
+              <StatCard label="조리 완료" value={home.doneCount} valueClassName="text-[#1f2937]" />
             </div>
           </section>
 

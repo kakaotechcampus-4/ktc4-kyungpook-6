@@ -54,7 +54,7 @@ export type UseOwnerHomeResult = {
   waitingCount: number;
   /** 조리 중 주문 수. */
   cookingCount: number;
-  /** 전달 완료 주문 수. 취소는 세지 않는다. */
+  /** 조리 완료 주문 수. 취소는 세지 않는다. */
   doneCount: number;
   /** 가장 최근에 들어온 대기 주문. 없으면 null — 화면은 카드를 그리지 않는다. */
   latestOrder: Order | null;

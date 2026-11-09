@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
 import { useNavigate } from "react-router-dom";
-import { DEFAULT_CHILD_LOCATION, MOCK_CHILD_STORES } from "../services/childStore";
+import { DEFAULT_CHILD_LOCATION } from "../services/childStore";
 import { loadLastLocation, saveLastLocation } from "../services/lastLocation";
 import { getChildStoreOpenStatus } from "../utils/childStoreStatus";
 import { matchesQuery } from "../utils/childSearch";
+import { useNearbyStores } from "./childNearbyStores";
 import { MAX_DISTANCE_METERS, useNow } from "./childStoreList";
 import { getChildHomeView, saveChildHomeView } from "./childHomeView";
 import type { ChildHomeView } from "./childHomeView";
@@ -68,7 +69,7 @@ const readDeviceLocation = async (): Promise<LatLng | null> => {
 
 /**
  * 아동 홈(지도). 가까운 가게를 핀으로 보여 주고, 가게·메뉴 이름으로 찾으면 결과 목록을 띄운다.
- * 가게는 API 가 없어 가게 목록과 같은 목업을 쓴다(services/childStore.ts).
+ * 가게는 내 위치의 주변 가게다(GET /api/stores/nearby). 위치를 새로 받으면 그 위치로 다시 부른다.
  */
 export const useChildHome = (): UseChildHomeResult => {
   const navigate = useNavigate();
@@ -109,15 +110,17 @@ export const useChildHome = (): UseChildHomeResult => {
     };
   }, [restored]);
 
+  const nearbyStores = useNearbyStores(userLocation).data;
+
   const stores = useMemo(
     () =>
-      MOCK_CHILD_STORES.filter((store) => store.distanceMeters <= MAX_DISTANCE_METERS)
+      (nearbyStores ?? []).filter((store) => store.distanceMeters <= MAX_DISTANCE_METERS)
         .filter((store) => matchesQuery(store, query))
         .map((store) => ({ ...store, openStatus: getChildStoreOpenStatus(store, now) }))
         .filter((store) => !filters.has("OPEN_ONLY") || store.openStatus === "OPEN")
         .filter((store) => !filters.has("TAKEOUT") || store.takeoutAvailable)
         .sort((a, b) => a.distanceMeters - b.distanceMeters),
-    [query, filters, now],
+    [nearbyStores, query, filters, now],
   );
 
   const toggleFilter = (filter: ChildHomeFilter) =>
