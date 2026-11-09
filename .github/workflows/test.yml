@@ -61,8 +61,15 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # 진단용. 컨테이너가 왜 안 뜨는지 로그에 남긴다 — 고치고 나면 되돌린다.
+      - name: Docker 환경 찍기
+        run: |
+          docker version
+          docker info --format '{{.ServerVersion}} / API {{.ServerVersion}}'
+          docker version --format 'MinAPI={{.Server.MinAPIVersion}} API={{.Server.APIVersion}}'
+
       - name: Run backend tests
-        run: ./scripts/test.sh
+        run: ./scripts/test.sh --info
         working-directory: backend
 
   ai-test:
