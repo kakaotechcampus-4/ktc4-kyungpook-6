@@ -48,6 +48,8 @@ class CallFailureKindTest {
             "WRONG_TARGET,           FIX_NUMBER",        // 받은 사람이 "대상이 아니다" 라고 답했다
             "IDENTITY_UNCONFIRMED,   PARTY_UNCONFIRMED",
             "USER_REQUESTED_STOP,    NOT_BY_PHONE",      // "그만하자" — 바로 다시 걸면 민폐다
+            // 2026-11-09 에 전화 API 쪽에서 더해진 코드 (PR #162)
+            "WAIT_TIMEOUT,           RETRY_LATER",       // "잠깐만요" 하고 안 돌아옴
     })
     @DisplayName("전화 API 가 준 코드 목록을 담당자가 할 일로 묶는다")
     void 받은_코드_목록(String reason, CallFailureKind expected) {
