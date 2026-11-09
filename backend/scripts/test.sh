@@ -16,4 +16,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 fi
 
+# Docker Engine 29 는 API 1.40 미만을 끊었는데, Testcontainers 1.20.4 가 쓰는 docker-java 는
+# 1.32 로 말을 건다("client version 1.32 is too old"). 그러면 컨테이너를 쓰는 테스트가 전부
+# initializationError 로 죽는다. docker-java 가 쓸 API 버전을 올려 준다.
+# 이미 정해 둔 값이 있으면 그것을 쓴다.
+export DOCKER_API_VERSION="${DOCKER_API_VERSION:-1.44}"
+
 gradle test "$@"
