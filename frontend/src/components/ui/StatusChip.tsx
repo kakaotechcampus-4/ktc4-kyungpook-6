@@ -33,6 +33,13 @@ type StatusChipProps = {
   details?: StatusDetail[];
   /** 진행 중이면 아이콘을 깜빡여 "아직 기다리는 중" 을 보인다. */
   pulse?: boolean;
+  /**
+   * 바깥에 알리는 방식. 서버가 거절한 것처럼 **끼어들어야 하는** 알림은 'alert' 로 준다.
+   *
+   * 바깥에서 role="alert" 를 두른 칸으로 감싸는 것으로는 안 된다 — 글자를 담은 칸이 이것이라
+   * 안쪽의 'status' 가 이긴다. display:contents 로 감싸면 role 자체가 떨어지기도 한다.
+   */
+  role?: 'status' | 'alert';
   className?: string;
 };
 
@@ -51,27 +58,40 @@ function StatusChip({
   label,
   details = [],
   pulse = false,
+  role = 'status',
   className,
 }: StatusChipProps) {
   const [hovered, setHovered] = useState(false);
-  const [pinned, setPinned] = useState(false);
+  /**
+   * 눌러서 정한 상태. null 이면 마우스·포커스를 따른다.
+   *
+   * 호버와 불리언 하나로 묶으면 **접기가 먹지 않는다** — 누르려면 먼저 마우스를 올리거나
+   * 포커스해야 해서 hovered 가 이미 true 이고, `hovered || pinned` 는 무엇을 넣어도 참이다.
+   */
+  const [pinned, setPinned] = useState<boolean | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
   const hasDetails = details.length > 0;
-  const open = hasDetails && (hovered || pinned);
+  const open = hasDetails && (pinned ?? hovered);
+
+  /** 마우스·포커스가 빠지면 눌러서 닫아 둔 것은 푼다 — 다시 올리면 또 열려야 한다. */
+  const release = () => {
+    setHovered(false);
+    setPinned((value) => (value === false ? null : value));
+  };
 
   useEffect(() => {
-    if (!pinned) return undefined;
+    if (!open) return undefined;
 
     const closeOnOutside = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setPinned(false);
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setPinned(null);
+      setHovered(false);
     };
+    /* 눌러서 연 것뿐 아니라 포커스로 연 것도 Esc 로 닫는다 — 키보드로는 그 길밖에 없다. */
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setPinned(false);
-        setHovered(false);
-      }
+      if (event.key === 'Escape') setPinned(false);
     };
 
     document.addEventListener('pointerdown', closeOnOutside);
@@ -80,7 +100,7 @@ function StatusChip({
       document.removeEventListener('pointerdown', closeOnOutside);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [pinned]);
+  }, [open]);
 
   const chipClass = `inline-flex h-7 max-w-full items-center gap-1 rounded-full border border-solid px-2.5 font-sans text-xs font-semibold leading-4 ${TONE[tone]}`;
   const content = (
@@ -99,21 +119,21 @@ function StatusChip({
   return (
     <div
       ref={rootRef}
-      role="status"
+      role={role}
       className={['relative inline-flex max-w-full', className]
         .filter(Boolean)
         .join(' ')}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseLeave={release}
     >
       {hasDetails ? (
         <button
           type="button"
           aria-expanded={open}
           aria-controls={panelId}
-          onClick={() => setPinned((value) => !value)}
+          onClick={() => setPinned((value) => !(value ?? hovered))}
           onFocus={() => setHovered(true)}
-          onBlur={() => setHovered(false)}
+          onBlur={release}
           className={`${chipClass} cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current`}
         >
           {content}
@@ -127,7 +147,7 @@ function StatusChip({
       )}
 
       {open ? (
-        <div id={panelId} className="absolute left-0 top-full z-30 pt-1">
+        <div id={panelId} className="absolute left-0 top-full z-50 pt-1">
           {/*
             라벨 열은 가장 긴 라벨에 맞춰 폭을 정한다(grid auto). 고정 폭이면 라벨이 길 때 줄이 꺾이고
             짧을 때 값이 멀리 떨어진다.

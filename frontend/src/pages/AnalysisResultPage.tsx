@@ -158,13 +158,12 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
             )}
             {/* 반영·확인·전화 요청이 서버에서 거절됐을 때. 펼칠 세부가 없어 글자 칩으로만 둔다. */}
             {actionErrorMessage && (
-              <div role="alert" className="contents">
-                <StatusChip
-                  tone="danger"
-                  icon="material-symbols:error-outline-rounded"
-                  label={actionErrorMessage}
-                />
-              </div>
+              <StatusChip
+                role="alert"
+                tone="danger"
+                icon="material-symbols:error-outline-rounded"
+                label={actionErrorMessage}
+              />
             )}
           </div>
         )}
