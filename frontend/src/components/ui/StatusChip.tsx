@@ -70,6 +70,7 @@ function StatusChip({
    */
   const [pinned, setPinned] = useState<boolean | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
   const hasDetails = details.length > 0;
@@ -101,6 +102,18 @@ function StatusChip({
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
+
+  /*
+    눌러서 연 판이 화면 밖이면 끌어온다. main 에 overflow-auto 가 걸려 있어 마지막 줄 카드의 판은
+    접힌 자리 아래로 떨어진다 — 스크롤하면 읽히지만, 판이 열렸다는 것을 모르면 스크롤하지 않는다.
+
+    호버로 열 때는 하지 않는다. 마우스를 올리기만 했는데 화면이 움직이고, 그 바람에 칩이
+    커서 밑에서 빠져나가 도로 닫힌다.
+  */
+  useEffect(() => {
+    if (pinned !== true) return;
+    panelRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [pinned]);
 
   const chipClass = `inline-flex h-7 max-w-full items-center gap-1 rounded-full border border-solid px-2.5 font-sans text-xs font-semibold leading-4 ${TONE[tone]}`;
   const content = (
@@ -147,7 +160,11 @@ function StatusChip({
       )}
 
       {open ? (
-        <div id={panelId} className="absolute left-0 top-full z-50 pt-1">
+        <div
+          id={panelId}
+          ref={panelRef}
+          className="absolute left-0 top-full z-50 pt-1"
+        >
           {/*
             라벨 열은 가장 긴 라벨에 맞춰 폭을 정한다(grid auto). 고정 폭이면 라벨이 길 때 줄이 꺾이고
             짧을 때 값이 멀리 떨어진다.
