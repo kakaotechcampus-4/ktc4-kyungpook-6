@@ -31,6 +31,7 @@ class Settings(BaseModel):
     speech_rms_threshold: float = Field(default=500, gt=0, le=32768)
     max_utterance_seconds: float = Field(default=20, ge=3, le=60)
     input_idle_seconds: float = Field(default=25, ge=1, le=120)
+    wait_timeout_seconds: float = Field(default=60, ge=1, le=60)
     answer_timeout: float = Field(default=45, ge=1, le=120)
     max_call_seconds: float = Field(default=600, ge=10, le=1800)
     max_turns: int = Field(default=120, ge=2, le=300)

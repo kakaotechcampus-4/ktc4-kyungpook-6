@@ -142,8 +142,12 @@ class DialogueTests(unittest.TestCase):
     def test_stop_keeps_partial_answers_and_fails(self):
         d=self.identified(request(False))
         d.apply('네',Interpretation(kind='YES'))
-        result=d.apply('끊어주세요',Interpretation(stop=True))
+        result=d.apply('끊어주세요',Interpretation(control='STOP'))
         self.assertEqual(result.reason,'USER_REQUESTED_STOP'); self.assertEqual(len(d.answers),1)
+        again=d.apply('네 맞아요',Interpretation(kind='YES'))
+        self.assertTrue(again.terminal)
+        self.assertEqual(again.reason,'USER_REQUESTED_STOP')
+        self.assertEqual(len(d.answers),1)
 
     def test_wrong_identity_and_repeated_unknown(self):
         d=self.dialogue()
@@ -151,6 +155,16 @@ class DialogueTests(unittest.TestCase):
         d=self.dialogue()
         for _ in range(3): result=d.apply('누구세요?',Interpretation())
         self.assertEqual(result.reason,'IDENTITY_UNCONFIRMED')
+
+    def test_identity_questions_with_knowledge_do_not_use_retry_budget(self):
+        d=self.dialogue()
+        for text in ('누구세요?', '무슨 일이죠?'):
+            reply=d.apply(text,Interpretation(knowledgeReply='정보 확인 전화입니다.'))
+            self.assertFalse(reply.terminal)
+        self.assertEqual(d.identity_retries,0)
+        reply=d.apply('네 관계자입니다',Interpretation(identity='YES'))
+        self.assertFalse(reply.terminal)
+        self.assertEqual(d.stage,'EXPECTED')
 
 class StoreTests(unittest.TestCase):
     def setUp(self):
@@ -262,6 +276,16 @@ class ProviderTests(unittest.TestCase):
         client=httpx.Client(transport=httpx.MockTransport(handler)); self.addCleanup(client.close)
         return Providers(self.s,client)
 
+    def jev_answers(self, *, irrelevant=.01, interrupt=None, backchannel=None,
+                    control='CONTINUE', answer='YES', confidence=.99):
+        answers={'irrelevant':{'noul':irrelevant},
+                 'control':{'choice':control,'confidence':confidence},
+                 'answer':{'choice':answer,'confidence':confidence}}
+        if interrupt is not None:
+            answers['interrupt']={'noul':interrupt}
+            answers['backchannel']={'noul':backchannel}
+        return {'answers':answers}
+
     def test_jev_contract_and_classification(self):
         def handler(req):
             body=json.loads(req.content)
@@ -270,32 +294,49 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(body['model'],'typesafe/jev-latest')
             self.assertEqual(body['questions']['interrupt']['type'],'noul')
             self.assertEqual(body['questions']['irrelevant']['type'],'noul')
+            self.assertEqual(body['questions']['control']['type'],'choice')
+            self.assertEqual(body['questions']['answer']['type'],'choice')
             self.assertTrue(body['state']['overlapping'])
-            return httpx.Response(200,json={'answers':{'irrelevant':{'noul':.01},
-                                                     'interrupt':{'noul':.99},'backchannel':{'noul':.01}}})
+            return httpx.Response(200,json=self.jev_answers(interrupt=.99,backchannel=.01))
         self.assertEqual(self.provider(handler).classify_overlap('아니오','안내',{}),'INTERRUPT')
 
     def test_jev_backchannel_uncertain_and_invalid(self):
         for a,b,want in ((.01,.99,'BACKCHANNEL'),(.5,.5,'INTERRUPT')):
-            p=self.provider(lambda req:httpx.Response(200,json={'answers':{'irrelevant':{'noul':.01},
-                'interrupt':{'noul':a},'backchannel':{'noul':b}}}))
+            p=self.provider(lambda req:httpx.Response(200,json=self.jev_answers(
+                interrupt=a,backchannel=b)))
             self.assertEqual(p.classify_overlap('네네','안내',{}),want)
-        p=self.provider(lambda req:httpx.Response(200,json={'answers':{'irrelevant':{'noul':.01},
-            'interrupt':{'noul':'true'},'backchannel':{'noul':1}}}))
+        invalid=self.jev_answers(interrupt=.01,backchannel=1)
+        invalid['answers']['interrupt']['noul']='true'
+        p=self.provider(lambda req:httpx.Response(200,json=invalid))
         with self.assertRaises(ValueError): p.classify_overlap('네','안내',{})
 
     def test_jev_ignores_only_clearly_irrelevant_nonoverlap(self):
         def handler(req):
             body=json.loads(req.content)
-            self.assertEqual(set(body['questions']),{'irrelevant'})
+            self.assertEqual(set(body['questions']),{'irrelevant','control','answer'})
             self.assertFalse(body['state']['overlapping'])
-            return httpx.Response(200,json={'answers':{'irrelevant':{'noul':.95}}})
+            return httpx.Response(200,json=self.jev_answers(irrelevant=.95))
         result=self.provider(handler).classify_utterance('감사합니다','관계자분 맞으세요?',{})
         self.assertEqual(result['verdict'],'IGNORE')
         self.assertEqual(result['scores']['irrelevant'],.95)
-        uncertain=self.provider(lambda req:httpx.Response(200,json={
-            'answers':{'irrelevant':{'noul':.5}}})).classify_utterance('네','관계자분 맞으세요?',{})
+        uncertain=self.provider(lambda req:httpx.Response(200,json=self.jev_answers(
+            irrelevant=.5))).classify_utterance('네','관계자분 맞으세요?',{})
         self.assertEqual(uncertain['verdict'],'PROCESS')
+
+    def test_jev_choice_rejects_invalid_answer_and_confidence(self):
+        for selected,confidence in (('MAYBE',.9),('YES',True),('YES',1.2)):
+            body=self.jev_answers(answer=selected,confidence=confidence)
+            p=self.provider(lambda req:httpx.Response(200,json=body))
+            with self.assertRaises(ValueError):
+                p.classify_utterance('네','관계자분 맞으세요?',{})
+
+    def test_jev_wait_and_stop_override_irrelevant_overlap(self):
+        for control in ('WAIT','STOP'):
+            body=self.jev_answers(irrelevant=.99,interrupt=.01,backchannel=.99,control=control)
+            p=self.provider(lambda req:httpx.Response(200,json=body))
+            result=p.classify_utterance('잠시만요','관계자분 맞으세요?',{},overlapping=True)
+            self.assertEqual(result['verdict'],'INTERRUPT')
+            self.assertEqual(result['control'],control)
 
     def test_stt_rejects_eight_khz_and_sends_sixteen_khz(self):
         seen=[]
@@ -335,6 +376,11 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(p.interpret(Dialogue(request(),ROOT/'agent.json'),'네').kind,'YES')
         p=self.provider(lambda req:httpx.Response(200,json={'choices':[{'message':{'content':'{"kind":"YES", "value": 42}'}}]}))
         with self.assertRaises(ValidationError): p.interpret(Dialogue(request(),ROOT/'agent.json'),'네')
+
+    def test_llm_accepts_one_line_and_multiline_json_fences(self):
+        for content in ('```json {"kind":"YES"} ```', '```json\n{"kind":"YES"}\n```'):
+            p=self.provider(lambda req:httpx.Response(200,json={'choices':[{'message':{'content':content}}]}))
+            self.assertEqual(p.interpret(Dialogue(request(),ROOT/'agent.json'),'네').kind,'YES')
 
     def test_terra_request_omits_unsupported_temperature(self):
         def handler(req):

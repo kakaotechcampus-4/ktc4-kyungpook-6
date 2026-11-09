@@ -1,5 +1,6 @@
 """Exercise actual call orchestration with deterministic providers and fake hardware."""
 import io
+import hashlib
 import json
 import tempfile
 import threading
@@ -7,18 +8,23 @@ import time
 import unittest
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from verification.hardware.audio import Utterance
+from verification.dialogue import Dialogue
+from verification.hardware.telemetry import EventLog
 from verification.models import Interpretation
 from verification.runtime import CallRunner, CallFailure
+from verification.runtime import Session
 from verification.store import Store
+from verification.worker import Worker
 from test_verification import request, settings, wav
 
 class FakeProviders:
     def __init__(self, scenario, events, *, fail_tts=False, fail_jev=False):
         self.scenario,self.events=scenario,events
         self.fail_tts,self.fail_jev=fail_tts,fail_jev
-        self.inputs=[]
+        self.inputs=[]; self.states=[]; self.classified=[]
 
     def synthesize(self,text,folder):
         self.events.append(('tts',text))
@@ -32,16 +38,31 @@ class FakeProviders:
     def classify_utterance(self,text,spoken,state,*,overlapping=False):
         self.events.append(('jev',text))
         if self.fail_jev: raise RuntimeError('Jev offline')
-        ignored=any(entry['text']==text and entry.get('irrelevant') for entry in self.scenario)
+        self.classified.append(text); self.states.append(state)
+        entry=next((entry for entry in self.scenario if entry['text']==text),{})
+        ignored=entry.get('irrelevant',False)
         verdict='IGNORE' if ignored else 'PROCESS' if not overlapping else 'BACKCHANNEL' if text=='네네' else 'INTERRUPT'
-        return {'verdict':verdict,'scores':{'irrelevant':.99 if ignored else .01}}
+        control=entry.get('control','STOP' if '끊어' in text else 'WAIT' if '잠시' in text else 'CONTINUE')
+        answer=entry.get('answer','VALUE' if '다온식당' in text or '누구세요' in text else
+                         'NO' if text.strip()=='아니요' else 'UNCLEAR' if text.strip()=='음' else 'YES')
+        return {'verdict':verdict,'scores':{'irrelevant':.99 if ignored else .01},
+                'control':control,'control_confidence':entry.get('control_confidence',.99),
+                'answer':answer,'answer_confidence':entry.get('answer_confidence',.99)}
 
     def interpret(self,dialogue,text):
-        self.inputs.append(text); self.events.append(('llm',text))
-        if '끊어' in text: return Interpretation(stop=True)
+        self.inputs.append(text); self.states.append(dialogue.state()); self.events.append(('llm',text))
+        if '끊어' in text: return Interpretation(control='STOP')
+        if '잠시' in text: return Interpretation(control='WAIT')
         if '다온식당' in text: return Interpretation(kind='VALUE',value='다온식당',evidence='다온식당')
         if dialogue.stage=='IDENTITY': return Interpretation(identity='YES')
         return Interpretation(kind='YES')
+
+class CachingFakeProviders(FakeProviders):
+    def synthesize(self,text,folder):
+        path=folder/(hashlib.sha256(text.encode()).hexdigest()+'.wav')
+        if path.exists(): return path
+        self.events.append(('tts',text))
+        return wav(path,8000)
 
 class FakeAudio:
     def __init__(self,scenario,events):
@@ -113,7 +134,8 @@ class RuntimeTests(unittest.TestCase):
         cid=self.store.enqueue(req); self.store.claim()
         self.audio=FakeAudio(scenario,self.events)
         self.modem=FakeModem(self.events,answer=kwargs.pop('answer',True),active=kwargs.pop('active',True))
-        self.providers=FakeProviders(scenario,self.events,**kwargs)
+        provider_class=kwargs.pop('provider_class',FakeProviders)
+        self.providers=provider_class(scenario,self.events,**kwargs)
         self.runner=CallRunner(self.s,self.store,self.providers,
             modem_factory=lambda *a,**k:self.modem,audio_factory=lambda *a,**k:self.audio)
         self.cid=cid
@@ -137,10 +159,11 @@ class RuntimeTests(unittest.TestCase):
         events=[json.loads(line) for line in log_file.read_text().splitlines()]
         stt=[entry for entry in events if entry['stage']=='stt' and entry['status']=='ok']
         llm=[entry for entry in events if entry['stage']=='llm.interpret' and entry['status']=='ok']
+        jev=[entry for entry in events if entry['stage']=='jev' and entry['status']=='ok']
         self.assertEqual([entry['output']['text'] for entry in stt],['네 관계자입니다','네 맞습니다'])
         self.assertTrue(all(entry['input']['audio_file'].endswith('.wav') for entry in stt))
-        self.assertEqual(llm[0]['input']['transcript'],'네 관계자입니다')
-        self.assertEqual(llm[0]['output']['identity'],'YES')
+        self.assertFalse(llm)
+        self.assertEqual([entry['output']['answer'] for entry in jev],['YES','YES'])
         names=[e[0] for e in self.events]
         self.assertLess(names.index('tts'),names.index('dial'))
         self.assertLess(names.index('convert_tts'),names.index('dial'))
@@ -149,6 +172,48 @@ class RuntimeTests(unittest.TestCase):
         self.assertLess(names.index('convert_stt'),names.index('stt'))
         self.assertTrue(self.audio.closed); self.assertTrue(self.modem.closed)
         self.assertEqual(names[-1],'hangup')
+
+    def test_static_templates_reuse_tts_across_calls(self):
+        dialogue=Dialogue(request(),self.s.persona_file)
+        static_texts=set(dialogue.static_templates().values())
+        self.run_call([],provider_class=CachingFakeProviders)
+        first_id=self.cid
+        first_tts={text for stage,text in self.events if stage=='tts'}
+        self.assertTrue(static_texts <= first_tts)
+        self.events.clear()
+        self.run_call([],provider_class=CachingFakeProviders)
+        second_id=self.cid
+        second_tts={text for stage,text in self.events if stage=='tts'}
+        self.assertEqual(second_tts,first_tts-static_texts)
+        self.assertEqual(len(list((self.folder/'tts-static').glob('*.wav'))),len(static_texts))
+        for call_id in (first_id,second_id):
+            self.assertEqual(len(list((self.folder/'calls'/call_id/'tts').glob('*.wav'))),len(second_tts))
+
+    def test_static_cache_tracks_agent_json_changes(self):
+        policy=json.loads(self.s.persona_file.read_text())
+        self.s.persona_file=self.folder/'agent.json'
+        self.s.persona_file.write_text(json.dumps(policy,ensure_ascii=False))
+        self.run_call([],provider_class=CachingFakeProviders)
+        policy['templates']['goodbye']='{storeName} 확인을 마칩니다.'
+        policy['templates']['timeout']='변경된 시간 초과 안내입니다.'
+        policy['templates']['newStatic']='추가된 고정 안내입니다.'
+        self.s.persona_file.write_text(json.dumps(policy,ensure_ascii=False))
+        self.events.clear()
+        self.run_call([],provider_class=CachingFakeProviders)
+        dialogue=Dialogue(request(),self.s.persona_file)
+        new_static=dialogue.template('newStatic')
+        changed_static=dialogue.template('timeout')
+        dynamic_goodbye=dialogue.template('goodbye')
+        second_tts={text for stage,text in self.events if stage=='tts'}
+        self.assertIn(new_static,second_tts)
+        self.assertIn(changed_static,second_tts)
+        self.assertIn(dynamic_goodbye,second_tts)
+        self.assertFalse((set(dialogue.static_templates().values())-{new_static,changed_static}) & second_tts)
+        filename=lambda text: hashlib.sha256(text.encode()).hexdigest()+'.wav'
+        self.assertTrue((self.folder/'tts-static'/filename(new_static)).exists())
+        self.assertTrue((self.folder/'tts-static'/filename(changed_static)).exists())
+        self.assertFalse((self.folder/'tts-static'/filename(dynamic_goodbye)).exists())
+        self.assertTrue((self.folder/'calls'/self.cid/'tts'/filename(dynamic_goodbye)).exists())
 
     def test_backchannel_is_preserved_without_stopping_playback(self):
         result=self.run_call([{'play':1,'text':'네네'},{'play':1,'text':'네 관계자입니다'},{'play':2,'text':'네 맞습니다'}])
@@ -173,7 +238,8 @@ class RuntimeTests(unittest.TestCase):
         names=[e[0] for e in self.events]
         self.assertLess(names.index('stt'),names.index('jev'))
         self.assertLess(names.index('jev'),names.index('stop'))
-        self.assertEqual(self.providers.inputs,['끊어주세요'])
+        self.assertEqual(self.providers.inputs,[])
+        self.assertEqual(self.providers.classified,['끊어주세요'])
         self.assertEqual(len([n for n in names if n=='stt']),1)
         self.assertTrue(self.modem.closed)
 
@@ -182,7 +248,8 @@ class RuntimeTests(unittest.TestCase):
                               {'play':1,'text':'네 관계자입니다'},
                               {'play':2,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
-        self.assertEqual(self.providers.inputs,['네 관계자입니다','네 맞습니다'])
+        self.assertEqual(self.providers.inputs,[])
+        self.assertEqual(self.providers.classified,['감사합니다','네 관계자입니다','네 맞습니다'])
         first_jev=self.events.index(('jev','감사합니다'))
         second_stt=next(i for i,e in enumerate(self.events) if e==('stt','u-2.wav'))
         self.assertNotIn('stop',[e[0] for e in self.events[first_jev:second_stt]])
@@ -195,7 +262,7 @@ class RuntimeTests(unittest.TestCase):
                               {'play':1,'text':'네 관계자입니다'},
                               {'play':2,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
-        self.assertNotIn('감사합니다',self.providers.inputs)
+        self.assertEqual(self.providers.inputs,[])
         log_file=next((self.folder/'calls'/self.cid).glob('call-*.jsonl'))
         entries=[json.loads(line) for line in log_file.read_text().splitlines()]
         jev=next(e for e in entries if e['stage']=='jev' and e['status']=='ok')
@@ -209,12 +276,99 @@ class RuntimeTests(unittest.TestCase):
                               {'play':1,'text':'네 관계자입니다'},
                               {'play':2,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
-        self.assertEqual(self.providers.inputs,['네 관계자입니다','네 맞습니다'])
+        self.assertEqual(self.providers.inputs,[])
 
     def test_partial_stop_retains_answer(self):
         result=self.run_call([{'play':1,'text':'네 관계자'},{'play':2,'text':'네 맞아요'},{'play':3,'text':'끊어주세요'}],single=False)
         self.assertEqual(result['failureReason'],'USER_REQUESTED_STOP')
         self.assertEqual(len(result['answers']),1)
+
+    def test_wait_resumes_on_ready_signal_and_repeats_question(self):
+        result=self.run_call([{'play':1,'text':'잠시만요'},
+                              {'play':1,'text':'이제 말씀하세요','answer':'UNCLEAR'},
+                              {'play':2,'text':'네 관계자입니다'},
+                              {'play':3,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(result['answers'][0]['value'],'새봄식당')
+        self.assertEqual(self.audio.plays,4)
+        self.assertEqual(self.providers.inputs,[])
+        log_file=next((self.folder/'calls'/self.cid).glob('call-*.jsonl'))
+        entries=[json.loads(line) for line in log_file.read_text().splitlines()]
+        self.assertEqual(len([e for e in entries if e['stage']=='turn.wait']),1)
+        self.assertEqual(len([e for e in entries if e['stage']=='turn.wait_resumed']),1)
+
+    def test_wait_expires_after_one_minute_limit(self):
+        self.s.wait_timeout_seconds=1
+        result=self.run_call([{'play':1,'text':'잠시만요'}])
+        self.assertEqual(result['status'],'FAILED')
+        self.assertEqual(result['failureReason'],'WAIT_TIMEOUT')
+        self.assertEqual(self.audio.plays,2)
+        self.assertEqual(self.providers.inputs,[])
+
+    def test_repeated_wait_does_not_extend_deadline(self):
+        audio=FakeAudio([],self.events)
+        with EventLog(self.folder) as log:
+            session=Session(self.s,self.store,None,audio,Dialogue(request(),self.s.persona_file),
+                            log,self.folder,'call',threading.Event())
+            session.begin_wait('잠시만요')
+            first=session.wait_started
+            session.begin_wait('조금만 더 기다려 주세요')
+            self.assertEqual(session.wait_started,first)
+
+    def test_wait_accepts_speech_started_before_deadline(self):
+        class DelayedSpeechAudio(FakeAudio):
+            @property
+            def is_speaking(self):
+                return time.monotonic() < self.speech_end
+
+            def next_utterance(self,timeout=.05):
+                time.sleep(.02)
+                if time.monotonic() >= self.speech_end and not self.sent:
+                    self.sent=1
+                    return Utterance(self.folder/'late.wav',1,.2,time.monotonic(),self.speech_started)
+                return None
+
+        self.s.wait_timeout_seconds=1
+        audio=DelayedSpeechAudio([],self.events)
+        audio.folder=self.folder
+        with EventLog(self.folder) as log:
+            session=Session(self.s,self.store,None,audio,Dialogue(request(),self.s.persona_file),
+                            log,self.folder,'call',threading.Event())
+            session.modem=FakeModem(self.events)
+            session.started=time.monotonic()
+            session.begin_wait('잠시만요')
+            session.wait_started-=.95
+            audio.speech_started=time.monotonic()-.05
+            audio.speech_end=time.monotonic()+.15
+            utterance,reason=session.wait_input()
+            self.assertIsNone(reason)
+            self.assertEqual(utterance.utterance_id,1)
+            self.assertGreater(utterance.completed_at,session.wait_started+1)
+
+    def test_low_confidence_answer_uses_llm(self):
+        result=self.run_call([{'play':1,'text':'네 관계자입니다','answer_confidence':.4},
+                              {'play':2,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(self.providers.inputs,['네 관계자입니다'])
+
+    def test_wait_can_end_with_stop(self):
+        result=self.run_call([{'play':1,'text':'잠시만요'},{'play':1,'text':'끊어주세요'}])
+        self.assertEqual(result['failureReason'],'USER_REQUESTED_STOP')
+        self.assertEqual(self.providers.inputs,[])
+
+    def test_stop_during_four_field_call_never_resumes_questions(self):
+        result=self.run_call([{'play':1,'text':'네 관계자'},
+                              {'play':2,'text':'끊어주세요'},
+                              {'play':3,'text':'네 맞아요'},
+                              {'play':3,'text':'네 맞아요'},
+                              {'play':3,'text':'네 맞아요'},
+                              {'play':3,'text':'네 맞아요'}],single=False)
+        self.assertEqual(result['status'],'FAILED')
+        self.assertEqual(result['failureReason'],'USER_REQUESTED_STOP')
+        self.assertEqual(result['answers'],[])
+        self.assertEqual(self.providers.inputs,[])
+        self.assertEqual(self.providers.classified,['네 관계자','끊어주세요'])
+        self.assertEqual(self.audio.plays,3)
 
     def test_stop_after_all_answers_is_completed(self):
         result=self.run_call([{'play':1,'text':'네 관계자'},{'play':2,'text':'네 맞아요'},{'play':3,'text':'끊어주세요'}])
@@ -230,6 +384,54 @@ class RuntimeTests(unittest.TestCase):
     def test_tts_preparation_failure_never_dials(self):
         with self.assertRaises(RuntimeError): self.run_call([],fail_tts=True)
         self.assertNotIn('dial',[e[0] for e in self.events])
+
+    def test_shutdown_during_preparation_never_dials(self):
+        req=request()
+        cid=self.store.enqueue(req)
+        self.store.claim()
+        stop=threading.Event()
+        providers=FakeProviders([],self.events)
+        synthesize=providers.synthesize
+        def synthesize_then_stop(text,folder):
+            result=synthesize(text,folder)
+            stop.set()
+            return result
+        providers.synthesize=synthesize_then_stop
+        runner=CallRunner(self.s,self.store,providers,
+            modem_factory=lambda *a,**k:FakeModem(self.events),
+            audio_factory=lambda *a,**k:FakeAudio([],self.events))
+        with self.assertRaisesRegex(CallFailure,'SERVER_SHUTDOWN'):
+            runner(cid,req,stop)
+        self.assertNotIn('dial',[event[0] for event in self.events])
+
+    def test_worker_retries_completed_result_when_store_finish_is_busy(self):
+        import sqlite3
+        req=request()
+        cid=self.store.enqueue(req)
+        scenario=[{'play':1,'text':'네 관계자'}, {'play':2,'text':'네 맞아요'}]
+        audio=FakeAudio(scenario,self.events)
+        modem=FakeModem(self.events)
+        providers=FakeProviders(scenario,self.events)
+        finish=self.store.finish
+        attempts=[]
+        def flaky_finish(call_id,reason=None):
+            attempts.append(reason)
+            if len(attempts)==1: raise sqlite3.OperationalError('busy')
+            return finish(call_id,reason)
+        self.store.finish=flaky_finish
+        runner=CallRunner(self.s,self.store,providers,
+            modem_factory=lambda *a,**k:modem,audio_factory=lambda *a,**k:audio)
+        worker=Worker(self.store,runner,self.folder/'modem.lock')
+        with redirect_stdout(io.StringIO()):
+            worker.start()
+            try:
+                deadline=time.monotonic()+3
+                while self.store.get(cid)['status']!='COMPLETED' and time.monotonic()<deadline:
+                    time.sleep(.01)
+                self.assertEqual(self.store.get(cid)['status'],'COMPLETED')
+                self.assertEqual(attempts,[None,None])
+                self.assertEqual(len(providers.classified),2)
+            finally: worker.stop()
 
     def test_no_answer_releases_modem(self):
         with self.assertRaisesRegex(CallFailure,'NO_ANSWER_OR_REJECTED'): self.run_call([],answer=False)
@@ -259,5 +461,39 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(len(result['answers']),1)
         self.assertEqual(self.audio.plays,4) # greeting, question, clarification, goodbye
+
+    def test_stale_reply_updates_last_assistant_and_alternating_history(self):
+        result=self.run_call([{'play':1,'text':'네 관계자'},
+                              {'play':2,'text':'네 맞아요'},
+                              {'play':3,'text':'네', 'started':.001},
+                              {'play':4,'text':'끊어주세요'}],single=False)
+        self.assertEqual(result['failureReason'],'USER_REQUESTED_STOP')
+        repeated=self.providers.states[-1]
+        expected=Dialogue(request(False),self.s.persona_file)
+        expected.apply('네 관계자',Interpretation(identity='YES'))
+        expected.apply('네 맞아요',Interpretation(kind='YES'))
+        self.assertEqual(repeated['lastAssistant'],expected.question())
+        self.assertEqual([entry['role'] for entry in repeated['history']],
+                         ['assistant','user','assistant','user','assistant','user'])
+
+    def test_finished_playback_precedes_call_limit(self):
+        audio=FakeAudio([],self.events)
+        with EventLog(self.folder) as log:
+            session=Session(self.s,self.store,None,audio,Dialogue(request(),self.s.persona_file),
+                            log,self.folder,'call',threading.Event())
+            session.started=time.monotonic()-self.s.max_call_seconds-1
+            self.assertEqual(session.wait_input(finishing=True)[1],'GOODBYE_FINISHED')
+
+    def test_call_limit_during_goodbye_keeps_completed_result(self):
+        original=Session.wait_input
+        def expire_during_goodbye(session, finishing=False, ignore_input=False):
+            if finishing:
+                return None, 'CALL_TIME_LIMIT'
+            return original(session, finishing=finishing, ignore_input=ignore_input)
+        with patch.object(Session,'wait_input',expire_during_goodbye):
+            result=self.run_call([{'play':1,'text':'네 관계자'},
+                                  {'play':2,'text':'네 맞아요'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertIsNone(result['failureReason'])
 
 if __name__=='__main__': unittest.main()

@@ -1,5 +1,6 @@
 """State machine owns completion and values; the LLM only interprets a turn."""
 import json
+from string import Formatter
 from dataclasses import dataclass
 from pathlib import Path
 from .models import CallRequest, Confirmation, Interpretation
@@ -29,6 +30,8 @@ class Dialogue:
         self.answers = []
         self.candidate = None
         self.identity_retries = 0
+        self.stopped = False
+        self.stop_reason = None
         self.history = []
         self.last_text = self.template('greeting')
 
@@ -42,6 +45,19 @@ class Dialogue:
 
     def template(self, name, **kwargs):
         return self.policy['templates'][name].format(**self.request.target.model_dump(), **kwargs)
+
+    def is_static_template(self, name):
+        return all(field is None for _, field, _, _ in Formatter().parse(self.policy['templates'][name]))
+
+    def static_templates(self):
+        return {name: self.template(name) for name in self.policy['templates']
+                if self.is_static_template(name)}
+
+    def prewarm_texts(self):
+        target_fields = self.request.target.model_dump().keys()
+        return [self.template(name) for name, template in self.policy['templates'].items()
+                if all(field is None or field in target_fields
+                       for _, field, _, _ in Formatter().parse(template))]
 
     def spoken(self, value):
         if isinstance(value, bool):
@@ -83,14 +99,23 @@ class Dialogue:
         return Reply(ack + ' ' + self._start_item())
 
     def apply(self, text: str, decision: Interpretation) -> Reply:
+        if self.stopped:
+            return Reply(self.template('stopped'), True, self.stop_reason)
         self.history.extend([{'role':'assistant','content':self.last_text}, {'role':'user','content':text}])
         result = self._apply(text, decision)
         self.last_text = result.text
         return result
 
+    def repeat(self, text: str, reply: str) -> None:
+        self.history.extend([{'role':'assistant','content':self.last_text},
+                             {'role':'user','content':text}])
+        self.last_text = reply
+
     def _apply(self, text, decision):
-        if decision.stop:
-            return Reply(self.template('stopped'), True, None if self.complete else 'USER_REQUESTED_STOP')
+        if decision.control == 'STOP':
+            self.stopped = True
+            self.stop_reason = None if self.complete else 'USER_REQUESTED_STOP'
+            return Reply(self.template('stopped'), True, self.stop_reason)
         if self.complete:
             # A correction during the final readback reopens the last field.
             if decision.kind == 'NO' or (decision.kind in ('CURRENT','EXPECTED','VALUE')
@@ -106,7 +131,8 @@ class Dialogue:
                 return Reply(self.template('wrongTarget'), True, 'WRONG_TARGET')
             if decision.identity == 'YES':
                 return Reply(self._start_item())
-            self.identity_retries += 1
+            if not decision.knowledgeReply.strip():
+                self.identity_retries += 1
             if self.identity_retries >= 3:
                 return Reply(self.template('wrongTarget'), True, 'IDENTITY_UNCONFIRMED')
             return Reply((decision.knowledgeReply + ' ' if decision.knowledgeReply else '') + self.question())

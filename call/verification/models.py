@@ -83,7 +83,7 @@ class CallResult(Model):
 
 class Interpretation(Model):
     identity: Literal['YES', 'NO', 'UNKNOWN'] = 'UNKNOWN'
-    stop: StrictBool = False
+    control: Literal['STOP', 'WAIT', 'CONTINUE'] = 'CONTINUE'
     kind: Literal['YES', 'NO', 'CURRENT', 'EXPECTED', 'VALUE', 'UNCLEAR'] = 'UNCLEAR'
     value: Value | None = None
     evidence: str = ''
