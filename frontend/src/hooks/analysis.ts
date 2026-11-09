@@ -21,6 +21,7 @@ import type {
   SurveyEvidence,
   TaskClassification,
 } from '../components/AgentSurveyResultCard';
+import type { StatusDetail } from '../components/ui/StatusChip';
 import { formatDateTime } from '../utils/date';
 import {
   callAnswerLabel,
@@ -51,10 +52,16 @@ const ACTION_LABEL: Record<VerificationResponse['action'], string> = {
  */
 const CALLABLE: TaskClassification[] = ['priority', 'additional'];
 
-/** 카드에 찍을 확인 전화 한 줄. 아직 걸지 않았으면 undefined. */
+/**
+ * 카드에 찍을 확인 전화 상태. 아직 걸지 않았으면 undefined.
+ *
+ * label 은 늘 보이는 한마디("전화 확인 중"), details 는 칩에 마우스를 올리거나 누르면 펼치는 세부다.
+ * 사유 코드·들은 답까지 한 줄에 이어 붙이면 실패 줄이 카드 폭을 넘어 무엇이 요점인지 안 보였다.
+ */
 export type CallStatusLabel = {
   label: string;
   tone: 'progress' | 'done' | 'failed';
+  details: StatusDetail[];
 };
 
 /**
@@ -74,21 +81,26 @@ const FAILURE_GUIDE: Record<CallFailureKindResponse, string> = {
 };
 
 /**
- * 확인 전화 기록을 카드에 찍을 한 줄로 만든다.
+ * 확인 전화 기록을 카드에 찍을 상태로 만든다.
  *
- * 끝난 전화는 **들은 답을 그 줄에 같이 적는다.** 답을 따로 열어 봐야 하면 담당자가 전화를 건
- * 카드와 안 건 카드만 구분하게 되고, 정작 점주가 뭐라고 했는지는 읽지 않게 된다.
+ * 끝난 전화는 **들은 답을 세부에 같이 담는다.** 답이 없다는 것도 적는다 — 빈 세부는 "아직 안 열어 봤다"
+ * 와 구분되지 않는다.
  */
 export function toCallStatusLabel(
   call: CallResponse | null,
 ): CallStatusLabel | undefined {
   if (!call) return undefined;
 
+  const requestedAt = formatDateTime(call.requestedAt);
+  const requestedDetail: StatusDetail[] = requestedAt
+    ? [{ label: '요청 시각', value: requestedAt }]
+    : [];
+
   if (call.status === 'PENDING' || call.status === 'IN_PROGRESS') {
-    const at = formatDateTime(call.requestedAt);
     return {
       tone: 'progress',
-      label: at ? `전화 확인 중 · ${at} 요청` : '전화 확인 중',
+      label: '전화 확인 중',
+      details: requestedDetail,
     };
   }
 
@@ -97,45 +109,47 @@ export function toCallStatusLabel(
     결과도 포함될 수 있습니다"). 그 답을 버리면 담당자가 "폐업이라고 들었는데 끊긴 전화" 를
     그냥 실패로 보고 처음부터 다시 건다.
   */
-  const answers = answerText(call);
+  const answers = answerDetails(call);
 
   if (call.status === 'FAILED') {
     /* 사유 코드는 전화 API 가 정하는 값이라 번역하지 않는다 — 모르는 코드를 삼키면 원인이 사라진다. */
     const guide = FAILURE_GUIDE[call.failureKind ?? 'UNKNOWN'];
-    const head =
-      call.failureKind === 'OUR_SIDE' ? '전화를 걸지 못했습니다' : '전화 확인 실패';
     return {
       tone: 'failed',
-      label: [
-        call.failureReason ? `${head} · ${call.failureReason}` : head,
-        guide,
-        answers && `들은 것 — ${answers}`,
-      ]
-        .filter(Boolean)
-        .join(' · '),
+      label:
+        call.failureKind === 'OUR_SIDE' ? '전화를 걸지 못했습니다' : '전화 확인 실패',
+      details: [
+        ...(guide ? [{ label: '할 일', value: guide }] : []),
+        ...(call.failureReason ? [{ label: '사유 코드', value: call.failureReason }] : []),
+        ...answers,
+        ...requestedDetail,
+      ],
     };
   }
 
   return {
     tone: 'done',
-    label: answers ? `전화 확인 완료 · ${answers}` : '전화 확인 완료 · 답 없음',
+    label: '전화 확인 완료',
+    details: [
+      ...(answers.length > 0 ? answers : [{ label: '들은 답', value: '없음' }]),
+      ...requestedDetail,
+    ],
   };
 }
 
 /**
- * 통화에서 들은 답을 한 줄로 잇는다. 아직 들은 것이 없으면 빈 문자열.
+ * 통화에서 들은 답을 세부 줄로 만든다. 아직 들은 것이 없으면 빈 배열.
  *
- * 가게에 반영된 답에는 "(반영됨)" 을 붙인다. 담당자가 **무엇이 이미 고쳐졌고 무엇이 자기 몫인지**
- * 한 줄에서 알아야 한다 — 특히 영업 여부는 늘 담당자 몫이라(휴업과 폐업을 전화로 못 가린다)
+ * 가게에 반영된 답에는 "반영됨" 표시를 붙인다. 담당자가 **무엇이 이미 고쳐졌고 무엇이 자기 몫인지**
+ * 알아야 한다 — 특히 영업 여부는 늘 담당자 몫이라(휴업과 폐업을 전화로 못 가린다)
  * 표시가 없으면 "전화가 알아서 했겠지" 하고 넘어간다.
  */
-function answerText(call: CallResponse): string {
-  return (call.answers ?? [])
-    .map((answer) => {
-      const value = callAnswerLabel(answer.field, answer.value);
-      return `${answer.naturalField}: ${value}${answer.applied ? '(반영됨)' : ''}`;
-    })
-    .join(' · ');
+function answerDetails(call: CallResponse): StatusDetail[] {
+  return (call.answers ?? []).map((answer) => ({
+    label: answer.naturalField,
+    value: callAnswerLabel(answer.field, answer.value),
+    tag: answer.applied ? '반영됨' : undefined,
+  }));
 }
 
 /** 분석 결과 화면이 카드 하나에 넘기는 값. */
@@ -416,7 +430,7 @@ export type UseAnalysisResultPageResult = {
   actionErrorMessage: string | undefined;
   /** "즉시 수정 반영하기". 반영 후 목록을 다시 불러온다. */
   applyChanges: (taskId: number) => void;
-  /** "전화로 확인하기". 요청만 넣고 결과는 폴링으로 받는다. */
+  /** "전화하기". 요청만 넣고 결과는 폴링으로 받는다. */
   requestOneCall: (taskId: number) => void;
   /** 전화를 걸 만한 가게 수. 0 이면 한 번에 걸기 버튼을 내린다. */
   callTargetCount: number;
@@ -424,8 +438,8 @@ export type UseAnalysisResultPageResult = {
   requestAllCalls: () => void;
   /** 한 번에 걸기 요청이 날아가 있는 동안 true. */
   isRequestingAllCalls: boolean;
-  /** 한 번에 걸고 난 결과 한 줄. 아직 누르지 않았으면 undefined. */
-  bulkCallMessage: string | undefined;
+  /** 한 번에 걸고 난 결과. 요약 한마디와 세부(대상·요청·건너뜀). 아직 누르지 않았으면 undefined. */
+  bulkCallSummary: { label: string; details: StatusDetail[] } | undefined;
 };
 
 /**
@@ -541,11 +555,22 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     callTargetCount: callableJobId === undefined ? 0 : callTargetCount,
     requestAllCalls,
     isRequestingAllCalls: bulkCallMutation.isPending,
-    bulkCallMessage: bulkResult
-      ? `${bulkResult.targetCount}곳 중 ${bulkResult.requested}곳에 전화를 넣었습니다` +
-        (bulkResult.skipped > 0
-          ? ` · ${bulkResult.skipped}곳은 번호가 없거나 물을 것이 없어 건너뛰었습니다`
-          : '')
+    bulkCallSummary: bulkResult
+      ? {
+          label: `${bulkResult.requested}곳에 전화를 넣었습니다`,
+          details: [
+            { label: '전화 대상', value: `${bulkResult.targetCount}곳` },
+            { label: '요청함', value: `${bulkResult.requested}곳` },
+            ...(bulkResult.skipped > 0
+              ? [
+                  {
+                    label: '건너뜀',
+                    value: `${bulkResult.skipped}곳 — 번호가 없거나 물을 것이 없습니다`,
+                  },
+                ]
+              : []),
+          ],
+        }
       : undefined,
   };
 }
