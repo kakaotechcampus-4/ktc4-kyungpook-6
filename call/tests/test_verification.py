@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from verification.api import create_app
 from verification.config import Settings
 from verification.dialogue import Dialogue
-from verification.models import CallRequest, CustomReply, Interpretation
+from verification.models import CallRequest, CustomReply, Interpretation, ValueExtraction
 from verification.providers import Providers, with_tts_pauses
 from verification.store import Store, QueueFull
 from verification.worker import Worker
@@ -206,15 +206,22 @@ class DialogueTests(unittest.TestCase):
         for _ in range(3): result=d.apply('누구세요?',Interpretation())
         self.assertEqual(result.reason,'IDENTITY_UNCONFIRMED')
 
-    def test_identity_questions_with_knowledge_do_not_use_retry_budget(self):
-        d=self.dialogue()
-        for text in ('누구세요?', '무슨 일이죠?'):
-            reply=d.apply(text,Interpretation(knowledgeReply='정보 확인 전화입니다.'))
-            self.assertFalse(reply.terminal)
-        self.assertEqual(d.identity_retries,0)
-        reply=d.apply('네 관계자입니다',Interpretation(identity='YES'))
-        self.assertFalse(reply.terminal)
-        self.assertEqual(d.stage,'EXPECTED')
+    def test_value_extraction_cannot_choose_templates_or_use_unsupported_value(self):
+        d=self.identified()
+        self.assertEqual(d.value_decision('아직 땡땡식당입니다',ValueExtraction(
+            value='땡땡식당',evidence='땡땡식당')).kind,'CURRENT')
+        self.assertEqual(d.value_decision('새봄식당입니다',ValueExtraction(
+            value='새봄식당',evidence='새봄식당')).kind,'EXPECTED')
+        self.assertEqual(d.value_decision('다온식당입니다',ValueExtraction(
+            value='다온식당',evidence='다온식당')).kind,'VALUE')
+        d.candidate='다온식당'
+        d.stage='READBACK'
+        self.assertEqual(d.value_decision('네 다온식당 맞아요',ValueExtraction(
+            value='다온식당',evidence='다온식당')).kind,'YES')
+        for extracted in (ValueExtraction(value='가짜식당',evidence='다온식당'),
+                          ValueExtraction(value='다온식당',evidence='없는 근거'),
+                          ValueExtraction(value=None,evidence='')):
+            self.assertEqual(d.value_decision('다온식당입니다',extracted).kind,'UNCLEAR')
 
     def test_custom_answer_preserves_question_and_candidate(self):
         identity=self.dialogue()
@@ -482,16 +489,29 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(with_tts_pauses('정말?! 네... 다음입니다.'),
                          f'정말?! {tag} 네... {tag} 다음입니다.')
 
-    def test_llm_schema_and_no_unvalidated_output(self):
-        p=self.provider(lambda req:httpx.Response(200,json={'choices':[{'message':{'content':'{"kind":"YES"}'}}]}))
-        self.assertEqual(p.interpret(Dialogue(request(),ROOT/'agent.json'),'네').kind,'YES')
-        p=self.provider(lambda req:httpx.Response(200,json={'choices':[{'message':{'content':'{"kind":"YES", "value": 42}'}}]}))
-        with self.assertRaises(ValidationError): p.interpret(Dialogue(request(),ROOT/'agent.json'),'네')
+    def test_value_extraction_schema_does_not_accept_decisions(self):
+        def handler(req):
+            payload=json.loads(json.loads(req.content)['messages'][1]['content'])
+            self.assertEqual(payload,{'field':'storeName','naturalField':'상호명',
+                                      'valueType':'string','transcript':'다온식당입니다'})
+            return httpx.Response(200,json={'choices':[{'message':{
+                'content':'{"value":"다온식당","evidence":"다온식당"}'}}]})
+        p=self.provider(handler)
+        self.assertEqual(p.extract_value(Dialogue(request(),ROOT/'agent.json'),
+                                         '다온식당입니다').value,'다온식당')
+        for content in ('{"kind":"YES","value":"다온식당","evidence":"다온식당"}',
+                        '{"value":42,"evidence":"42"}',
+                        '{"value":"다온식당"}'):
+            p=self.provider(lambda req:httpx.Response(200,json={'choices':[{'message':{'content':content}}]}))
+            with self.assertRaises(ValidationError):
+                p.extract_value(Dialogue(request(),ROOT/'agent.json'),'다온식당입니다')
 
     def test_llm_accepts_one_line_and_multiline_json_fences(self):
-        for content in ('```json {"kind":"YES"} ```', '```json\n{"kind":"YES"}\n```'):
+        for content in ('```json {"value":"다온식당","evidence":"다온식당"} ```',
+                        '```json\n{"value":"다온식당","evidence":"다온식당"}\n```'):
             p=self.provider(lambda req:httpx.Response(200,json={'choices':[{'message':{'content':content}}]}))
-            self.assertEqual(p.interpret(Dialogue(request(),ROOT/'agent.json'),'네').kind,'YES')
+            self.assertEqual(p.extract_value(Dialogue(request(),ROOT/'agent.json'),
+                                             '다온식당입니다').value,'다온식당')
 
     def test_terra_request_omits_unsupported_temperature(self):
         def handler(req):
@@ -499,14 +519,16 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(body['model'],'gpt-6.1-terra')
             self.assertNotIn('temperature',body)
             self.assertEqual(str(req.url),self.s.llm_base_url+'/chat/completions')
-            return httpx.Response(200,json={'choices':[{'message':{'content':'{"kind":"YES"}'}}]})
+            return httpx.Response(200,json={'choices':[{'message':{
+                'content':'{"value":"다온식당","evidence":"다온식당"}'}}]})
         p=self.provider(handler)
-        self.assertEqual(p.interpret(Dialogue(request(),ROOT/'agent.json'),'네').kind,'YES')
+        self.assertEqual(p.extract_value(Dialogue(request(),ROOT/'agent.json'),
+                                         '다온식당입니다').value,'다온식당')
 
     def test_llm_http_error_includes_response_detail(self):
         p=self.provider(lambda req:httpx.Response(400,json={'error':{'message':'unsupported parameter: temperature'}}))
         with self.assertRaises(httpx.HTTPStatusError) as error:
-            p.interpret(Dialogue(request(),ROOT/'agent.json'),'네')
+            p.extract_value(Dialogue(request(),ROOT/'agent.json'),'다온식당입니다')
         self.assertIn('400 Bad Request',str(error.exception))
         self.assertIn('unsupported parameter: temperature',str(error.exception))
 

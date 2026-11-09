@@ -1,10 +1,10 @@
-"""State machine owns completion and values; the LLM only interprets a turn."""
+"""State machine owns completion, values, and template selection."""
 import json
 import random
 from string import Formatter
 from dataclasses import dataclass
 from pathlib import Path
-from .models import CallRequest, Confirmation, CustomReply, Interpretation
+from .models import CallRequest, Confirmation, CustomReply, Interpretation, ValueExtraction
 
 def static_template_texts(policy):
     """Return every variable-free variant that can be shared between calls."""
@@ -183,6 +183,24 @@ class Dialogue:
         self.repeat(text, reply)
         return Reply(reply)
 
+    def value_decision(self, text: str, extracted: ValueExtraction) -> Interpretation:
+        if self.stage == 'IDENTITY' or extracted.value is None:
+            return Interpretation()
+        item = self.item or self.items[-1]
+        evidence = extracted.evidence.strip()
+        value = extracted.value
+        if (not evidence or evidence not in text or
+                type(value) is not type(item['currentValue']) or
+                (isinstance(value,str) and value not in evidence)):
+            return Interpretation()
+        if self.stage == 'READBACK' and value == self.candidate:
+            return Interpretation(kind='YES')
+        if value == item['currentValue']:
+            return Interpretation(kind='CURRENT',evidence=evidence)
+        if value == item.get('expectedValue'):
+            return Interpretation(kind='EXPECTED',evidence=evidence)
+        return Interpretation(kind='VALUE',value=value,evidence=evidence)
+
     def respond_custom(self, text: str, result: CustomReply) -> Reply:
         return self._custom_reply(text, result.reply.strip())
 
@@ -219,11 +237,10 @@ class Dialogue:
                 return Reply(self.template('wrongTarget'), True, 'WRONG_TARGET')
             if decision.identity == 'YES':
                 return Reply(self._start_item())
-            if not decision.knowledgeReply.strip():
-                self.identity_retries += 1
+            self.identity_retries += 1
             if self.identity_retries >= 3:
                 return Reply(self.template('wrongTarget'), True, 'IDENTITY_UNCONFIRMED')
-            return Reply((decision.knowledgeReply + ' ' if decision.knowledgeReply else '') + self.question())
+            return Reply(self.question())
 
         item = self.item
         kind = decision.kind
@@ -249,5 +266,4 @@ class Dialogue:
                 self.candidate = value
                 self.stage = 'READBACK'
                 return Reply(self.question())
-        prefix = decision.knowledgeReply.strip()
-        return Reply((prefix + ' ' if prefix else '') + self.template('retry', question=self.question()))
+        return Reply(self.template('retry', question=self.question()))

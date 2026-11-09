@@ -13,7 +13,7 @@ from unittest.mock import patch
 from verification.hardware.audio import Utterance
 from verification.dialogue import Dialogue
 from verification.hardware.telemetry import EventLog
-from verification.models import CustomReply, Interpretation
+from verification.models import CustomReply, Interpretation, ValueExtraction
 from verification.runtime import CallRunner, CallFailure
 from verification.runtime import Session
 from verification.store import Store
@@ -50,13 +50,13 @@ class FakeProviders:
                 'control':control,'control_confidence':entry.get('control_confidence',.99),
                 'answer':answer,'answer_confidence':entry.get('answer_confidence',.99)}
 
-    def interpret(self,dialogue,text):
+    def extract_value(self,dialogue,text):
         self.inputs.append(text); self.states.append(dialogue.state()); self.events.append(('llm',text))
-        if '끊어' in text: return Interpretation(control='STOP')
-        if '잠시' in text: return Interpretation(control='WAIT')
-        if '다온식당' in text: return Interpretation(kind='VALUE',value='다온식당',evidence='다온식당')
-        if dialogue.stage=='IDENTITY': return Interpretation(identity='YES')
-        return Interpretation(kind='YES')
+        entry=next((entry for entry in self.scenario if entry['text']==text),{})
+        if 'extracted_value' in entry:
+            return ValueExtraction(value=entry['extracted_value'],evidence=entry.get('evidence',''))
+        if '다온식당' in text: return ValueExtraction(value='다온식당',evidence='다온식당')
+        return ValueExtraction(value=None,evidence='')
 
     def respond_custom(self,dialogue,text):
         self.custom_inputs.append(text); self.custom_states.append(dialogue.state())
@@ -165,7 +165,7 @@ class RuntimeTests(unittest.TestCase):
         log_file=next((self.folder/'calls'/self.cid).glob('call-*.jsonl'))
         events=[json.loads(line) for line in log_file.read_text().splitlines()]
         stt=[entry for entry in events if entry['stage']=='stt' and entry['status']=='ok']
-        llm=[entry for entry in events if entry['stage']=='llm.interpret' and entry['status']=='ok']
+        llm=[entry for entry in events if entry['stage'].startswith('llm.') and entry['status']=='ok']
         jev=[entry for entry in events if entry['stage']=='jev' and entry['status']=='ok']
         self.assertEqual([entry['output']['text'] for entry in stt],['네 관계자입니다','네 맞습니다'])
         self.assertTrue(all(entry['input']['audio_file'].endswith('.wav') for entry in stt))
@@ -251,11 +251,11 @@ class RuntimeTests(unittest.TestCase):
     def test_backchannel_is_preserved_without_stopping_playback(self):
         result=self.run_call([{'play':1,'text':'네네'},{'play':1,'text':'네 관계자입니다'},{'play':2,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
-        self.assertEqual(self.providers.inputs[0],'네네 네 관계자입니다')
+        self.assertEqual(self.providers.inputs,[])
         first_jev=self.events.index(('jev','네네'))
         second_stt=next(i for i,e in enumerate(self.events) if e==('stt','u-2.wav'))
         self.assertNotIn('stop',[e[0] for e in self.events[first_jev:second_stt]])
-        self.assertEqual(sum('네네' in t for t in self.providers.inputs),1)
+        self.assertEqual(self.providers.classified,['네네','네 관계자입니다','네 맞습니다'])
         log_file=next((self.folder/'calls'/self.cid).glob('call-*.jsonl'))
         entries=[json.loads(line) for line in log_file.read_text().splitlines()]
         jev=next(entry for entry in entries if entry['stage']=='jev' and entry['status']=='ok')
@@ -388,11 +388,49 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(utterance.utterance_id,1)
             self.assertGreater(utterance.completed_at,session.wait_started+1)
 
-    def test_low_confidence_answer_uses_llm(self):
-        result=self.run_call([{'play':1,'text':'네 관계자입니다','answer_confidence':.4},
-                              {'play':2,'text':'네 맞습니다'}])
+    def test_low_confidence_answer_uses_retry_not_repeat_or_llm(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'네 관계자입니다','answer_confidence':.4},
+                                  {'play':2,'text':'제가 관계자입니다'},
+                                  {'play':3,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
-        self.assertEqual(self.providers.inputs,['네 관계자입니다'])
+        self.assertEqual(self.providers.inputs,[])
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        self.assertIn(spoken[1],Dialogue(request(),self.s.persona_file)
+                      .template_variants('identityRetry'))
+        self.assertFalse(spoken[1].startswith('네, '+spoken[0]))
+
+    def test_low_confidence_field_answer_uses_retry_not_llm(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                                  {'play':2,'text':'네 맞습니다','answer_confidence':.4},
+                                  {'play':3,'text':'네 맞아요'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(self.providers.inputs,[])
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        retry_prefixes=tuple(template.split('{question}',1)[0] for template in
+                             Dialogue(request(),self.s.persona_file).raw_variants('retry'))
+        self.assertTrue(spoken[2].startswith(retry_prefixes))
+        self.assertFalse(spoken[2].startswith('네, '+spoken[1]))
+
+    def test_uncertain_custom_is_retry_without_llm(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'다시 말씀해 주세요','control':'CONTINUE',
+                                   'answer':'CUSTOM','answer_confidence':.44},
+                                  {'play':2,'text':'제가 관계자입니다'},
+                                  {'play':3,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(self.providers.inputs,[])
+        self.assertEqual(self.providers.custom_inputs,[])
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        self.assertIn(spoken[1],Dialogue(request(),self.s.persona_file)
+                      .template_variants('identityRetry'))
 
     def test_low_confidence_repeat_control_uses_retry(self):
         console=io.StringIO()
@@ -443,7 +481,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(spoken[2],'네, '+spoken[1])
         self.assertEqual(self.providers.inputs,[])
 
-    def test_value_turn_speaks_wait_phrase_while_llm_interprets(self):
+    def test_value_turn_speaks_wait_phrase_while_llm_extracts_value(self):
         result=self.run_call([{'play':1,'text':'네 관계자입니다'},
                               {'play':2,'text':'다온식당이에요'},
                               {'play':4,'text':'네 맞습니다'}])
@@ -459,6 +497,23 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(len([e for e in entries if e['stage']=='assistant.response'
                               and e['text'] in wait_texts]),1)
         self.assertFalse(any(e['stage']=='turn.stale' for e in entries))
+
+    def test_value_extraction_matches_registered_value_in_state_machine(self):
+        result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                              {'play':2,'text':'아직 땡땡식당입니다','answer':'VALUE',
+                               'extracted_value':'땡땡식당','evidence':'땡땡식당'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(result['answers'][0]['value'],'땡땡식당')
+        self.assertEqual(self.providers.inputs,['아직 땡땡식당입니다'])
+
+    def test_value_extraction_confirms_readback_candidate(self):
+        result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                              {'play':2,'text':'다온식당이에요'},
+                              {'play':4,'text':'네 다온식당 맞아요','answer':'VALUE',
+                               'extracted_value':'다온식당','evidence':'다온식당'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(result['answers'][0]['value'],'다온식당')
+        self.assertEqual(self.providers.inputs,['다온식당이에요','네 다온식당 맞아요'])
 
     def test_custom_question_generates_reply_then_repeats_active_question(self):
         result=self.run_call([{'play':1,'text':'네 관계자입니다'},

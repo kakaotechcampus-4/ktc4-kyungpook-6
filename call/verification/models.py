@@ -87,7 +87,10 @@ class Interpretation(Model):
     kind: Literal['YES', 'NO', 'CURRENT', 'EXPECTED', 'VALUE', 'UNCLEAR'] = 'UNCLEAR'
     value: Value | None = None
     evidence: str = ''
-    knowledgeReply: Annotated[str, Field(max_length=300)] = ''
+
+class ValueExtraction(Model):
+    value: Value | None
+    evidence: Annotated[str, Field(max_length=2000)]
 
 class CustomReply(Model):
     reply: Annotated[StrictStr, Field(min_length=1, max_length=300)]

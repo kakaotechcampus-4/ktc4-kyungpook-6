@@ -266,7 +266,6 @@ class Session:
                     continue
                 self.interrupt()
             # Include acknowledgments exactly once as part of the next user input.
-            had_backchannels = bool(self.backchannels)
             combined = ' '.join([*self.backchannels,text])
             self.backchannels.clear()
             control_confident = result['control_confidence'] >= self.s.jev_threshold
@@ -292,25 +291,20 @@ class Session:
             elif answer_confident and result['answer'] == 'CUSTOM':
                 decision = Interpretation()
                 custom_result = self.query_llm('llm.custom',combined,self.providers.respond_custom)
-            elif (control_confident and answer_confident and result['answer'] in ('YES','NO','UNCLEAR')
-                  and not had_backchannels):
+            elif answer_confident and result['answer'] == 'VALUE' and self.dialogue.stage != 'IDENTITY':
+                extracted = self.query_llm('llm.value',combined,self.providers.extract_value)
+                decision = self.dialogue.value_decision(combined,extracted)
+            elif answer_confident and result['answer'] in ('YES','NO','UNCLEAR'):
                 answer = result['answer']
                 decision = (Interpretation(identity=answer if answer != 'UNCLEAR' else 'UNKNOWN')
                             if self.dialogue.stage == 'IDENTITY' else Interpretation(kind=answer))
             else:
-                decision = self.query_llm('llm.interpret',combined,self.providers.interpret)
-                if control_confident:
-                    decision.control = result['control']
-            if decision.control == 'WAIT':
-                self.begin_wait(combined)
-                continue
+                decision = Interpretation()
             if (self.wait_started is not None and custom_result is None and not custom_retry
                     and not repeat_requested
                     and decision.control == 'CONTINUE' and (
-                        (self.dialogue.stage == 'IDENTITY' and decision.identity == 'UNKNOWN'
-                         and not decision.knowledgeReply.strip()) or
-                        (self.dialogue.stage != 'IDENTITY' and decision.kind == 'UNCLEAR'
-                         and not decision.knowledgeReply.strip()))):
+                        (self.dialogue.stage == 'IDENTITY' and decision.identity == 'UNKNOWN') or
+                        (self.dialogue.stage != 'IDENTITY' and decision.kind == 'UNCLEAR'))):
                 self.log.emit('turn.wait_resumed',turn=self.turn,
                               waited_seconds=round(time.monotonic()-self.wait_started,2))
                 self.wait_started = None
