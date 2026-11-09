@@ -193,11 +193,18 @@ class Dialogue:
                 type(value) is not type(item['currentValue']) or
                 (isinstance(value,str) and value not in evidence)):
             return Interpretation()
-        if self.stage == 'READBACK' and value == self.candidate:
+        def same_value(reference):
+            return (type(value) is type(reference) and
+                    (''.join(value.split()) == ''.join(reference.split())
+                     if isinstance(value, str) else value == reference))
+
+        if self.stage == 'READBACK' and same_value(self.candidate):
             return Interpretation(kind='YES')
-        if value == item['currentValue']:
+        if self.stage == 'EXPECTED' and same_value(item.get('expectedValue')):
+            return Interpretation(kind='EXPECTED',evidence=evidence)
+        if same_value(item['currentValue']):
             return Interpretation(kind='CURRENT',evidence=evidence)
-        if value == item.get('expectedValue'):
+        if same_value(item.get('expectedValue')):
             return Interpretation(kind='EXPECTED',evidence=evidence)
         return Interpretation(kind='VALUE',value=value,evidence=evidence)
 

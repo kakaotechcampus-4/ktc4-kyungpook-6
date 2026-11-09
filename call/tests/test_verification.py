@@ -223,6 +223,14 @@ class DialogueTests(unittest.TestCase):
                           ValueExtraction(value=None,evidence='')):
             self.assertEqual(d.value_decision('다온식당입니다',extracted).kind,'UNCLEAR')
 
+    def test_spaced_value_confirms_expected_without_changing_stored_name(self):
+        d=self.identified()
+        text='네 새 봄 식당으로 바뀌었어요'
+        decision=d.value_decision(text,ValueExtraction(value='새 봄 식당',evidence='새 봄 식당'))
+        self.assertEqual(decision.kind,'EXPECTED')
+        d.apply(text,decision)
+        self.assertEqual(d.answers,[{'questionId':'q1','field':'storeName','value':'새봄식당'}])
+
     def test_custom_answer_preserves_question_and_candidate(self):
         identity=self.dialogue()
         identity_reply=identity.respond_custom('누구세요?',CustomReply(
@@ -379,6 +387,7 @@ class ProviderTests(unittest.TestCase):
             self.assertIn('REPEAT',body['questions']['control']['criteria'])
             self.assertIn('다시 한번 말해주세요',body['questions']['control']['instructions'])
             self.assertEqual(body['questions']['answer']['type'],'choice')
+            self.assertIn('공백 차이',body['questions']['answer']['instructions'])
             self.assertTrue(body['state']['overlapping'])
             return httpx.Response(200,json=self.jev_answers(interrupt=.99,backchannel=.01))
         self.assertEqual(self.provider(handler).classify_overlap('아니오','안내',{}),'INTERRUPT')
