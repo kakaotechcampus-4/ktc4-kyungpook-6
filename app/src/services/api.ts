@@ -1,5 +1,5 @@
 import axios, { AxiosRequestConfig, AxiosResponse, isAxiosError } from "axios";
-import { clearAuthToken, getAuthToken } from "./authToken";
+import { clearAuthToken, getAuthToken, getLastAuthRole } from "./authToken";
 
 /*
   frontend/src/services/api.ts 와 같은 방식이다.
@@ -25,8 +25,9 @@ declare module "axios" {
   }
 }
 
-/** 토큰이 없거나 만료됐을 때 보낼 화면. */
+/** 토큰이 없거나 만료됐을 때 보낼 화면. 토큰 주인에 따라 점주 로그인이나 아동 카드 인증으로 보낸다. */
 export const OWNER_LOGIN_PATH = "/owner/login";
+export const CHILD_LOGIN_PATH = "/child/login";
 
 /*
   401 을 받았을 때 할 일. 라우터 밖이라 navigate 를 직접 쓸 수 없어서, 라우터 안쪽에서
@@ -34,13 +35,13 @@ export const OWNER_LOGIN_PATH = "/owner/login";
   기본값은 주소를 직접 바꾸는 것 — 핸들러가 아직 안 붙었을 때도 로그인 화면으로 간다.
   다만 이 방식은 앱(웹뷰)을 통째로 다시 띄워 화면 상태가 날아가고 흰 화면이 한 번 보인다.
 */
-const redirectByLocation = () => {
-  window.location.replace(OWNER_LOGIN_PATH);
+const redirectByLocation = (loginPath: string) => {
+  window.location.replace(loginPath);
 };
-let onUnauthorized: () => void = redirectByLocation;
+let onUnauthorized: (loginPath: string) => void = redirectByLocation;
 
 /** 401 을 받았을 때 할 일을 바꾼다. 돌려주는 함수를 부르면 기본값으로 되돌린다. */
-export const setUnauthorizedHandler = (handler: () => void) => {
+export const setUnauthorizedHandler = (handler: (loginPath: string) => void) => {
   onUnauthorized = handler;
   return () => {
     if (onUnauthorized === handler) onUnauthorized = redirectByLocation;
@@ -63,8 +64,10 @@ axiosApiInstance.interceptors.request.use(async (config) => {
 */
 axiosApiInstance.interceptors.response.use(undefined, async (error) => {
   if (isAxiosError(error) && error.response?.status === 401 && !error.config?.skipAuthRedirect) {
+    // 지우기 전에 주인을 읽어 둔다. 지운 뒤에는 어느 로그인으로 보낼지 알 수 없다.
+    const loginPath = (await getLastAuthRole()) === "CHILD" ? CHILD_LOGIN_PATH : OWNER_LOGIN_PATH;
     await clearAuthToken();
-    onUnauthorized();
+    onUnauthorized(loginPath);
   }
   return Promise.reject(error);
 });

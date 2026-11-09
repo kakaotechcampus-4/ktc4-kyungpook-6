@@ -12,7 +12,7 @@ const FILTER_CHIPS: { filter: ChildStoreFilter; label: string }[] = [
 
 /** 아동 가게 목록. 가까운 가게를 보여 주고, 가게나 메뉴 이름으로 찾는다. */
 function ChildStoreListPage() {
-  const { query, setQuery, filters, toggleFilter, stores, openStore } = useChildStoreList();
+  const { query, setQuery, filters, toggleFilter, stores, isLoading, loadErrorMessage, openStore } = useChildStoreList();
 
   return (
     <main className="min-h-screen bg-white pt-[env(safe-area-inset-top)] pb-[calc(84px+env(safe-area-inset-bottom))]">
@@ -55,7 +55,11 @@ function ChildStoreListPage() {
         })}
       </div>
 
-      {stores.length > 0 ? (
+      {isLoading || loadErrorMessage ? (
+        <p className="px-5 pt-16 text-center text-sm leading-[normal] text-[#6b7280]">
+          {loadErrorMessage ?? "불러오는 중…"}
+        </p>
+      ) : stores.length > 0 ? (
         <ul className="px-5">
           {stores.map((store) => (
             <li key={store.storeId} className="border-b border-[#e6e9ee] last:border-b-0">

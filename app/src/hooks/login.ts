@@ -42,7 +42,7 @@ export const useOwnerLogin = (): UseOwnerLoginResult => {
   const loginMutation = useMutation({
     mutationFn: async (payload: LoginRequest) => {
       const response = await login(payload);
-      await saveAuthToken(response);
+      await saveAuthToken(response, "OWNER");
       return response;
     },
     onSuccess: () => navigate(AFTER_LOGIN_PATH, { replace: true }),

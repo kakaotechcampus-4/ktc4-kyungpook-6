@@ -18,7 +18,7 @@ const BUTTON_BASE = "flex items-center justify-center rounded-[10px] leading-[no
 
 /** 주문 탭의 주문 한 건. 상태마다 아래쪽(버튼·상태 글자)이 다르다 — 피그마 "주문" 접수 대기·조리 중·완료. */
 function OrderCard({ order, onCheckIn, onCancel, onComplete, isChanging }: OrderCardProps) {
-  // 완료 탭(전달 완료·취소)은 끝난 주문이라 글자를 흐리게 한다.
+  // 완료 탭(조리 완료·취소)은 끝난 주문이라 글자를 흐리게 한다.
   const isFinished = order.status === "DONE" || order.status === "CANCELED";
   const textColor = isFinished ? "text-[#6b7280]" : "text-[#1f2937]";
 
@@ -81,8 +81,8 @@ function OrderCard({ order, onCheckIn, onCancel, onComplete, isChanging }: Order
 
       {order.status === "DONE" && (
         <StatusRow
-          time={`${formatHourMinute(order.completedAt ?? order.orderedAt)} 전달`}
-          label="전달 완료"
+          time={`${formatHourMinute(order.completedAt ?? order.orderedAt)} 완료`}
+          label="조리 완료"
           labelColor="text-[#1f9d55]"
         />
       )}
