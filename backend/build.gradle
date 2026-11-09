@@ -15,6 +15,16 @@ java {
 
 repositories { mavenCentral() }
 
+ext {
+    /*
+      Spring Boot 3.4.2 가 정해 주는 Testcontainers 1.20.4 는 Docker Engine 29 에서 못 쓴다.
+      29 가 낡은 API 를 끊었는데 1.20.4 의 docker-java 는 1.32 로 말을 걸어, 컨테이너를 쓰는
+      테스트가 전부 initializationError 로 죽는다("client version 1.32 is too old").
+      1.21.4 는 1.44 로 먼저 말을 걸고 안 되면 내려간다. DOCKER_API_VERSION 은 보지 않는다.
+    */
+    set('testcontainers.version', '1.21.4')
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
