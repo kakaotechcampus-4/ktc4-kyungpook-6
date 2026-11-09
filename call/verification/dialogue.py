@@ -30,7 +30,7 @@ class Dialogue:
         self.request = request
         self.policy = json.loads(persona_file.read_text(encoding='utf-8'))
         required = {'greeting','identityRetry','expected','current','askValue','readback',
-                    'ack','retry','goodbye','stopped','wrongTarget','timeout','error',
+                    'ack','retry','repeat','goodbye','stopped','wrongTarget','timeout','error',
                     'llmWait','waitAcknowledgement'}
         if not required <= self.policy['templates'].keys():
             raise ValueError('agent.json에 필수 대화 템플릿이 없습니다.')
@@ -44,6 +44,7 @@ class Dialogue:
             for text in variants:
                 fields = {field for _, field, _, _ in Formatter().parse(text) if field is not None}
                 if (not fields <= allowed_fields or
+                        (name == 'repeat' and 'question' not in fields) or
                         (name in ('llmWait','waitAcknowledgement') and not fields <= target_fields)):
                     raise ValueError(f'agent.json 템플릿 변수 오류: {name}')
         self.items = []
@@ -62,6 +63,7 @@ class Dialogue:
         self.history = []
         self.first_question = None
         self.last_text = self.template('greeting')
+        self.active_question = self.last_text
 
     @property
     def complete(self):
@@ -120,7 +122,8 @@ class Dialogue:
 
     def question(self):
         name, values = self.question_spec()
-        return self.template(name, **values)
+        self.active_question = self.template(name, **values)
+        return self.active_question
 
     def question_variants(self):
         name, values = self.question_spec()
@@ -129,11 +132,13 @@ class Dialogue:
     def preselect_first_question(self):
         if self.first_question is None:
             original_stage = self.stage
+            original_question = self.active_question
             try:
                 self.stage = 'EXPECTED' if self.item['type'] == 'VALUE_CONFIRMATION' else 'CURRENT'
                 self.first_question = self.question()
             finally:
                 self.stage = original_stage
+                self.active_question = original_question
         return self.first_question
 
     def state(self):
@@ -147,6 +152,7 @@ class Dialogue:
         if self.index == 0 and self.first_question is not None:
             question = self.first_question
             self.first_question = None
+            self.active_question = question
             return question
         return self.question()
 
@@ -171,6 +177,11 @@ class Dialogue:
         self.history.extend([{'role':'assistant','content':self.last_text},
                              {'role':'user','content':text}])
         self.last_text = reply
+
+    def repeat_request(self, text: str) -> Reply:
+        reply = self.template('repeat', question=self.active_question)
+        self.repeat(text, reply)
+        return Reply(reply)
 
     def respond_custom(self, text: str, result: CustomReply) -> Reply:
         return self._custom_reply(text, result.reply.strip())

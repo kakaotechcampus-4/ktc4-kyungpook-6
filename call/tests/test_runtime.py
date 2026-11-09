@@ -394,6 +394,55 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(self.providers.inputs,['네 관계자입니다'])
 
+    def test_low_confidence_repeat_control_uses_retry(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'다시 말씀해 주세요','control':'REPEAT',
+                                   'control_confidence':.4,'answer':'YES',
+                                   'answer_confidence':.99},
+                                  {'play':2,'text':'제가 관계자입니다'},
+                                  {'play':3,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        self.assertIn(spoken[1],Dialogue(request(),self.s.persona_file)
+                      .template_variants('identityRetry'))
+        self.assertFalse(spoken[1].startswith('네, '+spoken[0]))
+        self.assertEqual(self.providers.inputs,[])
+        self.assertEqual(self.providers.custom_inputs,[])
+
+    def test_repeat_control_replays_greeting_without_llm_or_identity_retry(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'다시 말씀해 주세요','control':'REPEAT',
+                                   'answer':'CUSTOM','answer_confidence':.44},
+                                  {'play':2,'text':'네 관계자입니다'},
+                                  {'play':3,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(self.providers.inputs,[])
+        self.assertEqual(self.providers.custom_inputs,[])
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        self.assertEqual(spoken[1],'네, '+spoken[0])
+        self.assertIn(spoken[2],Dialogue(request(),self.s.persona_file)
+                      .template_variants('expected',naturalField='상호명',
+                                         currentValue='땡땡식당',expectedValue='새봄식당'))
+        retry=set(Dialogue(request(),self.s.persona_file).template_variants('identityRetry'))
+        self.assertFalse(retry & {text for stage,text in self.events if stage=='tts'})
+
+    def test_repeat_control_replays_active_question_without_changing_answer(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                                  {'play':2,'text':'뭐라고요?','control':'REPEAT'},
+                                  {'play':3,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(result['answers'][0]['value'],'새봄식당')
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        self.assertEqual(spoken[2],'네, '+spoken[1])
+        self.assertEqual(self.providers.inputs,[])
+
     def test_value_turn_speaks_wait_phrase_while_llm_interprets(self):
         result=self.run_call([{'play':1,'text':'네 관계자입니다'},
                               {'play':2,'text':'다온식당이에요'},

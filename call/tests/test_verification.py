@@ -78,6 +78,22 @@ class DialogueTests(unittest.TestCase):
         self.assertFalse(d.answers)
         self.assertEqual(d.stage,'EXPECTED')
 
+    def test_repeat_reuses_last_question_without_changing_state(self):
+        d=self.dialogue()
+        greeting=d.last_text
+        selected=d.preselect_first_question()
+        self.assertEqual(d.active_question,greeting)
+        reply=d.repeat_request('다시 말씀해 주세요')
+        self.assertEqual(reply.text,'네, '+greeting)
+        self.assertEqual(d.stage,'IDENTITY')
+        self.assertEqual(d.identity_retries,0)
+        self.assertEqual(d.apply('네 관계자입니다',Interpretation(identity='YES')).text,selected)
+        question=d.active_question
+        self.assertEqual(d.repeat_request('뭐라고요?').text,'네, '+question)
+        self.assertEqual(d.repeat_request('다시요').text,'네, '+question)
+        self.assertEqual(d.stage,'EXPECTED')
+        self.assertFalse(d.answers)
+
     def test_template_variants_are_selected_randomly_and_cached_individually(self):
         with tempfile.TemporaryDirectory() as tmp:
             policy=json.loads((ROOT/'agent.json').read_text())
@@ -353,6 +369,8 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(body['questions']['irrelevant']['type'],'noul')
             self.assertEqual(body['questions']['unsafe_custom']['type'],'noul')
             self.assertEqual(body['questions']['control']['type'],'choice')
+            self.assertIn('REPEAT',body['questions']['control']['criteria'])
+            self.assertIn('다시 한번 말해주세요',body['questions']['control']['instructions'])
             self.assertEqual(body['questions']['answer']['type'],'choice')
             self.assertTrue(body['state']['overlapping'])
             return httpx.Response(200,json=self.jev_answers(interrupt=.99,backchannel=.01))
@@ -388,8 +406,8 @@ class ProviderTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 p.classify_utterance('네','관계자분 맞으세요?',{})
 
-    def test_jev_wait_and_stop_override_irrelevant_overlap(self):
-        for control in ('WAIT','STOP'):
+    def test_jev_control_requests_override_irrelevant_overlap(self):
+        for control in ('WAIT','STOP','REPEAT'):
             body=self.jev_answers(irrelevant=.99,interrupt=.01,backchannel=.99,control=control)
             p=self.provider(lambda req:httpx.Response(200,json=body))
             result=p.classify_utterance('잠시만요','관계자분 맞으세요?',{},overlapping=True)

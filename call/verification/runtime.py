@@ -274,6 +274,7 @@ class Session:
             unsafe_custom = result['scores'].get('unsafe_custom',0) >= self.s.jev_threshold
             custom_result = None
             custom_retry = False
+            repeat_requested = False
             if control_confident and result['control'] == 'STOP':
                 decision = Interpretation(control='STOP')
             elif unsafe_custom:
@@ -282,6 +283,12 @@ class Session:
             elif control_confident and result['control'] == 'WAIT':
                 self.begin_wait(combined)
                 continue
+            elif control_confident and result['control'] == 'REPEAT':
+                decision = Interpretation()
+                repeat_requested = True
+            elif result['control'] == 'REPEAT':
+                # An uncertain repeat request must not accidentally confirm a field.
+                decision = Interpretation()
             elif answer_confident and result['answer'] == 'CUSTOM':
                 decision = Interpretation()
                 custom_result = self.query_llm('llm.custom',combined,self.providers.respond_custom)
@@ -298,6 +305,7 @@ class Session:
                 self.begin_wait(combined)
                 continue
             if (self.wait_started is not None and custom_result is None and not custom_retry
+                    and not repeat_requested
                     and decision.control == 'CONTINUE' and (
                         (self.dialogue.stage == 'IDENTITY' and decision.identity == 'UNKNOWN'
                          and not decision.knowledgeReply.strip()) or
@@ -328,7 +336,9 @@ class Session:
                 self.interrupt()
                 self.play(repeated)
                 continue
-            if custom_retry:
+            if repeat_requested:
+                reply = self.dialogue.repeat_request(combined)
+            elif custom_retry:
                 reply = self.dialogue.retry_custom(combined)
             elif custom_result is not None:
                 reply = self.dialogue.respond_custom(combined,custom_result)
