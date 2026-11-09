@@ -1,6 +1,9 @@
 import { Icon } from '@iconify/react';
 import type { ComponentPropsWithoutRef } from 'react';
+import phoneIcon from '../assets/phone.svg';
 import Skeleton from './ui/Skeleton';
+import StatusChip from './ui/StatusChip';
+import type { StatusDetail, StatusTone } from './ui/StatusChip';
 
 /** 조사로 확인한 근거 한 건. Figma 112:5486 / 112:5480 / 112:5508 */
 export type SurveyEvidence = {
@@ -55,17 +58,19 @@ const VARIANT = {
   priority: {
     changesLabel: '수정 사항',
     primaryActionLabel: '즉시 수정 반영하기',
+    hasCall: true,
   },
   /**
    * 추가확인. 값을 정할 근거가 부족해 가게에 연락부터 해야 하는 건.
    *
    * 주 버튼이 없다. 원래 "메시지 보내기" 였는데 보낼 길이 없어 연결되지 않은 채
    * 비활성으로 떠 있었고, 이 분류에서 할 일은 가게에 연락하는 것 하나다 —
-   * 그 연락은 아래 "전화로 확인하기" 가 맡는다(PROMPT-165).
+   * 그 연락은 아래 "전화하기" 가 맡는다(PROMPT-165).
    */
   additional: {
     changesLabel: '추가 확인 사항',
     primaryActionLabel: null,
+    hasCall: true,
   },
   /*
     변화없음. 아직 Figma 노드가 없어 임시로 잡아둔 모양이다.
@@ -76,6 +81,7 @@ const VARIANT = {
   unchanged: {
     changesLabel: null,
     primaryActionLabel: null,
+    hasCall: false,
   },
   /*
     조사 실패. 변화가 없는 것과 **조사를 못 한 것은 다르다** — 전자는 넘어가도 되지만
@@ -85,6 +91,7 @@ const VARIANT = {
   failed: {
     changesLabel: null,
     primaryActionLabel: null,
+    hasCall: false,
   },
 } as const;
 
@@ -100,21 +107,25 @@ const EVIDENCE_SOURCE =
   'flex w-fit items-center gap-1 font-sans text-sm font-semibold leading-5 text-[#3b82f6]';
 
 /**
- * 확인 전화 상태 한 줄. 전화가 어떻게 됐는지에 따라 색이 다르다 — 실패를 다른 줄과 같은 색으로
- * 두면 "걸었다" 와 "안 받았다" 가 같아 보이고, 담당자가 다시 걸어야 하는 카드를 넘긴다.
+ * 확인 전화 상태 → 칩 색. 실패를 다른 상태와 같은 색으로 두면 "걸었다" 와 "안 받았다" 가 같아 보이고,
+ * 담당자가 다시 걸어야 하는 카드를 넘긴다.
  */
-const CALL_STATUS_TONE = {
+const CALL_STATUS_CHIP = {
   /** 아직 통화 중이거나 발신을 기다린다. */
-  progress: 'text-[#475569]',
+  progress: { tone: 'progress', icon: 'material-symbols:call', pulse: true },
   /** 확인을 마쳤다. */
-  done: 'text-[#1d4ed8]',
+  done: { tone: 'done', icon: 'material-symbols:call', pulse: false },
   /** 연결 실패·확인 미완료. 다시 걸 수 있다. */
-  failed: 'text-[#b45309]',
-} as const;
+  failed: { tone: 'warning', icon: 'material-symbols:phone-missed', pulse: false },
+} as const satisfies Record<string, { tone: StatusTone; icon: string; pulse: boolean }>;
 
 /** 하단 버튼 공통. Figma 112:5496 / 112:5498 (h 40, radius 8) */
 const ACTION_BUTTON =
   'flex h-10 w-full shrink-0 items-center justify-center gap-1 overflow-clip rounded-lg p-2.5 font-sans text-sm font-semibold leading-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
+
+/** 흰 바탕 보조 버튼(직접 수정하기·전화하기). Figma 791:254 / 791:256 */
+const SECONDARY_BUTTON =
+  'border border-solid border-[#e5e7eb] bg-white text-[#1f2328] focus-visible:outline-[#64748b] disabled:opacity-60';
 
 /**
  * 조회 중에 보여줄 자리 수. 실제 건수는 응답을 받아야 알 수 있어
@@ -156,10 +167,15 @@ type AgentSurveyResultCardProps = {
    * 담당자 확인 기록(verifiedLabel)과 따로 둔다 — 전화는 점주에게 물어본 결과이고,
    * 확인 기록은 그 답을 읽은 담당자의 판단이다. 전화가 끝나도 카드는 아직 처리 전이다.
    */
-  callStatus?: { label: string; tone: keyof typeof CALL_STATUS_TONE };
+  callStatus?: {
+    label: string;
+    tone: keyof typeof CALL_STATUS_CHIP;
+    details: StatusDetail[];
+  };
   /**
-   * "전화로 확인하기" 클릭. **걸 수 없는 카드면 넘기지 않는다** — 그러면 버튼을 그리지 않는다.
+   * "전화하기" 클릭. **걸 수 없는 카드면 넘기지 않는다** — 그러면 버튼이 비활성이 된다.
    * 전화는 되돌릴 수 없어서, 눌러도 409 가 날 버튼을 열어 두지 않는다.
+   * 버튼 자체는 우선확인·추가확인 카드에만 있다(VARIANT.hasCall).
    */
   onCall?: () => void;
   /** "직접 수정하기" 클릭. 담당자가 값을 직접 고치는 화면으로 보낸다. */
@@ -178,9 +194,9 @@ type AgentSurveyResultCardProps = {
  * 어떤 조치가 필요한지 보여주고, 처리 방법을 고르게 한다.
  * Figma 112:5474(수정 사항·근거 링크) / 112:5502(추가 확인 사항·링크 없음)
  *
- * 확인 전화는 Figma 에 아직 노드가 없다. 두 분류(우선확인·추가확인)에서 가게에 직접 물어야 하는
- * 일이 생겨 붙였고(PROMPT-165), 새 색·뱃지를 만들지 않고 이미 쓰는 색만 써서 디자인이 나왔을 때
- * 지울 코드를 줄였다 — 변화없음(unchanged) 때 했던 것과 같은 방식이다.
+ * 전화하기 버튼은 Figma 791:127 그대로다 — 우선확인·추가확인 카드에서 "직접 수정하기" 와 한 줄에
+ * 반씩 놓는다. 카드의 전화 상태 줄(callStatus)은 아직 Figma 노드가 없어, 새 색·뱃지를 만들지 않고
+ * 이미 쓰는 색만 썼다(PROMPT-165) — 디자인이 나왔을 때 지울 코드를 줄이려는 것이다.
  *
  * 근거와 수정 사항을 한 흐름(gap 8px)으로 이어 붙인 것은 Figma 112:5478 그대로다.
  * 담당자가 "왜 바꾸는지"를 읽은 직후에 "무엇이 바뀌는지"를 보게 하려는 배치라,
@@ -203,7 +219,8 @@ function AgentSurveyResultCard({
   className,
   ...props
 }: AgentSurveyResultCardProps) {
-  const { changesLabel, primaryActionLabel } = VARIANT[variant];
+  const { changesLabel, primaryActionLabel, hasCall } = VARIANT[variant];
+  const showCall = hasCall && !verifiedLabel;
 
   /**
    * 근거 출처. URL이 있으면 링크 아이콘이 붙은 <a>로, 없으면 파란 텍스트로만 낸다.
@@ -229,10 +246,14 @@ function AgentSurveyResultCard({
     );
   };
 
+  /*
+    카드에 overflow-clip 을 두지 않는다 — 전화 상태 칩의 세부가 카드 밖으로 펼쳐질 때 잘린다.
+    모서리 둥글림은 border 가 그리므로 잘라 낼 내용이 없다.
+  */
   return (
     <article
       className={[
-        'flex w-full flex-col items-start gap-3 overflow-clip rounded-lg border border-solid border-[#e2e8f0] p-3',
+        'flex w-full flex-col items-start gap-3 rounded-lg border border-solid border-[#e2e8f0] p-3',
         className,
       ]
         .filter(Boolean)
@@ -288,21 +309,42 @@ function AgentSurveyResultCard({
           <>
             <p className={SECTION_LABEL}>{changesLabel}</p>
 
-            <ul className="flex w-full flex-col gap-2">
-              {isLoading
-                ? SKELETON_ROWS.map((row) => (
-                    <li key={row} className={LIST_ITEM}>
-                      <Skeleton className="h-5 w-56 max-w-full" />
-                    </li>
-                  ))
-                : changes.map((change) => (
-                    <li key={change.label} className={LIST_ITEM}>
-                      <span className="font-medium">{change.label}</span>:{' '}
-                      {change.description}
-                    </li>
-                  ))}
-            </ul>
+            {/*
+              항목이 없으면 빈 <ul> 을 그리지 않는다 — 비어도 gap 만큼 자리를 먹어, 라벨 아래가
+              한 칸 벌어졌다(추가확인 카드에서 라벨과 전화 상태 칩 사이가 떠 보이던 원인).
+            */}
+            {isLoading || changes.length > 0 ? (
+              <ul className="flex w-full flex-col gap-2">
+                {isLoading
+                  ? SKELETON_ROWS.map((row) => (
+                      <li key={row} className={LIST_ITEM}>
+                        <Skeleton className="h-5 w-56 max-w-full" />
+                      </li>
+                    ))
+                  : changes.map((change) => (
+                      <li key={change.label} className={LIST_ITEM}>
+                        <span className="font-medium">{change.label}</span>:{' '}
+                        {change.description}
+                      </li>
+                    ))}
+              </ul>
+            ) : null}
           </>
+        ) : null}
+
+        {/*
+          확인 전화 상태. 요약 한마디만 늘 보이고, 요청 시각·들은 답·사유 코드는 칩에 마우스를 올리거나
+          누르면 펼친다 — 한 줄에 이어 붙이면 실패 줄이 카드 폭을 넘어 요점이 묻혔다.
+
+          버튼 묶음이 아니라 내용 바로 아래에 둔다. 버튼 묶음은 mt-auto 로 카드 바닥에 붙는데,
+          옆 카드가 길어 이 카드가 늘어나면 칩까지 바닥으로 끌려가 내용과 멀리 떨어졌다.
+        */}
+        {callStatus ? (
+          <StatusChip
+            {...CALL_STATUS_CHIP[callStatus.tone]}
+            label={callStatus.label}
+            details={callStatus.details}
+          />
         ) : null}
       </div>
 
@@ -324,17 +366,8 @@ function AgentSurveyResultCard({
         ) : null}
         {/*
           onPrimaryAction 이 없으면 눌러도 아무 일이 없다. 색까지 그대로면 먹통처럼 보이므로
-          아래 '직접 수정하기' 와 같게 비활성으로 둔다 — additional(메시지 보내기)이 그 경우다.
+          비활성으로 둔다.
         */}
-        {callStatus ? (
-          <p
-            role="status"
-            className={`flex w-full items-center gap-1 font-sans text-sm font-semibold leading-5 ${CALL_STATUS_TONE[callStatus.tone]}`}
-          >
-            <Icon icon="material-symbols:call" className="size-4 shrink-0" />
-            {callStatus.label}
-          </p>
-        ) : null}
         {primaryActionLabel && !verifiedLabel ? (
           <button
             type="button"
@@ -346,33 +379,42 @@ function AgentSurveyResultCard({
           </button>
         ) : null}
         {/*
-          확인 전화. 담당자가 이미 처리한 카드에는 내린다 — 답이 나온 뒤에 가게로 전화가 가면 민폐다
-          (백엔드도 같은 이유로 409 로 막는다).
+          직접 수정하기 + 전화하기. Figma 791:253 — 전화가 있는 카드(우선확인·추가확인)는 두 버튼을
+          한 줄에 반씩 놓는다. 전화가 없는 카드(변화없음·조사 실패)와 담당자가 이미 처리한 카드는
+          직접 수정하기만 한 줄을 다 쓴다 — 답이 나온 뒤에 가게로 전화가 가면 민폐다(백엔드도 409).
         */}
-        {onCall && !verifiedLabel ? (
+        <div
+          className={`grid w-full gap-2 ${showCall ? 'grid-cols-2' : 'grid-cols-1'}`}
+        >
+          {/*
+            조회 중에는 누를 수 없게 막는다.
+            어느 가게인지 아직 모르는 자리라 핸들러가 없어서, 열어두면 눌러도
+            아무 일이 일어나지 않아 먹통처럼 보인다.
+          */}
           <button
             type="button"
-            onClick={onCall}
+            onClick={onEdit}
             disabled={isLoading || isProcessing}
-            className={`${ACTION_BUTTON} border border-solid border-[#3b82f6] text-[#3b82f6] focus-visible:outline-[#3b82f6] disabled:opacity-60`}
+            className={`${ACTION_BUTTON} ${SECONDARY_BUTTON}`}
           >
-            <Icon icon="material-symbols:call" className="size-4 shrink-0" />
-            전화로 확인하기
+            직접 수정하기
           </button>
-        ) : null}
-        {/*
-          조회 중에는 누를 수 없게 막는다.
-          어느 가게인지 아직 모르는 자리라 핸들러가 없어서, 열어두면 눌러도
-          아무 일이 일어나지 않아 먹통처럼 보인다.
-        */}
-        <button
-          type="button"
-          onClick={onEdit}
-          disabled={isLoading || isProcessing}
-          className={`${ACTION_BUTTON} border border-solid border-[#e2e8f0] text-[#1e293b] focus-visible:outline-[#64748b] disabled:opacity-60`}
-        >
-          직접 수정하기
-        </button>
+          {/*
+            지금 걸 수 없는 카드(걸어 둔 전화가 진행 중·완료)는 onCall 이 없다. 버튼을 숨기면
+            카드마다 줄 모양이 달라지므로 자리는 두고 비활성으로 둔다 — 전화는 되돌릴 수 없다.
+          */}
+          {showCall ? (
+            <button
+              type="button"
+              onClick={onCall}
+              disabled={isLoading || isProcessing || !onCall}
+              className={`${ACTION_BUTTON} ${SECONDARY_BUTTON}`}
+            >
+              <img src={phoneIcon} alt="" width={22} height={22} className="shrink-0" />
+              전화하기
+            </button>
+          ) : null}
+        </div>
       </div>
     </article>
   );
