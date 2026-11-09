@@ -19,7 +19,13 @@ import com.ktc4.backend.domain.store.service.StoreChangeHistoryService;
 import com.ktc4.backend.domain.store.service.StoreService;
 import com.ktc4.backend.global.error.CustomException;
 import com.ktc4.backend.global.error.ErrorCode;
+import com.ktc4.backend.domain.order.dto.ChildOrderCreateRequest;
+import com.ktc4.backend.domain.order.enums.OrderStatus;
+import com.ktc4.backend.domain.order.enums.ReceiveType;
+import com.ktc4.backend.domain.order.service.OrderService;
+import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.global.security.AuthMember;
+import com.ktc4.backend.global.util.SeoulTime;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +38,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -51,7 +58,8 @@ import static org.assertj.core.api.Assertions.within;
  * <p>QR 해석({@code QrCredentialService})과 가게 조회({@code StoreService})를 Mock 으로 바꾸지 않는다.
  * 세 서비스가 한 트랜잭션 안에서 실제로 맞물리는지가 이 테스트의 목적이다.
  */
-@Import({CheckInService.class, QrCredentialService.class, StoreService.class, StoreChangeHistoryService.class, StoreAccessService.class})
+@Import({CheckInService.class, QrCredentialService.class, StoreService.class, StoreChangeHistoryService.class, StoreAccessService.class,
+        OrderService.class})
 @DisplayName("CheckInService")
 class CheckInServiceTest extends PostgresContainerTest {
 
@@ -154,7 +162,7 @@ class CheckInServiceTest extends PostgresContainerTest {
         }
 
         @Test
-        @DisplayName("응답의 체크인 시각은 저장된 생성 시각이다")
+        @DisplayName("응답의 체크인 시각은 저장된 생성 시각을 한국 시각으로 적은 것이다")
         void respondsWithCreatedAt() {
             String payload = issue();
             LocalDateTime before = LocalDateTime.now();
@@ -165,9 +173,10 @@ class CheckInServiceTest extends PostgresContainerTest {
             entityManager.flush();
             entityManager.clear();
             CheckIn saved = checkInRepository.findById(response.checkInId()).orElseThrow();
-            assertThat(response.checkedInAt()).isBetween(before, after);
+            // 응답은 한국 시각이다 — 서버 시간대가 UTC(배포·CI)여도 앱에 한국 시각이 가게
+            assertThat(response.checkedInAt()).isBetween(SeoulTime.toSeoul(before), SeoulTime.toSeoul(after));
             // Postgres 는 마이크로초 단위로 반올림해 저장하므로 그 차이만큼은 허용한다.
-            assertThat(saved.getCreatedAt()).isCloseTo(response.checkedInAt(), within(1, ChronoUnit.MICROS));
+            assertThat(SeoulTime.toSeoul(saved.getCreatedAt())).isCloseTo(response.checkedInAt(), within(1, ChronoUnit.MICROS));
         }
 
         @Test
@@ -495,6 +504,107 @@ class CheckInServiceTest extends PostgresContainerTest {
                     .isInstanceOf(CustomException.class);
 
             assertThat(qrFailureLogs()).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("주문 짝 — 점주가 찍은 QR 의 아동이 이 가게에 낸 접수 대기 주문")
+    class MatchingOrder {
+
+        @Autowired
+        private OrderService orderService;
+
+        @Autowired
+        private JdbcTemplate jdbcTemplate;
+
+        private Long menuIdAt(Long targetStoreId) {
+            Store store = entityManager.find(Store.class, targetStoreId);
+            Long menuId = entityManager.persistAndFlush(StoreMenu.of(store, "후라이드 치킨", true)).getMenuId();
+            entityManager.clear();
+            return menuId;
+        }
+
+        private int ownerSeq;
+
+        // 주문은 점주가 연결된 가게에만 받는다
+        private void linkOwnerTo(Long targetStoreId) {
+            LocalDateTime linkedAt = LocalDateTime.of(2026, 11, 1, 10, 0);
+            Member owner = Member.ownerApplicant("checkin-order-owner-" + (++ownerSeq) + "@example.com", "hash",
+                    OwnerInfo.builder().bizNo("0000000000").storeName("예시분식").representativeName("홍길동")
+                            .phone("01000000000").build());
+            owner.approve(linkedAt);
+            owner = entityManager.persistAndFlush(owner);
+            Member admin = entityManager.persistAndFlush(Member.admin("checkin-order-admin-" + ownerSeq + "@example.com", "hash"));
+            entityManager.persistAndFlush(StoreOwner.link(entityManager.find(Store.class, targetStoreId), owner, admin, linkedAt));
+            entityManager.clear();
+        }
+
+        private Long orderAt(Long targetStoreId) {
+            linkOwnerTo(targetStoreId);
+            // 주문은 아동 표를 가리키므로, QR 을 발급한 아동 번호로 아동 행을 만든다
+            jdbcTemplate.update("INSERT INTO child (child_id, card_hash, created_at, updated_at) VALUES (?, ?, now(), now()) "
+                    + "ON CONFLICT DO NOTHING", CHILD_ID, "c".repeat(64));
+            return orderService.create(CHILD_ID,
+                    new ChildOrderCreateRequest(targetStoreId, menuIdAt(targetStoreId), ReceiveType.TAKEOUT)).orderId();
+        }
+
+        @Test
+        @DisplayName("접수 대기 주문이 있으면 응답에 실린다 — 체크인은 주문 상태를 바꾸지 않는다")
+        void includesReceivedOrder() {
+            Long orderId = orderAt(storeId);
+            String payload = issue();
+
+            CheckInResponse response = checkInService.checkIn(storeId, payload, ADMIN);
+
+            assertThat(response.order()).isNotNull();
+            assertThat(response.order().orderId()).isEqualTo(orderId);
+            assertThat(response.order().menuName()).isEqualTo("후라이드 치킨");
+            assertThat(response.order().status()).isEqualTo(OrderStatus.RECEIVED);
+
+            // DB 의 주문도 그대로다 — 응답만 보면 바뀐 주문을 옛 값으로 돌려줘도 통과한다
+            entityManager.flush();
+            assertThat(jdbcTemplate.queryForObject("SELECT status FROM child_order WHERE order_id = ?", String.class, orderId))
+                    .isEqualTo("RECEIVED");
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT cooking_started_at FROM child_order WHERE order_id = ?", LocalDateTime.class, orderId)).isNull();
+
+            // 두 번 찍어도 같은 주문이 온다
+            assertThat(checkInService.checkIn(storeId, payload, ADMIN).order().orderId()).isEqualTo(orderId);
+        }
+
+        @Test
+        @DisplayName("주문이 없으면 null 이고 체크인은 그대로 된다")
+        void nullWithoutOrder() {
+            String payload = issue();
+
+            CheckInResponse response = checkInService.checkIn(storeId, payload, ADMIN);
+
+            assertThat(response.order()).isNull();
+            assertThat(response.checkInId()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("다른 가게에 낸 주문은 싣지 않는다")
+        void ignoresOrderAtOtherStore() {
+            Long otherStoreId = entityManager.persistAndFlush(Store.builder()
+                    .name("샘플카페").nameNormalized("샘플카페")
+                    .addressRoad("가상특별시 예시구 샘플로 456").addressNormalized("가상특별시예시구샘플로456")
+                    .status(StoreStatus.OPEN)
+                    .build()).getStoreId();
+            orderAt(otherStoreId);
+            String payload = issue();
+
+            assertThat(checkInService.checkIn(storeId, payload, ADMIN).order()).isNull();
+        }
+
+        @Test
+        @DisplayName("이미 조리 중인 주문은 싣지 않는다 — 두 번 찍어도 같은 주문을 다시 시작하지 않게")
+        void ignoresCookingOrder() {
+            Long orderId = orderAt(storeId);
+            orderService.startCooking(storeId, orderId, ADMIN);
+            String payload = issue();
+
+            assertThat(checkInService.checkIn(storeId, payload, ADMIN).order()).isNull();
         }
     }
 }

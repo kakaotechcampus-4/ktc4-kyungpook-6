@@ -1,5 +1,7 @@
 package com.ktc4.backend.domain.store.entity;
 
+import com.ktc4.backend.domain.store.enums.CompanionPolicy;
+import com.ktc4.backend.domain.store.enums.OpenMode;
 import com.ktc4.backend.domain.store.enums.StoreStatus;
 import com.ktc4.backend.global.entity.BaseTimeEntity;
 import jakarta.persistence.*;
@@ -32,7 +34,9 @@ import java.util.Objects;
         indexes = {
                 @Index(name = "idx_store_status_last_checked_at", columnList = "status, last_checked_at"),
                 @Index(name = "idx_store_name_normalized", columnList = "name_normalized"),
-                @Index(name = "idx_store_last_checked_at", columnList = "last_checked_at")
+                @Index(name = "idx_store_last_checked_at", columnList = "last_checked_at"),
+                // 주변 가게 찾기가 위경도 사각형으로 먼저 거른다(V7)
+                @Index(name = "idx_store_lat_lng", columnList = "lat, lng")
         }
 )
 @DynamicUpdate
@@ -99,6 +103,39 @@ public class Store extends BaseTimeEntity {
     @Column(name = "last_checked_at")
     private LocalDateTime lastCheckedAt;
 
+    /** 점주가 고른 영업 상태 방식 — 영업시간대로(기본) 또는 직접 켜고 끄기 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "open_mode", nullable = false, length = 20)
+    private OpenMode openMode;
+
+    /** 직접 켜고 끄기({@link OpenMode#MANUAL})일 때 켜 두었는지. 영업시간대로일 때는 보지 않는다 */
+    @Column(name = "manual_open", nullable = false)
+    private boolean manualOpen;
+
+    /** 점주가 정한 동반 인원 — 아이 본인만(기본)·1인·2인 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "companion", nullable = false, length = 10)
+    private CompanionPolicy companion;
+
+    /** 포장해 갈 수 있는지. 매장 식사와 둘 다 꺼질 수는 없다(요청 검증) */
+    @Column(name = "takeout_available", nullable = false)
+    private boolean takeoutAvailable;
+
+    /** 매장에서 먹을 수 있는지 */
+    @Column(name = "dine_in_available", nullable = false)
+    private boolean dineInAvailable;
+
+    /** 사장님 한마디 — 브레이크타임처럼 다른 칸으로 적기 어려운 말(100자 이하). 없으면 null */
+    @Column(name = "owner_note", length = 100)
+    private String ownerNote;
+
+    /**
+     * 주소로 좌표를 찾지 못한 마지막 시각. 좌표 채우기 배치가 같은 주소를 매번 다시 묻지 않게, 이 시각부터 며칠은 건너뛴다.
+     * 좌표를 찾았거나 주소가 바뀌면 비운다.
+     */
+    @Column(name = "geocode_attempted_at")
+    private LocalDateTime geocodeAttemptedAt;
+
     @Builder
     private Store(String name, String nameNormalized,
                   String addressRoad, String addressNormalized,
@@ -118,6 +155,13 @@ public class Store extends BaseTimeEntity {
         this.ownerPhone = ownerPhone;
         this.bizNo = bizNo;
         this.lastCheckedAt = lastCheckedAt;
+        // 점주 앱의 기본값과 같다 — 영업시간대로, 직접 켜고 끄기로 바꾸면 켜진 채로 시작
+        this.openMode = OpenMode.SCHEDULE;
+        this.manualOpen = true;
+        // 점주가 정하기 전에는 가장 넓게 둔다 — 아이 본인만, 포장·매장 둘 다
+        this.companion = CompanionPolicy.NONE;
+        this.takeoutAvailable = true;
+        this.dineInAvailable = true;
     }
 
     /**
@@ -267,5 +311,76 @@ public class Store extends BaseTimeEntity {
      */
     public void confirm(LocalDateTime confirmedAt) {
         this.lastCheckedAt = confirmedAt;
+    }
+
+    /**
+     * 점주가 고른 영업 상태 방식과 켜고 끈 값을 바꾼다. 점주 앱 홈에서 방식을 고르거나 켜고 끌 때 부른다.
+     *
+     * <p>영업시간대로일 때도 {@code manualOpen} 을 그대로 받아 둔다 — 다시 직접 켜고 끄기로 바꿨을 때 마지막 값으로 돌아가게.
+     *
+     * @param openMode   영업 상태 방식
+     * @param manualOpen 직접 켜고 끄기에서 켜 두었는지
+     */
+    public void changeOpenSetting(OpenMode openMode, boolean manualOpen) {
+        this.openMode = openMode;
+        this.manualOpen = manualOpen;
+    }
+
+    /**
+     * 아동 앱에 보이는 방문 조건을 바꾼다 — 동반 인원·식사 방법·사장님 한마디. 점주가 가게 관리에서 저장할 때 부른다.
+     *
+     * <p>각 칸은 {@code null} 이면 바뀌지 않는다. 점주 앱이 이 칸들을 보내기 전에도 가게 관리 저장이 깨지지 않게 하기 위해서다.
+     * 포장·매장은 둘이 함께 오고 하나는 켜져 있다 — 요청 검증이 본다.
+     *
+     * @param companion        동반 인원. {@code null} 이면 유지
+     * @param takeoutAvailable 포장 가능. {@code null} 이면 유지
+     * @param dineInAvailable  매장 식사 가능. {@code null} 이면 유지
+     * @param ownerNote        사장님 한마디(앞뒤 공백을 지운 값). {@code null} 이면 유지, 빈 문자열이면 지움
+     */
+    public void changeVisitInfo(CompanionPolicy companion, Boolean takeoutAvailable, Boolean dineInAvailable,
+                                String ownerNote) {
+        if (companion != null) {
+            this.companion = companion;
+        }
+        if (takeoutAvailable != null) {
+            this.takeoutAvailable = takeoutAvailable;
+        }
+        if (dineInAvailable != null) {
+            this.dineInAvailable = dineInAvailable;
+        }
+        if (ownerNote != null) {
+            this.ownerNote = ownerNote.isEmpty() ? null : ownerNote;
+        }
+    }
+
+    /**
+     * 주소로 찾은 좌표를 넣는다 — 좌표 채우기 배치가 부른다. 못 찾은 기록은 지운다.
+     *
+     * @param lat 위도
+     * @param lng 경도
+     */
+    public void recordGeocodedCoordinates(double lat, double lng) {
+        this.lat = lat;
+        this.lng = lng;
+        this.geocodeAttemptedAt = null;
+    }
+
+    /**
+     * 주소로 좌표를 찾지 못했음을 남긴다 — 좌표 채우기 배치가 한동안 이 가게를 건너뛴다.
+     *
+     * @param attemptedAt 찾아본 시각
+     */
+    public void recordGeocodeMiss(LocalDateTime attemptedAt) {
+        this.geocodeAttemptedAt = attemptedAt;
+    }
+
+    /**
+     * 좌표를 비운다 — 주소가 바뀌었는데 새 좌표를 함께 받지 못했을 때. 옛 좌표가 남으면 지도에 옛 자리로 나온다.
+     * 좌표 채우기 배치가 새 주소로 다시 채운다(못 찾은 기록도 지워 바로 다시 찾게 한다).
+     */
+    public void clearCoordinates() {
+        this.lat = null;
+        this.lng = null;
+        this.geocodeAttemptedAt = null;
     }
 }

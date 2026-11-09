@@ -49,6 +49,87 @@ export type VerificationResponse = {
   verifiedAt: string | null;
 };
 
+/** 확인 전화 한 통의 진행 상태. 전화 API 의 status 를 그대로 쓴다. */
+export type CallStatusResponse =
+  | 'PENDING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'FAILED';
+
+/** 왜 걸었는가. CHANGE_DETECTED(변화가 잡혀서) · PERIODIC_RECHECK(90일 넘게 확인하지 않아서). */
+export type CallReasonResponse = 'CHANGE_DETECTED' | 'PERIODIC_RECHECK';
+
+/**
+ * 전화가 왜 실패했는지를 **담당자가 할 일**로 묶은 값.
+ *
+ * 같은 "실패" 라도 할 일이 정반대다 — 통화 중이라 못 들은 것은 이따 다시 걸면 되고,
+ * 없는 번호는 다시 걸어도 같아서 번호를 고쳐야 한다.
+ *
+ * `OUR_SIDE` 를 가려내는 것이 특히 중요하다. 전화 API 나 서버 문제를 다른 실패와 같은 모양으로
+ * 보여 주면 담당자가 **가게 탓으로 읽고** 멀쩡한 가게를 "연락이 안 되는 가게" 로 넘긴다.
+ */
+export type CallFailureKindResponse =
+  | 'RETRY_LATER'
+  | 'FIX_NUMBER'
+  | 'NOT_BY_PHONE'
+  | 'PARTY_UNCONFIRMED'
+  | 'OUR_SIDE'
+  | 'UNKNOWN';
+
+/** 통화에서 들은 답 한 건. */
+export type CallAnswerResponse = {
+  /** 우리 쪽 항목 키 — 수정안의 field 와 같은 값이다. 모르는 항목은 전화 API 의 키가 그대로 온다. */
+  field: string;
+  /** 통화에서 그 항목을 부른 이름("상호명" 등). 화면 라벨로 그대로 쓸 수 있다. */
+  naturalField: string;
+  /**
+   * 점주가 답한 값.
+   *
+   * **영업 여부(`status`)만 `"true"`·`"false"` 다.** 전화로는 "지금도 영업하십니까" 한 가지만
+   * 묻기 때문에 휴업과 폐업을 가르는 일은 담당자가 한다. 나머지는 들은 값 그대로다.
+   */
+  value: string | null;
+  /**
+   * 이 답이 가게에 그대로 반영됐는가.
+   *
+   * **영업 여부는 늘 false 다** — 전화로는 "지금도 영업하십니까" 참·거짓 하나만 물어서
+   * 휴업인지 폐업인지 가릴 수 없다. 그 판단은 담당자가 한다.
+   */
+  applied: boolean;
+};
+
+/**
+ * 조사 결과 한 건으로 건 확인 전화.
+ *
+ * **담당자 확인 기록(`verification`)과 다른 것이다.** 전화는 점주에게 물어본 결과이고
+ * 확인 기록은 그 답을 읽은 담당자의 판단이다 — 전화 한 통으로 가게 확인일은 올라가지 않는다.
+ */
+export type CallResponse = {
+  callId: number;
+  status: CallStatusResponse;
+  reason: CallReasonResponse;
+  requestedAt: string | null;
+  /** 통화 처리가 끝난 시각. 진행 중이면 null. */
+  endedAt: string | null;
+  /** 실패 사유 코드. 실패가 아니면 null. 전화 API 가 정하는 값이라 번역하지 않는다. */
+  failureReason: string | null;
+  /** 실패 사유를 담당자가 할 일로 묶은 값. 실패가 아니면 null. */
+  failureKind: CallFailureKindResponse | null;
+  /** 진행 중이거나 실패한 통화의 부분 결과도 들어온다. */
+  answers: CallAnswerResponse[] | null;
+};
+
+/** 한 번에 전화를 넣은 결과. */
+export type CallBulkResponse = {
+  /** 전화를 걸 만한 결과 수. */
+  targetCount: number;
+  /** 실제로 요청이 들어간 수. */
+  requested: number;
+  /** 번호가 없거나 물을 것이 없어 빠진 수. */
+  skipped: number;
+  calls: CallResponse[] | null;
+};
+
 /** Job 에 속한 Task 한 건. */
 export type TaskResponse = {
   taskId: number;
@@ -65,6 +146,8 @@ export type TaskResponse = {
   proposedChanges: ProposedChangeResponse[] | null;
   /** 담당자가 이미 확인했으면 그 기록. 아직이면 null. */
   verification: VerificationResponse | null;
+  /** 이 결과로 건 확인 전화. 아직 걸지 않았으면 null. */
+  call: CallResponse | null;
 };
 
 /** 조사 1회(Job)의 결과. 분석 결과 화면이 통째로 받는 응답. */
@@ -129,3 +212,25 @@ export const applyTask = async (taskId: number) =>
 /** 가게 값은 그대로 두고 확인만 끝낸다. 이미 처리한 카드는 409다. */
 export const confirmTask = async (taskId: number) =>
   postRequest<TaskResponse>(`/api/tasks/${taskId}/confirm`, undefined);
+
+/**
+ * 그 가게에 확인 전화를 요청한다. 통화가 끝나기를 기다리지 않고 바로 돌아온다(202).
+ *
+ * 결과는 조사 결과를 다시 조회해 각 카드의 `call` 로 본다 — 서버가 주기적으로 전화 API 에서
+ * 받아 와 갱신한다.
+ *
+ * 걸 수 없는 경우는 409 다: 변화도 없고 최근에 확인한 결과(`NO_CHANGE`), 조사에 실패한 결과,
+ * 이미 확인을 끝낸 카드, 가게 전화번호가 없는 가게(`call-target-not-eligible`), 이미 걸어 둔
+ * 전화가 있는 경우(`call-already-requested`). 전화 API 주소·키를 아직 넣지 않은 환경은 503 이다.
+ */
+export const requestCall = async (taskId: number) =>
+  postRequest<CallResponse>(`/api/tasks/${taskId}/call`, undefined);
+
+/**
+ * 그 조사 결과에서 **전화를 걸 만한 가게 전부**에 전화를 요청한다.
+ *
+ * 대기열은 전화 API 가 갖고 있어서, 한꺼번에 넣으면 전화 API 가 차례대로 발신한다 —
+ * 화면이 한 통씩 기다리며 다음을 넣을 필요가 없다.
+ */
+export const requestCallsForJob = async (jobId: number) =>
+  postRequest<CallBulkResponse>(`/api/jobs/${jobId}/calls`, undefined);

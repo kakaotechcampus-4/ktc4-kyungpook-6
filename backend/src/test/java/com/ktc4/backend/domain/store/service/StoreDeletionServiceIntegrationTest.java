@@ -2,9 +2,13 @@ package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.checkin.entity.CheckIn;
+import com.ktc4.backend.domain.child.repository.ChildRepository;
 import com.ktc4.backend.domain.job.entity.Job;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.repository.JobRepository;
+import com.ktc4.backend.domain.order.entity.ChildOrder;
+import com.ktc4.backend.domain.order.enums.OrderStatus;
+import com.ktc4.backend.domain.order.enums.ReceiveType;
 import com.ktc4.backend.domain.signal.entity.Signal;
 import com.ktc4.backend.domain.signal.enums.ChangeField;
 import com.ktc4.backend.domain.signal.enums.SignalSource;
@@ -16,9 +20,10 @@ import com.ktc4.backend.domain.store.dto.StoreDeletionRequest;
 import com.ktc4.backend.domain.store.dto.StoreDeletionResponse;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreChangeHistory;
+import com.ktc4.backend.domain.store.entity.StoreMenu;
+import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.enums.StoreChangeField;
 import com.ktc4.backend.domain.store.enums.StoreChangeSource;
-import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsChange;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsChangeRepository;
@@ -37,6 +42,8 @@ import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.support.PostgresContainerTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.ParameterizedTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
@@ -69,6 +76,9 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
 
     @Autowired
     private StoreRepository storeRepository;
+
+    @Autowired
+    private ChildRepository childRepository;
 
     @Autowired
     private StoreNtsCheckRepository storeNtsCheckRepository;
@@ -306,6 +316,30 @@ class StoreDeletionServiceIntegrationTest extends PostgresContainerTest {
         assertThatThrownBy(() -> storeDeletionService.delete(store.getStoreId(), true))
                 .isInstanceOfSatisfying(CustomException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORE_HAS_CHECK_IN));
+
+        entityManager.clear();
+        assertThat(storeRepository.findById(store.getStoreId())).isPresent();
+    }
+
+    @ParameterizedTest
+    @EnumSource(OrderStatus.class)
+    @DisplayName("주문 기록은 상태와 상관없이 force 여도 지우지 않는다 — 아동이 실제로 주문한 기록이고, 지우면 주문 표의 외래 키에 걸린다")
+    void 주문은_force_로도_못_넘긴다(OrderStatus status) {
+        Store store = saveStore("별빛분식");
+        StoreMenu menu = entityManager.persistAndFlush(StoreMenu.of(store, "김밥", true));
+        String hash = "9".repeat(64);
+        childRepository.insertIfAbsent(hash, LocalDateTime.now());
+        Long childId = childRepository.findIdByCardHash(hash).orElseThrow();
+        Long orderId = entityManager.persistAndFlush(ChildOrder.receive(childId, store, menu, ReceiveType.TAKEOUT)).getOrderId();
+        entityManager.getEntityManager().createNativeQuery("UPDATE child_order SET status = :status WHERE order_id = :id")
+                .setParameter("status", status.name()).setParameter("id", orderId).executeUpdate();
+        entityManager.clear();
+
+        for (boolean force : new boolean[]{false, true}) {
+            assertThatThrownBy(() -> storeDeletionService.delete(store.getStoreId(), force))
+                    .isInstanceOfSatisfying(CustomException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORE_HAS_ORDER));
+        }
 
         entityManager.clear();
         assertThat(storeRepository.findById(store.getStoreId())).isPresent();

@@ -179,6 +179,72 @@ class JwtProviderTest {
         assertThat(providerAt(NOW).parse(signedWith(Map.of()))).isEmpty();
     }
 
+    // ── 아동 토큰 ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("아동 토큰에서는 아동 번호만 있고 회원 번호·역할이 없는 사용자가 나온다 — 점주 토큰과 구별된다")
+    void childRoundTrip() {
+        JwtProvider provider = providerAt(NOW);
+
+        IssuedToken token = provider.issueChild(7L);
+
+        AuthMember child = provider.parse(token.value()).orElseThrow();
+        assertThat(child).isEqualTo(AuthMember.child(7L));
+        assertThat(child.childId()).isEqualTo(7L);
+        assertThat(child.memberId()).isNull();
+        assertThat(child.role()).isNull();
+        assertThat(child).isNotEqualTo(new AuthMember(7L, MemberRole.OWNER));
+        assertThat(token.expiresAt()).isEqualTo(NOW.plus(VALIDITY));
+    }
+
+    @Test
+    @DisplayName("아동 토큰에는 역할을 담지 않는다 — 용도 칸을 모르는 코드가 점주 토큰으로 알아보지 못하게")
+    void childTokenHasNoRole() throws Exception {
+        String payload = providerAt(NOW).issueChild(7L).value().split("\\.")[1];
+        JsonNode claims = new ObjectMapper().readTree(Base64.getUrlDecoder().decode(payload));
+
+        assertThat(claims.fieldNames()).toIterable().containsExactlyInAnyOrderElementsOf(
+                List.of("sub", "scope", "iat", "exp"));
+        assertThat(claims.get("scope").asText()).isEqualTo("CHILD");
+    }
+
+    @Test
+    @DisplayName("아동 토큰도 만료 뒤에는 거절한다")
+    void childTokenExpires() {
+        String token = providerAt(NOW).issueChild(7L).value();
+
+        assertThat(providerAt(NOW.plus(VALIDITY).plusSeconds(1)).parse(token)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("아동 용도와 관리자 역할이 함께 적혀 있어도 아동이다 — 역할 칸을 보지 않는다")
+    void childScopeWinsOverRole() {
+        String token = signedWith(Map.of("scope", "CHILD", "role", "ADMIN"));
+
+        assertThat(providerAt(NOW).parse(token)).contains(AuthMember.child(7L));
+    }
+
+    @Test
+    @DisplayName("아동 용도를 점주 역할로 바꿔치기하면 서명이 맞지 않아 거절한다")
+    void rejectsChildTokenTamperedToOwner() {
+        String[] parts = providerAt(NOW).issueChild(7L).value().split("\\.");
+        String forgedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8)
+                        .replace("\"scope\":\"CHILD\"", "\"role\":\"OWNER\"").getBytes(StandardCharsets.UTF_8));
+        String forged = parts[0] + "." + forgedPayload + "." + parts[2];
+
+        assertThat(forgedPayload).isNotEqualTo(parts[1]);   // 바꿔치기가 실제로 일어났는지
+        assertThat(providerAt(NOW).parse(forged)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("일반 토큰 용도(ACCESS)를 용도 칸에 적은 토큰은 거절한다 — 용도 칸으로는 아동·가입 상태만 연다")
+    void rejectsAccessWrittenAsScope() {
+        String token = signedWith(Map.of("scope", "ACCESS", "role", "ADMIN"));
+
+        assertThat(providerAt(NOW).parse(token)).isEmpty();
+    }
+
     @Test
     @DisplayName("키가 32바이트보다 짧으면 기동을 막는다")
     void rejectsShortSecret() {

@@ -3,6 +3,7 @@ import type { ComponentPropsWithoutRef } from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
 import Skeleton from '../components/ui/Skeleton';
 import AgentSurveyResultCard from '../components/AgentSurveyResultCard';
+import StatusChip from '../components/ui/StatusChip';
 import AnalysisResultSection from '../components/analysis/AnalysisResultSection';
 import StoreEditModal from '../components/store/StoreEditModal';
 import type { TaskClassification } from '../components/AgentSurveyResultCard';
@@ -41,10 +42,16 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
     groups,
     isPending,
     isError,
+    noJobYet,
     progressLabel,
     processingTaskId,
     actionErrorMessage,
     applyChanges,
+    requestOneCall,
+    callTargetCount,
+    requestAllCalls,
+    isRequestingAllCalls,
+    bulkCallSummary,
   } = useAnalysisResultPage();
   const storeEdit = useStoreEditModal();
 
@@ -89,22 +96,76 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
           </nav>
         </div>
 
-        {isError && (
-          <p role="status" className="px-3.5 pt-3.5 text-sm text-[#64748b]">
-            조사 결과를 불러오지 못해 목업 데이터를 표시합니다.
-          </p>
-        )}
-
-        {progressLabel && (
-          <p role="status" className="px-3.5 pt-3.5 text-sm text-[#475569]">
-            {progressLabel}
-          </p>
-        )}
-
-        {actionErrorMessage && (
-          <p role="alert" className="px-3.5 pt-3.5 text-sm text-[#b91c1c]">
-            {actionErrorMessage}
-          </p>
+        {(noJobYet ||
+          isError ||
+          progressLabel ||
+          callTargetCount > 0 ||
+          bulkCallSummary ||
+          actionErrorMessage) && (
+          <div className="flex w-full shrink-0 flex-wrap items-center gap-2 px-3.5 pt-3.5">
+            {/*
+              화면 위 알림은 모두 이 한 줄에 같은 칩으로 모은다. 예전에는 알림마다 문단을 하나씩 쌓아
+              여백(pt-3.5)이 알림 수만큼 겹쳤고, 글자 색만 달라 무엇이 오류인지 한눈에 안 보였다.
+            */}
+            {noJobYet && (
+              <StatusChip
+                tone="progress"
+                icon="material-symbols:info-outline-rounded"
+                label="아직 조사한 기록이 없습니다. 가게 목록에서 조사를 시작해 주세요."
+              />
+            )}
+            {isError && (
+              <StatusChip
+                tone="warning"
+                icon="material-symbols:warning-outline-rounded"
+                label="조사 결과를 불러오지 못해 목업 데이터를 표시합니다."
+              />
+            )}
+            {progressLabel && (
+              <StatusChip
+                tone="progress"
+                icon="material-symbols:progress-activity"
+                label={progressLabel}
+              />
+            )}
+            {/*
+              전화 대상이 하나도 없으면 내린다 — 눌러도 "0곳에 넣었습니다" 만 나오는 버튼이다.
+              대기열은 전화 API 가 갖고 있어서 한 번 누르면 차례대로 걸린다. 화면이 한 통씩
+              기다리며 다음을 넣지 않는다.
+            */}
+            {callTargetCount > 0 && (
+              <button
+                type="button"
+                onClick={requestAllCalls}
+                disabled={isRequestingAllCalls}
+                className="flex h-10 shrink-0 items-center justify-center gap-1 rounded-lg border border-solid border-[#3b82f6] px-3 font-sans text-sm font-semibold leading-5 text-[#3b82f6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6] disabled:opacity-60"
+              >
+                <Icon icon="material-symbols:call" className="size-4 shrink-0" />
+                전화 대상 {callTargetCount}곳에 한 번에 전화 걸기
+              </button>
+            )}
+            {/*
+              한 번에 걸기 결과는 버튼 바로 옆에 둔다 — 누른 자리에서 결과를 읽게 한다.
+              요약만 보이고 대상·건너뛴 수는 칩을 올리거나 누르면 펼친다.
+            */}
+            {bulkCallSummary && (
+              <StatusChip
+                tone="info"
+                icon="material-symbols:check-circle-outline-rounded"
+                label={bulkCallSummary.label}
+                details={bulkCallSummary.details}
+              />
+            )}
+            {/* 반영·확인·전화 요청이 서버에서 거절됐을 때. 펼칠 세부가 없어 글자 칩으로만 둔다. */}
+            {actionErrorMessage && (
+              <StatusChip
+                role="alert"
+                tone="danger"
+                icon="material-symbols:error-outline-rounded"
+                label={actionErrorMessage}
+              />
+            )}
+          </div>
         )}
 
         {/* Funnel Analysis Window. Figma 112:5452 */}
@@ -136,8 +197,8 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                     ))
                   : tasks.map((task) => (
                       /*
-                        "메시지 보내기"(additional)는 아직 보낼 길이 없어 연결하지 않았다 —
-                        누르면 수정안 반영으로 처리돼 엉뚱한 일이 일어나므로 priority 만 건다.
+                        주 버튼("즉시 수정 반영하기")은 우선확인에만 있다. 추가확인에서 할 일은
+                        가게에 연락하는 것 하나라, 그 분류의 행동은 "전화하기" 가 맡는다.
                       */
                       <AgentSurveyResultCard
                         key={task.id}
@@ -148,10 +209,16 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                         changes={task.changes}
                         failureReason={task.failureReason}
                         verifiedLabel={task.verifiedLabel}
+                        callStatus={task.callStatus}
                         isProcessing={processingTaskId === task.taskId}
                         onPrimaryAction={
                           task.classification === 'priority'
                             ? () => applyChanges(task.taskId)
+                            : undefined
+                        }
+                        onCall={
+                          task.canCall
+                            ? () => requestOneCall(task.taskId)
                             : undefined
                         }
                         onEdit={() =>

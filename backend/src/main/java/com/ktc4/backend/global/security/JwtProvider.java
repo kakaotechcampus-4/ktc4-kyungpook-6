@@ -23,7 +23,8 @@ import java.util.Optional;
  *
  * <p>가입 신청자에게는 용도({@code scope})가 적힌 가입 상태 확인용 토큰을 준다. 이 토큰에는 역할을 담지 않는다 —
  * 용도 칸을 모르는 코드가 읽더라도 점주 토큰으로 알아보지 못하게 하기 위해서다. 용도 칸이 없는 토큰은
- * 일반 토큰이다(이 칸이 생기기 전에 발급한 토큰이 그대로 쓰인다).
+ * 일반 토큰이다(이 칸이 생기기 전에 발급한 토큰이 그대로 쓰인다). 급식카드로 인증한 아동의 토큰도 같은 방식이다 —
+ * {@code sub} 가 아동 번호이고 용도는 {@code CHILD} 다.
  *
  * <p>요청마다 DB 를 보지 않고 토큰만 믿는다. 그래서 계정 상태가 바뀌어도(승인 취소 등) 이미 발급한
  * 토큰은 만료 전까지 유효하다 — 갱신 토큰을 도입할 때 유효 기간을 줄여 함께 다룬다.
@@ -97,11 +98,28 @@ public class JwtProvider {
      * @return 토큰과 만료 시각
      */
     public IssuedToken issueSignupStatus(Long memberId) {
+        return issueScoped(memberId, TokenScope.SIGNUP_STATUS);
+    }
+
+    /**
+     * 아동 토큰을 발급한다. 급식카드로 인증한 아동이 자기 API(내 QR)만 부르는 데 쓴다.
+     *
+     * <p>회원 토큰처럼 역할을 담지 않고 용도만 담는다 — 용도 칸을 모르는 코드가 읽어도 점주 토큰으로 알아보지 못하게.
+     * 유효 기간은 접근 토큰과 같다.
+     *
+     * @param childId 아동 번호
+     * @return 토큰과 만료 시각
+     */
+    public IssuedToken issueChild(Long childId) {
+        return issueScoped(childId, TokenScope.CHILD);
+    }
+
+    private IssuedToken issueScoped(Long subject, TokenScope scope) {
         Instant now = clock.instant();
         Instant expiresAt = now.plus(validity);
         String token = Jwts.builder()
-                .subject(String.valueOf(memberId))
-                .claim(SCOPE_CLAIM, TokenScope.SIGNUP_STATUS.name())
+                .subject(String.valueOf(subject))
+                .claim(SCOPE_CLAIM, scope.name())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiresAt))
                 .signWith(key)
@@ -130,10 +148,15 @@ public class JwtProvider {
             if (scope != null) {
                 // 용도가 적힌 토큰은 그 용도로만 쓴다 — 역할 칸이 함께 있어도 보지 않는다.
                 // 모르는 용도를 일반 토큰으로 넘기면 제한하려던 토큰이 모든 권한을 갖게 되므로 거절한다.
-                if (!TokenScope.SIGNUP_STATUS.name().equals(scope)) {
-                    return Optional.empty();
+                // 일반 토큰(ACCESS)은 용도 칸 없이 발급하므로, 용도 칸에 ACCESS 가 적힌 토큰도 거절한다.
+                Long subject = Long.valueOf(claims.getSubject());
+                if (TokenScope.SIGNUP_STATUS.name().equals(scope)) {
+                    return Optional.of(AuthMember.signupStatus(subject));
                 }
-                return Optional.of(AuthMember.signupStatus(Long.valueOf(claims.getSubject())));
+                if (TokenScope.CHILD.name().equals(scope)) {
+                    return Optional.of(AuthMember.child(subject));
+                }
+                return Optional.empty();
             }
             String role = claims.get(ROLE_CLAIM, String.class);
             if (role == null) {

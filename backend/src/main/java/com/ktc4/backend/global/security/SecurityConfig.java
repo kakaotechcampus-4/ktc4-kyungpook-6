@@ -31,8 +31,10 @@ import java.time.Duration;
  * <p>목록에 없는 경로는 관리자만 부를 수 있다. 새 API 를 추가하고 권한 설정을 잊어도 열리는 게 아니라
  * 막히게 하기 위해서다. 점주 API 가 생기면 여기에 경로를 추가한다.
  *
- * <p>아동 QR 발급({@code /api/children/**})은 다시 부르면 옛 QR 이 바로 무효가 되어, 열려 있으면 누구나 아무 아동의
- * QR 을 못 쓰게 만들 수 있다 — 아동 인증이 생기기 전까지 관리자만 부른다.
+ * <p>아동은 급식카드로 인증해 아동 토큰을 받고({@code POST /api/auth/children/card}, 누구나), 그 토큰으로 자기 QR 만
+ * 발급한다({@code POST /api/children/me/qr-token}). QR 발급은 다시 부르면 옛 QR 이 바로 무효가 되므로 아동 번호를 요청에서
+ * 받지 않고 토큰에서만 꺼낸다 — 점주·관리자도 남의 QR 을 재발급할 수 없다. 아동 토큰이 부를 수 있는 것은 내 QR 과 내 주문
+ * (만들기·진행 중 보기·취소)뿐이다. 가게 주문 처리는 점주·관리자, 주문 내역은 관리자({@code /api/admin/**})다.
  *
  * <p>권한 검사는 끌 수 없다. 로그인 기능을 넣을 때 프론트·AI 가 준비되기 전이라 끌 수 있는 임시 스위치
  * ({@code AUTH_ENFORCE})를 두었고, 준비가 끝나 PROMPT-146 에서 지웠다. 다시 만들지 못하게
@@ -102,6 +104,15 @@ public class SecurityConfig {
     @Value("${biz-cert-extraction.rate-limit.file-window-hours:3}")
     private long bizCertReadFileWindowHours;
 
+    @Value("${child.card-auth.rate-limit.max-attempts:20}")
+    private int childCardAuthMaxAttempts;
+
+    @Value("${child.card-auth.rate-limit.window-minutes:10}")
+    private long childCardAuthWindowMinutes;
+
+    @Value("${child.card-auth.rate-limit.max-attempts-per-day:100}")
+    private int childCardAuthMaxPerDay;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtProvider jwtProvider,
@@ -126,6 +137,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/ping").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/owners/signup").permitAll()
+                        // 아동 급식카드 인증 — 로그인 없이 받는다. 같은 곳에서 되풀이하면 아래 필터가 거절한다
+                        .requestMatchers(HttpMethod.POST, "/api/auth/children/card").permitAll()
                         // 가입 신청에 붙일 파일. 가입 전이라 계정이 없다 — 횟수는 UploadRateLimitFilter 가 막는다
                         .requestMatchers(HttpMethod.POST, "/api/files").permitAll()
                         // 올린 사업자등록증을 읽어 가입 form 을 채운다. 가입 전이라 계정이 없다 — 횟수는 BizCertReadRateLimitFilter 가 막는다.
@@ -143,8 +156,11 @@ public class SecurityConfig {
                         .hasAnyRole("ADMIN", "OWNER", AuthMember.SIGNUP_STATUS_ROLE)
                         // 점주 가입 승인 같은 관리자 API
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        // 아동 QR 발급 — 재발급하면 옛 QR 이 무효가 되므로 아동 인증이 생기기 전까지 관리자만(클래스 주석)
-                        .requestMatchers("/api/children/**").hasRole("ADMIN")
+                        // 아동 본인의 QR 발급·주문 — 아동 토큰만. 아동 번호는 토큰에서 꺼낸다(클래스 주석).
+                        // 경로를 하나씩 적는다 — /api/children/me/** 로 열면 새 경로가 실수로 아동에게 열린다
+                        .requestMatchers(HttpMethod.POST, "/api/children/me/qr-token", "/api/children/me/orders",
+                                "/api/children/me/orders/{orderId:\\d+}/cancel").hasRole(AuthMember.CHILD_ROLE)
+                        .requestMatchers(HttpMethod.GET, "/api/children/me/orders/active").hasRole(AuthMember.CHILD_ROLE)
                         // 관리자 조사(Job) — AI 호출 비용이 드는 API 다
                         .requestMatchers("/api/jobs/**").hasRole("ADMIN")
                         // 조사 결과로 가게 정보를 바꾼다
@@ -156,8 +172,19 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/stores/{storeId:\\d+}").hasAnyRole("OWNER", "ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/stores/{storeId:\\d+}/operating-info")
                         .hasAnyRole("OWNER", "ADMIN")
+                        // 점주 앱 홈의 영업 상태 저장 — 위와 같다
+                        .requestMatchers(HttpMethod.PUT, "/api/stores/{storeId:\\d+}/open-setting")
+                        .hasAnyRole("OWNER", "ADMIN")
+                        // 아동 앱의 주변 가게 — 급식카드로 인증한 아동만(PROMPT-185). 아동 토큰은 #145(PROMPT-182)가 발급한다
+                        .requestMatchers(HttpMethod.GET, "/api/stores/nearby").hasRole("CHILD")
                         // 점주가 아동 QR 을 찍어 방문을 기록한다(PR #50). "그 가게에 연결된 점주인지"는 서비스가 본다
                         .requestMatchers(HttpMethod.POST, "/api/stores/*/check-ins").hasAnyRole("OWNER", "ADMIN")
+                        // 가게 주문 목록·조리 시작·완료·취소 — 점주·관리자. 연결된 가게인지는 서비스가 본다(체크인과 같은 방식).
+                        // 가게 ID 를 숫자로 좁히는 이유는 위 가게 상세와 같다 — 아래 넓은 /api/stores/** 관리자 규칙보다 먼저 와야 한다
+                        .requestMatchers(HttpMethod.GET, "/api/stores/{storeId:\\d+}/orders").hasAnyRole("OWNER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/stores/{storeId:\\d+}/orders/{orderId:\\d+}/start-cooking",
+                                "/api/stores/{storeId:\\d+}/orders/{orderId:\\d+}/complete",
+                                "/api/stores/{storeId:\\d+}/orders/{orderId:\\d+}/cancel").hasAnyRole("OWNER", "ADMIN")
                         // AI 서버는 이 하나만 부를 수 있다 — 키가 새도 관리자 권한까지 열리지 않게
                         .requestMatchers(HttpMethod.GET, "/api/stores/nts-checks")
                         .hasAnyRole("ADMIN", ApiKeyAuthenticationFilter.AI_SERVER_ROLE)
@@ -191,6 +218,13 @@ public class SecurityConfig {
                                 new SignupRateLimiter(bizCertReadMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
                                 SignupRateLimiter.passingWhenFull(bizCertReadMaxPerFile,
                                         Duration.ofHours(bizCertReadFileWindowHours), Clock.systemUTC()),
+                                signupTrustedProxies, problemWriter),
+                        UsernamePasswordAuthenticationFilter.class)
+                // 아동 카드 인증도 로그인 없이 받는다 — 실제 카드를 확인하지 않아, 같은 곳에서 번호를 바꿔 가며 되풀이하면 거절한다
+                .addFilterBefore(new ChildCardAuthRateLimitFilter(
+                                new SignupRateLimiter(childCardAuthMaxAttempts, Duration.ofMinutes(childCardAuthWindowMinutes),
+                                        Clock.systemUTC()),
+                                new SignupRateLimiter(childCardAuthMaxPerDay, Duration.ofDays(1), Clock.systemUTC()),
                                 signupTrustedProxies, problemWriter),
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new ApiKeyAuthenticationFilter(internalApiKey),

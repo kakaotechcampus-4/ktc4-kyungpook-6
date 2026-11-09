@@ -96,6 +96,20 @@ biz-cert-extraction:
     max-attempts-per-file: ${BIZ_CERT_EXTRACTION_RATE_LIMIT_MAX_ATTEMPTS_PER_FILE:3}
     file-window-hours: ${BIZ_CERT_EXTRACTION_RATE_LIMIT_FILE_WINDOW_HOURS:3}
 
+child:
+  # 아동 급식카드 번호를 저장할 때 섞는 비밀 키(HMAC-SHA256). 기본값은 두지 않음(public repo).
+  # 비워 두면 앱은 뜨고 카드 인증만 503(card-auth-unavailable)이다 — 배포 환경에는 32바이트 이상 값을 넣는다.
+  # ⚠️ 한 번 정한 값은 바꾸지 않는다. 바꾸면 같은 카드가 다른 해시가 되어 모든 아동이 새 아동이 된다.
+  card-hash-secret: ${CARD_HASH_SECRET:}
+  card-auth:
+    # 같은 곳에서 카드 인증을 부르는 횟수 제한. 넘으면 429 (ChildCardAuthRateLimitFilter). 실제 카드를 확인하지 않아
+    # 번호를 바꿔 가며 대입하는 것과 아동 행이 끝없이 쌓이는 것을 늦춘다. 성공·실패를 가리지 않고 센다.
+    # 한 와이파이에 여러 아이가 있을 수 있어 넉넉히 둔다. 보낸 쪽을 가리는 프록시 수는 signup.rate-limit.trusted-proxies 를 함께 쓴다.
+    rate-limit:
+      max-attempts: ${CHILD_CARD_AUTH_RATE_LIMIT_MAX_ATTEMPTS:20}
+      window-minutes: ${CHILD_CARD_AUTH_RATE_LIMIT_WINDOW_MINUTES:10}
+      max-attempts-per-day: ${CHILD_CARD_AUTH_RATE_LIMIT_MAX_ATTEMPTS_PER_DAY:100}
+
 signup:
   # 점주 가입 신청을 같은 IP 에서 되풀이하는 횟수 제한. 넘으면 429 (SignupRateLimitFilter).
   # 여러 사람이 같은 와이파이로 가입할 수 있어 넉넉히 둔다. 횟수는 서버 메모리에 있어 다시 띄우면 초기화된다.
@@ -130,6 +144,16 @@ external:
   nts:
     base-url: https://api.odcloud.kr/api/nts-businessman/v1/status
     service-key: ${NTS_SERVICE_KEY:}
+  # 가게 주소 → 좌표(주소 검색). AI 서버가 장소 검색에 쓰는 키와 같다. 비우면 좌표 채우기만 꺼진다
+  kakao:
+    base-url: https://dapi.kakao.com
+    rest-api-key: ${KAKAO_REST_API_KEY:}
+
+# 좌표가 없는 가게의 좌표를 주소로 채우는 배치(StoreGeocodeScheduler). 못 찾은 주소는 retry-after-days 동안 다시 묻지 않는다
+geocode:
+  interval-ms: ${GEOCODE_INTERVAL_MS:600000}
+  batch-size: ${GEOCODE_BATCH_SIZE:50}
+  retry-after-days: ${GEOCODE_RETRY_AFTER_DAYS:7}
 
 ai:
   # AI 조사 서버(FastAPI). 로컬은 uvicorn 기본 포트, 배포는 환경변수로 덮어쓴다.
@@ -147,3 +171,19 @@ ai:
   biz-cert-read-timeout-ms: ${AI_BIZ_CERT_READ_TIMEOUT_MS:25000}
   # AI 일시 오류(5xx·연결 실패)를 다시 시도하기 전 기다리는 시간. 두 번째 시도 전 한 번만 기다린다.
   retry-backoff-ms: 2000
+
+call:
+  # 확인 전화 API 서버. 주소나 키가 비어 있으면 전화 기능만 꺼진다 — 앱은 뜨고 전화를 걸 때 503 이다.
+  # 시크릿 기본값은 두지 않음(public repo) — 배포는 서버 .env 로 주입한다.
+  base-url: ${VERIFICATION_API_BASE_URL:}
+  api-key: ${VERIFICATION_API_KEY:}
+  connect-timeout-ms: 3000
+  # 전화 API 는 요청을 접수하고 바로 답한다(202). 통화가 끝나기를 기다리지 않으므로 짧게 둔다.
+  read-timeout-ms: 5000
+  # 끝나지 않은 전화의 상태를 받아 오는 주기. 담당자가 결과 화면을 보며 기다리는 시간이라 짧게 둔다.
+  poll-interval-ms: ${CALL_POLL_INTERVAL_MS:10000}
+  # 한 차례에 보는 전화 수. 전화 API 가 느려진 날 한 바퀴가 끝나지 않아 다음 차례가 밀리는 것을 막는다.
+  poll-batch-size: ${CALL_POLL_BATCH_SIZE:20}
+  # 이 시간이 지나도 끝나지 않은 전화는 실패로 닫는다. 전화 API 문서에 통화 제한 시간이 없어 우리가 정한다.
+  # 닫지 않으면 폴러가 그 전화를 끝없이 다시 읽고 화면에도 "전화 중" 이 영영 남는다.
+  max-wait-minutes: ${CALL_MAX_WAIT_MINUTES:15}

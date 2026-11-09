@@ -41,4 +41,8 @@
     <!-- QR 확인 화면이 웹뷰(getUserMedia)로 카메라를 쓴다. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- 아동 홈 지도가 내 위치를 보여 주고 가까운 가게로 옮겨 간다(@capacitor/geolocation). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

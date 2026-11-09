@@ -6,13 +6,20 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface StoreMenuRepository extends JpaRepository<StoreMenu, Long> {
 
     boolean existsByStoreStoreIdAndDeletedAtIsNull(Long storeId);
 
     List<StoreMenu> findByStoreStoreIdAndDeletedAtIsNullOrderByMenuIdAsc(Long storeId);
+
+    // 주변 가게 여러 곳의 메뉴를 한 번에 읽는다 — 가게마다 부르면 쿼리가 가게 수만큼 나간다
+    List<StoreMenu> findByStoreStoreIdInAndDeletedAtIsNullOrderByMenuIdAsc(Collection<Long> storeIds);
+
+    Optional<StoreMenu> findByMenuIdAndStore_StoreIdAndDeletedAtIsNull(Long menuId, Long storeId);
 
     /**
      * 그 가게의 메뉴를 한 번의 {@code delete} 문으로 지운다 — 가게를 지울 때 부른다.

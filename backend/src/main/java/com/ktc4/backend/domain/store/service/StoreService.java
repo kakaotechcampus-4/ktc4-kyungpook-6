@@ -3,15 +3,20 @@ package com.ktc4.backend.domain.store.service;
 import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
+import com.ktc4.backend.domain.store.dto.StoreLastChange;
 import com.ktc4.backend.domain.store.dto.StoreResponse;
 import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.entity.StoreMenu;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
+import com.ktc4.backend.domain.store.event.StoreBizNoChanged;
 import com.ktc4.backend.domain.store.ntscheck.entity.StoreNtsCheck;
 import com.ktc4.backend.domain.store.ntscheck.repository.StoreNtsCheckRepository;
+import com.ktc4.backend.domain.store.repository.StoreChangeHistoryRepository;
+import com.ktc4.backend.domain.store.repository.StoreMenuRepository;
 import com.ktc4.backend.domain.store.repository.StoreRepository;
 import com.ktc4.backend.domain.store.util.StoreNormalizer;
 import com.ktc4.backend.global.dto.PageResponse;
@@ -20,6 +25,7 @@ import com.ktc4.backend.global.error.ErrorCode;
 import com.ktc4.backend.global.util.BizNoNormalizer;
 import com.ktc4.backend.global.util.PhoneNormalizer;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -31,9 +37,10 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -55,6 +62,9 @@ public class StoreService {
     private final StoreRepository storeRepository;
     private final StoreChangeHistoryService storeChangeHistoryService;
     private final StoreNtsCheckRepository storeNtsCheckRepository;
+    private final StoreChangeHistoryRepository storeChangeHistoryRepository;
+    private final ApplicationEventPublisher eventPublisher;
+    private final StoreMenuRepository storeMenuRepository;
 
     /**
      * 가게 목록을 storeId 오름차순으로 페이지 단위 조회한다.
@@ -69,7 +79,24 @@ public class StoreService {
         Page<Store> stores = storeRepository.findAll(
                 PageRequest.of(page, limit, Sort.by(Sort.Direction.ASC, "storeId")));
 
-        return PageResponse.of(stores, StoreResponse::from);
+        /*
+          화면이 "마지막 확인" 과 "최근 변경" 을 따로 보여줄 수 있게 변경 시각을 같이 내려준다.
+          수정안을 반영해도 확인일은 오르지 않는데(그건 사람이 직접 본 날이다), 날짜가 하나뿐이면
+          담당자에게 "반영했는데 왜 그대로지" 로 보인다(11주차 멘토 리뷰).
+
+          이 쪽(20건)을 쿼리 한 번으로 가져온다 — 가게마다 따로 물으면 N+1 이다.
+        */
+        Map<Long, LocalDateTime> lastChanges = lastChangedAt(stores.getContent());
+        return PageResponse.of(stores, store -> StoreResponse.of(store, lastChanges.get(store.getStoreId())));
+    }
+
+    private Map<Long, LocalDateTime> lastChangedAt(List<Store> stores) {
+        if (stores.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> storeIds = stores.stream().map(Store::getStoreId).toList();
+        return storeChangeHistoryRepository.findLastChangedAtByStoreIds(storeIds).stream()
+                .collect(Collectors.toMap(StoreLastChange::storeId, StoreLastChange::lastChangedAt));
     }
 
     /**
@@ -131,21 +158,35 @@ public class StoreService {
         String bizNo = normalizeBizNoForUpdate(request.bizNo());
         String ownerPhone = request.ownerPhone() == null ? null : PhoneNormalizer.normalize(request.ownerPhone());
 
+        String addressBefore = store.getAddressRoad();
         store.updateBasicInfo(request.name(), nameNormalized,
                 request.addressRoad(), addressNormalized,
                 request.phone(), request.status());
         store.updateDetails(request.lat(), request.lng(), request.category(), ownerPhone, bizNo);
+        // 주소가 바뀌었는데 새 좌표를 함께 받지 못했으면 옛 좌표를 비운다 — 남겨 두면 아동 앱 지도에 옛 자리로 나온다.
+        // 좌표 채우기 배치(StoreGeocodeService)가 새 주소로 다시 채운다
+        if (!Objects.equals(addressBefore, store.getAddressRoad()) && request.lat() == null && request.lng() == null) {
+            store.clearCoordinates();
+        }
 
         StoreSnapshot after = storeChangeHistoryService.snapshot(store);
         storeChangeHistoryService.recordChanges(store, before, after, change);
 
         /*
           사업자등록번호가 실제로 바뀌었으면 국세청 확인 기록을 되돌린다. 저장된 답은 옛 번호로 받은
-          것이라 다른 사업자의 상태다 — 다음 배치(새벽 3시)까지 그대로 두면 오타를 고쳤는데도 멀쩡한
-          가게가 "폐업" 으로 남는다. 같은 값을 다시 저장한 경우는 바뀐 것이 아니므로 건드리지 않는다.
+          것이라 다른 사업자의 상태다 — 그대로 두면 오타를 고쳤는데도 멀쩡한 가게가 "폐업" 으로 남는다.
+          같은 값을 다시 저장한 경우는 바뀐 것이 아니므로 건드리지 않는다.
+
+          되돌리기만 하면 다시 채우는 것은 새벽 배치뿐이라 고친 결과를 하루 뒤에야 본다. 그래서
+          커밋된 뒤에 그 한 건만 다시 묻도록 알린다(StoreBizNoChangedListener). 번호를 지운 경우는
+          물을 대상이 없으므로 알리지 않는다 — 되돌린 채로 둔다.
         */
         if (!Objects.equals(before.bizNo(), after.bizNo())) {
             storeNtsCheckRepository.findById(storeId).ifPresent(StoreNtsCheck::resetForBizNoChange);
+            String changedBizNo = store.getBizNo();
+            if (changedBizNo != null && !changedBizNo.isBlank()) {
+                eventPublisher.publishEvent(new StoreBizNoChanged(storeId, changedBizNo));
+            }
         }
         return StoreResponse.from(store);
     }
@@ -181,6 +222,21 @@ public class StoreService {
     public Store findStore(Long storeId) {
         return storeRepository.findById(storeId)
                 .orElseThrow(() -> new CustomException(ErrorCode.STORE_NOT_FOUND));
+    }
+
+    /**
+     * 그 가게의 지우지 않은 메뉴를 찾는다 — 아동 주문에서 고른 메뉴를 확인할 때 쓴다.
+     *
+     * <p>없는 가게·다른 가게의 메뉴·지운 메뉴·없는 메뉴를 구분하지 않는다. 구분해서 알려 줄 화면이 없고, 셋 다 "주문할 수 없는 메뉴"다.
+     *
+     * @param storeId 가게 ID
+     * @param menuId  메뉴 ID
+     * @return 그 메뉴(판매 여부는 부르는 쪽이 본다)
+     * @throws CustomException 그 가게의 지우지 않은 메뉴가 아니면 {@code MENU_NOT_FOUND}
+     */
+    public StoreMenu findMenu(Long storeId, Long menuId) {
+        return storeMenuRepository.findByMenuIdAndStore_StoreIdAndDeletedAtIsNull(menuId, storeId)
+                .orElseThrow(() -> new CustomException(ErrorCode.MENU_NOT_FOUND));
     }
 
     /**

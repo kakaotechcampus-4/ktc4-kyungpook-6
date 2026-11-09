@@ -68,6 +68,10 @@ jobs:
           # 키가 비면 배치가 국세청을 못 불러, 주입해 둔 대조 결과가 어떻게 되는지 보장할 수 없다.
           NTS_SERVICE_KEY: ${{ secrets.NTS_SERVICE_KEY }}
           BIZNO_API_KEY: ${{ secrets.BIZNO_API_KEY }}
+          # 확인 전화(PROMPT-165). 둘 중 하나라도 비면 전화 기능만 꺼지고 503 이 된다 —
+          # 앱은 뜨고 나머지는 그대로 돈다. 주소도 비밀로 둔다: 키 없이도 /docs 가 열려 있다.
+          VERIFICATION_API_BASE_URL: ${{ secrets.VERIFICATION_API_BASE_URL }}
+          VERIFICATION_API_KEY: ${{ secrets.VERIFICATION_API_KEY }}
           # 스위치는 비밀이 아니라 저장소 변수로 둔다 — 값이 보이는 편이 켜졌는지 알기 쉽다.
           NAVER_LOCAL_ENABLED: ${{ vars.AI_NAVER_LOCAL_ENABLED || 'false' }}
           KAKAO_COMPARE_ENABLED: ${{ vars.AI_KAKAO_COMPARE_ENABLED || 'false' }}

@@ -75,7 +75,7 @@ class CheckInControllerTest {
         @DisplayName("가게 번호와 QR 문자열을 서비스에 넘기고 201 을 반환한다")
         void createsCheckIn() throws Exception {
             when(checkInService.checkIn(eq(3L), eq("v1.token"), any()))
-                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
+                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0), null));
 
             mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token")))
                     .andExpect(status().isCreated())
@@ -90,7 +90,7 @@ class CheckInControllerTest {
         void passesLoggedInMember() throws Exception {
             AuthMember owner = new AuthMember(7L, MemberRole.OWNER);
             when(checkInService.checkIn(anyLong(), any(), any()))
-                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
+                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0), null));
 
             mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token"))
                             .with(authentication(
@@ -104,7 +104,7 @@ class CheckInControllerTest {
         @DisplayName("응답 필드는 checkInId, checkedInAt 두 개뿐이다 — 아동 식별 정보가 나가지 않는다")
         void exposesNoChildIdentity() throws Exception {
             when(checkInService.checkIn(anyLong(), any(), any()))
-                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
+                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0), null));
 
             String json = mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v1.token")))
                     .andReturn().getResponse().getContentAsString();
@@ -112,14 +112,14 @@ class CheckInControllerTest {
             JsonNode node = objectMapper.readTree(json);
             List<String> fields = new ArrayList<>();
             node.fieldNames().forEachRemaining(fields::add);
-            assertThat(fields).containsExactlyInAnyOrder("checkInId", "checkedInAt");
+            assertThat(fields).containsExactlyInAnyOrder("checkInId", "checkedInAt", "order");
         }
 
         @Test
         @DisplayName("QR 문자열이 정확히 100자면 통과한다 — 길이 제한 경계 안쪽")
         void acceptsPayloadAtMaxLength() throws Exception {
             when(checkInService.checkIn(anyLong(), any(), any()))
-                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0)));
+                    .thenReturn(new CheckInResponse(10L, LocalDateTime.of(2026, 9, 29, 12, 0), null));
 
             mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body("v".repeat(100))))
                     .andExpect(status().isCreated());

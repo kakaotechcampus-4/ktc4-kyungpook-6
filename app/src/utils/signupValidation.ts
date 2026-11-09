@@ -108,6 +108,21 @@ export const validateStorePhone = (storePhone: string) => {
     : "가게 전화번호를 확인해주세요";
 };
 
+const OPEN_DATE_PATTERN = /^(\d{4})\.(\d{2})\.(\d{2})$/;
+
+/** 백엔드 개업일: 선택, 있는 날짜이고 연도가 0001 ~ 9999(isOpenDateInRange). 화면 모양은 YYYY.MM.DD. */
+export const validateOpenDate = (openDate: string) => {
+  if (openDate === "") return null;
+  const match = OPEN_DATE_PATTERN.exec(openDate);
+  if (!match) return "개업일을 확인해주세요";
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(2000, month - 1, day));
+  date.setUTCFullYear(year);
+  const exists =
+    year >= 1 && date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  return exists ? null : "개업일을 확인해주세요";
+};
+
 /** 백엔드 메뉴 이름: 상호명과 같은 글자 규칙, 50자 이하 */
 export const validateMenuName = (name: string) =>
   isValidName(name, MENU_NAME_MAX_LENGTH) ? null : "메뉴 이름을 확인해주세요";

@@ -1,6 +1,7 @@
 import logo from "../assets/good-radar-logo.png";
 import LatestOrderCard from "../components/home/LatestOrderCard";
 import OpenStatusCard from "../components/home/OpenStatusCard";
+import CheckInMethodSheet from "../components/order/CheckInMethodSheet";
 import OwnerTabBar from "../components/owner/OwnerTabBar";
 import { useOwnerHome } from "../hooks/ownerHome";
 
@@ -36,8 +37,10 @@ function OwnerHomePage() {
           </header>
 
           <OpenStatusCard
-            isOpen={home.isOpen}
+            statusLabel={home.statusLabel}
             mode={home.openMode}
+            manualOpen={home.manualOpen}
+            disabled={home.isSavingOpenSetting}
             onModeChange={home.setOpenMode}
             onToggle={home.toggleOpen}
           />
@@ -45,8 +48,9 @@ function OwnerHomePage() {
           <section className="flex flex-col gap-2.5 pt-1.5">
             <h2 className="text-base leading-[normal] font-bold text-[#1f2937]">오늘 주문</h2>
             <div className="flex gap-2.5">
-              <StatCard label="대기" value={home.waitingCount} valueClassName="text-[#b8891a]" />
-              <StatCard label="완료" value={home.doneCount} valueClassName="text-[#1f2937]" />
+              <StatCard label="접수 대기" value={home.waitingCount} valueClassName="text-[#b8891a]" />
+              <StatCard label="조리 중" value={home.cookingCount} valueClassName="text-[#1f2937]" />
+              <StatCard label="조리 완료" value={home.doneCount} valueClassName="text-[#1f2937]" />
             </div>
           </section>
 
@@ -59,14 +63,24 @@ function OwnerHomePage() {
           {home.latestOrder && (
             <LatestOrderCard
               order={home.latestOrder}
-              onCheckIn={home.checkInLatest}
+              onCheckIn={home.openCheckIn}
               onCancel={home.cancelLatest}
+              isCanceling={home.isCancelingLatest}
             />
           )}
         </div>
       )}
 
       <OwnerTabBar />
+
+      {home.isCheckInSheetOpen && home.latestOrder && (
+        <CheckInMethodSheet
+          orderNo={home.latestOrder.orderId}
+          onSelectQr={home.checkInByQr}
+          onSelectManual={home.checkInManually}
+          onClose={home.closeCheckIn}
+        />
+      )}
     </main>
   );
 }

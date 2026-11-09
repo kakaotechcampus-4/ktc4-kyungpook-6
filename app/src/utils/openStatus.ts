@@ -34,3 +34,24 @@ export const isOpenAt = (businessHours: BusinessHour[], at: Date) => {
     return false;
   });
 };
+
+/** 영업시간대로 볼 때의 영업 상태. */
+export type ScheduleStatus = "OPEN" | "BEFORE_OPEN" | "ENDED" | "CLOSED_TODAY";
+
+/**
+ * 영업시간으로 그 시각의 영업 상태를 본다. 기기 시각 기준이다.
+ *
+ * - 영업시간 안이면 영업중(자정 넘김·브레이크타임은 isOpenAt 이 본다)
+ * - 오늘 요일에 등록된 시간이 하나도 없으면 휴무
+ * - 오늘 아직 열 시간이 남았으면 영업 전(브레이크타임 중에도 다음 시간이 남았으니 영업 전이다), 다 끝났으면 영업 종료
+ */
+export const getScheduleStatus = (businessHours: BusinessHour[], at: Date): ScheduleStatus => {
+  if (isOpenAt(businessHours, at)) return "OPEN";
+
+  const today = DAYS_BY_INDEX[at.getDay()];
+  const todayHours = businessHours.filter(({ day }) => day === today);
+  if (todayHours.length === 0) return "CLOSED_TODAY";
+
+  const now = at.getHours() * 60 + at.getMinutes();
+  return todayHours.some(({ open }) => toMinutes(open) > now) ? "BEFORE_OPEN" : "ENDED";
+};
