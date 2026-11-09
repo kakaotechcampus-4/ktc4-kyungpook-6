@@ -1,5 +1,6 @@
 import copy
 import json
+import sqlite3
 import tempfile
 import threading
 import time
@@ -201,12 +202,56 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.get(ids[0])['status'],'FAILED')
         self.assertEqual(self.store.get(ids[-1])['status'],'COMPLETED')
 
+    def test_worker_retries_transient_claim_and_finish_errors(self):
+        cid=self.store.enqueue(request())
+        claim=self.store.claim
+        finish=self.store.finish
+        attempts={'claim':0,'finish':0,'run':0}
+        def flaky_claim():
+            attempts['claim']+=1
+            if attempts['claim']==1: raise sqlite3.OperationalError('busy')
+            return claim()
+        def flaky_finish(call_id,reason=None):
+            attempts['finish']+=1
+            if attempts['finish']==1: raise sqlite3.OperationalError('busy')
+            return finish(call_id,reason)
+        def runner(call_id,req,stop):
+            attempts['run']+=1
+            raise RuntimeError('mock failure')
+        self.store.claim=flaky_claim
+        self.store.finish=flaky_finish
+        w=Worker(self.store,runner,self.folder/'modem.lock'); w.start()
+        try:
+            deadline=time.monotonic()+3
+            while self.store.get(cid)['status']!='FAILED' and time.monotonic()<deadline:
+                time.sleep(.01)
+            self.assertTrue(w.thread.is_alive())
+            self.assertEqual(self.store.get(cid)['failureReason'],'PROCESSING_ERROR')
+            self.assertEqual(attempts['run'],1)
+            self.assertGreaterEqual(attempts['claim'],2)
+            self.assertGreaterEqual(attempts['finish'],2)
+        finally: w.stop()
+
     def test_second_process_worker_lock_rejected(self):
         a=Worker(self.store,Mock(),self.folder/'modem.lock'); a.start()
         try:
             b=Worker(Store(self.folder/'other.db'),Mock(),self.folder/'modem.lock')
             with self.assertRaises(RuntimeError): b.start()
         finally: a.stop()
+
+    def test_worker_open_failure_preserves_cause_and_closes_first_lock(self):
+        w=Worker(self.store,Mock(),self.folder/'modem.lock')
+        original=Path.open
+        def open_file(path,*args,**kwargs):
+            if path.name=='calls.worker.lock': raise PermissionError('denied')
+            return original(path,*args,**kwargs)
+        from unittest.mock import patch
+        with patch.object(Path,'open',open_file):
+            with self.assertRaisesRegex(RuntimeError,'시작에 실패') as error:
+                w.start()
+        self.assertIsInstance(error.exception.__cause__,PermissionError)
+        self.assertIsNone(w.lock)
+        self.assertIsNone(w.db_lock)
 
 class ProviderTests(unittest.TestCase):
     def setUp(self):

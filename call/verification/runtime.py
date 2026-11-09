@@ -1,6 +1,7 @@
 """One call, continuously recording while STT/Jev/LLM/TTS run."""
 import json
 import logging
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -13,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 class CallFailure(Exception):
     pass
+
+class ResultSaveFailure(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__('통화 결과 저장 실패')
 
 class CallRunner:
     def __init__(self, settings, store, providers, *, modem_factory=EP06Modem, audio_factory=PhoneAudio):
@@ -57,6 +63,8 @@ class CallRunner:
                 with audio.capture(folder):
                     try:
                         reason = session.run()
+                    except CallFailure:
+                        raise
                     except Exception as exc:
                         # A pre-generated apology is available even when a model/API is failing.
                         log.emit('call.error', error_type=type(exc).__name__)
@@ -66,7 +74,10 @@ class CallRunner:
                             pass
                         raise
             # Success only after playback and modem cleanup have finished.
-            self.store.finish(call_id, reason)
+            try:
+                self.store.finish(call_id, reason)
+            except sqlite3.OperationalError as exc:
+                raise ResultSaveFailure(reason) from exc
 
 class Session:
     def __init__(self, settings, store, providers, audio, dialogue, log, folder, call_id, stop):

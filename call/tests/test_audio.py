@@ -84,6 +84,32 @@ class AudioTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.folder = Path(directory.name)
 
+    def test_serial_close_waits_for_reader_before_closing_port(self):
+        audio = PhoneAudio('unused', voice_port='/dev/fake')
+        closed = []
+        class Port:
+            def close(self):
+                closed.append(audio._reader.is_alive())
+        audio._capture = Port()
+        audio._reader = threading.Thread(target=lambda: audio._stop.wait(2))
+        audio._reader.start()
+        audio.close()
+        self.assertEqual(closed, [False])
+
+    def test_serial_close_keeps_port_open_if_reader_is_stuck(self):
+        audio = PhoneAudio('unused', voice_port='/dev/fake')
+        closed = []
+        class Port:
+            def close(self): closed.append(True)
+        class StuckReader:
+            def join(self, timeout): pass
+            def is_alive(self): return True
+        audio._capture = Port()
+        audio._reader = StuckReader()
+        with self.assertRaisesRegex(RuntimeError, '녹음 스레드'):
+            audio.close()
+        self.assertEqual(closed, [])
+
     def test_capture_produces_speech_while_playback_process_is_running(self):
         real_popen = subprocess.Popen
         processes = []
@@ -230,6 +256,22 @@ while True:
         with wave.open(str(downsampled), 'rb') as source:
             self.assertEqual((source.getframerate(), source.getnchannels(), source.getsampwidth()), (8000, 1, 2))
             self.assertAlmostEqual(source.getnframes() / source.getframerate(), 1, places=2)
+
+    def test_prepare_playback_reuses_shared_conversion(self):
+        source = self.folder / 'shared.mp3'
+        source.write_bytes(b'mock audio')
+        commands = []
+
+        def convert(command, **kwargs):
+            commands.append(command)
+            write_wav(Path(command[-1]))
+
+        with patch('verification.hardware.audio.subprocess.run', side_effect=convert):
+            first = PhoneAudio('unused').prepare_playback(source, self.folder)
+            second = PhoneAudio('unused').prepare_playback(source, self.folder)
+        self.assertEqual(first, second)
+        self.assertEqual(first.name, 'shared.8k.wav')
+        self.assertEqual(len(commands), 1)
 
     @patch('verification.hardware.audio.subprocess.run')
     def test_stt_conversion_keeps_filter_and_sixteen_khz(self, run):

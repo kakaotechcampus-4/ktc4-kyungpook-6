@@ -261,12 +261,19 @@ class PhoneAudio:
         phone_path = source.with_suffix('.8k.wav')
         if not phone_path.exists():
             with self.log.span('audio.tts_conversion', turn=turn) as result:
-                subprocess.run(
-                    ['ffmpeg', '-nostdin', '-y', '-loglevel', 'error', '-i', str(source),
-                     '-ar', '8000', '-ac', '1', '-c:a', 'pcm_s16le', str(phone_path)],
-                    check=True, timeout=30,
-                )
-                result['audio_seconds'] = wav_duration(phone_path)
+                descriptor, temporary = tempfile.mkstemp(prefix=phone_path.stem + '.',
+                                                          suffix='.wav', dir=phone_path.parent)
+                os.close(descriptor)
+                try:
+                    subprocess.run(
+                        ['ffmpeg', '-nostdin', '-y', '-loglevel', 'error', '-i', str(source),
+                         '-ar', '8000', '-ac', '1', '-c:a', 'pcm_s16le', temporary],
+                        check=True, timeout=30,
+                    )
+                    result['audio_seconds'] = wav_duration(Path(temporary))
+                    os.replace(temporary, phone_path)
+                finally:
+                    Path(temporary).unlink(missing_ok=True)
         return phone_path
 
     def play(self, source: Path, folder: Path, *, turn: int = 0) -> None:
@@ -344,19 +351,21 @@ class PhoneAudio:
         finally:
             try:
                 if self._capture is not None:
-                    if self.voice_port:
-                        self._capture.close()
-                    else:
+                    if not self.voice_port:
                         terminate_process(self._capture)
                 if self._reader is not None:
                     self._reader.join(timeout=3)
                     if self._reader.is_alive():
                         raise RuntimeError('녹음 스레드를 종료하지 못했습니다.')
             finally:
-                if self._capture is not None:
-                    if not self.voice_port:
-                        self._capture.stdout.close()
-                if self._capture_stderr is not None:
-                    self._capture_stderr.close()
-                self._capture = self._reader = self._capture_stderr = None
-                self.log.emit('audio.capture_stop')
+                # A live reader may still be inside os.read; never close or reuse its fd.
+                if self._reader is None or not self._reader.is_alive():
+                    if self._capture is not None:
+                        if self.voice_port:
+                            self._capture.close()
+                        else:
+                            self._capture.stdout.close()
+                    if self._capture_stderr is not None:
+                        self._capture_stderr.close()
+                    self._capture = self._reader = self._capture_stderr = None
+                    self.log.emit('audio.capture_stop')
