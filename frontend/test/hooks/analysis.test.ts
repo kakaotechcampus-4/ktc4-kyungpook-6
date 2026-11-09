@@ -168,25 +168,31 @@ const CALL: CallResponse = {
 
 const call = (patch: Partial<CallResponse>): CallResponse => ({ ...CALL, ...patch });
 
+/** 세부를 "라벨: 값" 줄로 펴서 본다. 어느 줄에 무엇이 들었는지만 확인하면 된다. */
+const lines = (result: ReturnType<typeof toCallStatusLabel>) =>
+  (result?.details ?? []).map(
+    (detail) => `${detail.label}: ${detail.value}${detail.tag ? ` (${detail.tag})` : ''}`,
+  );
+
 /**
- * 확인 전화 한 줄.
+ * 확인 전화 상태.
  *
- * 끝난 전화는 들은 답을 그 줄에 같이 적는다 — 답을 따로 열어 봐야 하면 담당자가 전화를 건 카드와
- * 안 건 카드만 구분하게 되고, 정작 점주가 뭐라고 했는지는 읽지 않는다.
+ * 요약 한마디(label)는 늘 보이고, 요청 시각·들은 답·사유 코드는 세부(details)로 펼친다.
+ * 끝난 전화는 들은 답을 세부에 담는다 — 답이 없으면 없다는 것도 적는다.
  */
-describe('toCallStatusLabel — 확인 전화 한 줄', () => {
-  it('아직 걸지 않았으면 줄이 없다', () => {
+describe('toCallStatusLabel — 확인 전화 상태', () => {
+  it('아직 걸지 않았으면 상태가 없다', () => {
     expect(toCallStatusLabel(null)).toBeUndefined();
   });
 
   it.each(['PENDING', 'IN_PROGRESS'] as const)(
-    '%s 는 요청 시각과 함께 "확인 중" 으로 적는다',
+    '%s 는 "확인 중" 으로 적고 요청 시각을 세부에 둔다',
     (status) => {
       const result = toCallStatusLabel(call({ status }));
 
       expect(result?.tone).toBe('progress');
-      expect(result?.label).toContain('전화 확인 중');
-      expect(result?.label).toContain('11:03');
+      expect(result?.label).toBe('전화 확인 중');
+      expect(lines(result).join('\n')).toContain('11:03');
     },
   );
 
@@ -200,10 +206,11 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
     );
 
     expect(result?.tone).toBe('done');
-    expect(result?.label).toBe('전화 확인 완료 · 영업 여부: 영업 안 함');
+    expect(result?.label).toBe('전화 확인 완료');
+    expect(lines(result)).toContain('영업 여부: 영업 안 함');
   });
 
-  it('여러 답을 한 줄에 이어 적는다', () => {
+  it('여러 답을 한 줄씩 담고, 가게에 반영된 답에는 반영됨 을 붙인다', () => {
     const result = toCallStatusLabel(
       call({
         answers: [
@@ -213,9 +220,13 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
       }),
     );
 
-    expect(result?.label).toBe(
-      '전화 확인 완료 · 영업 여부: 영업 중 · 상호명: 신나는분식(반영됨)',
+    expect(lines(result)).toEqual(
+      expect.arrayContaining(['영업 여부: 영업 중', '상호명: 신나는분식 (반영됨)']),
     );
+  });
+
+  it('들은 답이 없으면 없다고 적는다 — 빈 세부는 아직 안 열어 본 것과 구분되지 않는다', () => {
+    expect(lines(toCallStatusLabel(call({ answers: [] })))).toContain('들은 답: 없음');
   });
 
   it('실패 사유 코드는 번역하지 않고 그대로 보여준다 — 삼키면 원인이 사라진다', () => {
@@ -224,7 +235,8 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
     );
 
     expect(result?.tone).toBe('failed');
-    expect(result?.label).toContain('NO_ANSWER');
+    expect(result?.label).toBe('전화 확인 실패');
+    expect(lines(result)).toContain('사유 코드: NO_ANSWER');
   });
 
   it.each([
@@ -236,7 +248,7 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
       call({ status: 'FAILED', failureReason: 'X', failureKind }),
     );
 
-    expect(result?.label).toContain(expected);
+    expect(lines(result).join('\n')).toContain(expected);
   });
 
   it('우리 쪽 문제는 "전화를 걸지 못했습니다" 로 가른다 — 가게 탓으로 읽히면 멀쩡한 가게가 넘어간다', () => {
@@ -244,9 +256,8 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
       call({ status: 'FAILED', failureReason: 'PROCESSING_ERROR', failureKind: 'OUR_SIDE' }),
     );
 
-    expect(result?.label).toContain('전화를 걸지 못했습니다');
-    expect(result?.label).not.toContain('전화 확인 실패');
-    expect(result?.label).toContain('가게 문제가 아닙니다');
+    expect(result?.label).toBe('전화를 걸지 못했습니다');
+    expect(lines(result).join('\n')).toContain('가게 문제가 아닙니다');
   });
 
   it('모르는 코드는 받은 코드만 보여주고 엉뚱한 안내를 붙이지 않는다', () => {
@@ -254,7 +265,10 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
       call({ status: 'FAILED', failureReason: 'WAT', failureKind: 'UNKNOWN' }),
     );
 
-    expect(result?.label).toBe('전화 확인 실패 · WAT');
+    expect(result?.label).toBe('전화 확인 실패');
+    expect(lines(result).filter((line) => !line.startsWith('요청 시각'))).toEqual([
+      '사유 코드: WAT',
+    ]);
   });
 
   it('통화가 중간에 끊겨도 그때까지 들은 답을 버리지 않는다', () => {
@@ -268,7 +282,7 @@ describe('toCallStatusLabel — 확인 전화 한 줄', () => {
       }),
     );
 
-    expect(result?.label).toContain('들은 것 — 영업 여부: 영업 안 함');
+    expect(lines(result)).toContain('영업 여부: 영업 안 함');
   });
 });
 
