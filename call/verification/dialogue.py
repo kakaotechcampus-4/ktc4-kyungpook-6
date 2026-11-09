@@ -4,7 +4,7 @@ import random
 from string import Formatter
 from dataclasses import dataclass
 from pathlib import Path
-from .models import CallRequest, Confirmation, Interpretation
+from .models import CallRequest, Confirmation, CustomReply, Interpretation
 
 @dataclass
 class Reply:
@@ -144,6 +144,22 @@ class Dialogue:
         self.history.extend([{'role':'assistant','content':self.last_text},
                              {'role':'user','content':text}])
         self.last_text = reply
+
+    def respond_custom(self, text: str, result: CustomReply) -> Reply:
+        return self._custom_reply(text, result.reply.strip())
+
+    def retry_custom(self, text: str) -> Reply:
+        return self._custom_reply(text, None)
+
+    def _custom_reply(self, text: str, answer: str | None) -> Reply:
+        if self.complete or self.stopped:
+            return Reply(self.template('goodbye' if self.complete else 'stopped'), True, self.stop_reason)
+        self.history.extend([{'role':'assistant','content':self.last_text},
+                             {'role':'user','content':text}])
+        question = self.question()
+        self.last_text = ((answer + ' ' + question) if answer is not None
+                          else self.template('retry', question=question))
+        return Reply(self.last_text)
 
     def _apply(self, text, decision):
         if decision.control == 'STOP':

@@ -126,6 +126,22 @@ class Session:
         print(json.dumps({'call_id':self.call_id,'stage':'assistant.response',
                           'turn':self.turn,'text':text},ensure_ascii=False),flush=True)
 
+    def query_llm(self, stage, text, operation):
+        self.interrupt()
+        self.play(self.dialogue.template('llmWait'),prompt=False)
+        with self.log.span(stage,turn=self.turn) as trace:
+            trace['input'] = {'state':self.dialogue.state(), 'transcript':text}
+            result = operation(self.dialogue,text)
+            trace['output'] = result.model_dump(mode='json')
+        while self.audio.is_playing and not self.audio.is_speaking:
+            if self.stop.is_set():
+                raise CallFailure('SERVER_SHUTDOWN')
+            if not self.active():
+                break
+            time.sleep(0.03)
+        self.interrupt()
+        return result
+
     def interrupt(self):
         self.audio.stop_playback()
         if self.playbacks:
@@ -259,40 +275,38 @@ class Session:
             self.backchannels.clear()
             control_confident = result['control_confidence'] >= self.s.jev_threshold
             answer_confident = result['answer_confidence'] >= self.s.jev_threshold
-            if control_confident and result['control'] == 'WAIT':
-                self.begin_wait(combined)
-                continue
+            unsafe_custom = result['scores'].get('unsafe_custom',0) >= self.s.jev_threshold
+            custom_result = None
+            custom_retry = False
             if control_confident and result['control'] == 'STOP':
                 decision = Interpretation(control='STOP')
-            elif (control_confident and answer_confident and result['answer'] != 'VALUE'
+            elif unsafe_custom:
+                decision = Interpretation()
+                custom_retry = True
+            elif control_confident and result['control'] == 'WAIT':
+                self.begin_wait(combined)
+                continue
+            elif answer_confident and result['answer'] == 'CUSTOM':
+                decision = Interpretation()
+                custom_result = self.query_llm('llm.custom',combined,self.providers.respond_custom)
+            elif (control_confident and answer_confident and result['answer'] in ('YES','NO','UNCLEAR')
                   and not had_backchannels):
                 answer = result['answer']
                 decision = (Interpretation(identity=answer if answer != 'UNCLEAR' else 'UNKNOWN')
                             if self.dialogue.stage == 'IDENTITY' else Interpretation(kind=answer))
             else:
-                self.interrupt()
-                self.play(self.dialogue.template('llmWait'),prompt=False)
-                with self.log.span('llm.interpret',turn=self.turn) as trace:
-                    trace['input'] = {'state':self.dialogue.state(), 'transcript':combined}
-                    decision = self.providers.interpret(self.dialogue,combined)
-                    trace['output'] = decision.model_dump(mode='json')
-                while self.audio.is_playing and not self.audio.is_speaking:
-                    if self.stop.is_set():
-                        raise CallFailure('SERVER_SHUTDOWN')
-                    if not self.active():
-                        break
-                    time.sleep(0.03)
-                self.interrupt()
+                decision = self.query_llm('llm.interpret',combined,self.providers.interpret)
                 if control_confident:
                     decision.control = result['control']
             if decision.control == 'WAIT':
                 self.begin_wait(combined)
                 continue
-            if self.wait_started is not None and decision.control == 'CONTINUE' and (
-                (self.dialogue.stage == 'IDENTITY' and decision.identity == 'UNKNOWN'
-                 and not decision.knowledgeReply.strip()) or
-                (self.dialogue.stage != 'IDENTITY' and decision.kind == 'UNCLEAR'
-                 and not decision.knowledgeReply.strip())):
+            if (self.wait_started is not None and custom_result is None and not custom_retry
+                    and decision.control == 'CONTINUE' and (
+                        (self.dialogue.stage == 'IDENTITY' and decision.identity == 'UNKNOWN'
+                         and not decision.knowledgeReply.strip()) or
+                        (self.dialogue.stage != 'IDENTITY' and decision.kind == 'UNCLEAR'
+                         and not decision.knowledgeReply.strip()))):
                 self.log.emit('turn.wait_resumed',turn=self.turn,
                               waited_seconds=round(time.monotonic()-self.wait_started,2))
                 self.wait_started = None
@@ -318,7 +332,12 @@ class Session:
                 self.interrupt()
                 self.play(repeated)
                 continue
-            reply = self.dialogue.apply(combined,decision)
+            if custom_retry:
+                reply = self.dialogue.retry_custom(combined)
+            elif custom_result is not None:
+                reply = self.dialogue.respond_custom(combined,custom_result)
+            else:
+                reply = self.dialogue.apply(combined,decision)
             self.store.save_answers(self.call_id,self.dialogue.answers)
             self.interrupt()
             terminal, terminal_reason = reply.terminal, reply.reason
