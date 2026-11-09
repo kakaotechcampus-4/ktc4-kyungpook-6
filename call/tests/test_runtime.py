@@ -300,30 +300,37 @@ class RuntimeTests(unittest.TestCase):
 
     def test_wait_resumes_on_ready_signal_and_repeats_question(self):
         result=self.run_call([{'play':1,'text':'잠시만요'},
-                              {'play':1,'text':'이제 말씀하세요','answer':'UNCLEAR'},
-                              {'play':2,'text':'네 관계자입니다'},
-                              {'play':3,'text':'네 맞습니다'}])
+                              {'play':2,'text':'이제 말씀하세요','answer':'UNCLEAR',
+                               'after_playback':True},
+                              {'play':3,'text':'네 관계자입니다'},
+                              {'play':4,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(result['answers'][0]['value'],'새봄식당')
-        self.assertEqual(self.audio.plays,4)
+        self.assertEqual(self.audio.plays,5)
         self.assertEqual(self.providers.inputs,[])
+        acknowledgement='네 답변 가능하실때 다시 답변 부탁드립니다. 잠시 기다리겠습니다.'
+        before_dial=self.events[:next(i for i,event in enumerate(self.events) if event[0]=='dial')]
+        self.assertIn(('tts',acknowledgement),before_dial)
         log_file=next((self.folder/'calls'/self.cid).glob('call-*.jsonl'))
         entries=[json.loads(line) for line in log_file.read_text().splitlines()]
         self.assertEqual(len([e for e in entries if e['stage']=='turn.wait']),1)
         self.assertEqual(len([e for e in entries if e['stage']=='turn.wait_resumed']),1)
+        self.assertEqual([e['text'] for e in entries if e['stage']=='assistant.response'
+                          and e['text']==acknowledgement],[acknowledgement])
 
     def test_wait_expires_after_one_minute_limit(self):
         self.s.wait_timeout_seconds=1
         result=self.run_call([{'play':1,'text':'잠시만요'}])
         self.assertEqual(result['status'],'FAILED')
         self.assertEqual(result['failureReason'],'WAIT_TIMEOUT')
-        self.assertEqual(self.audio.plays,2)
+        self.assertEqual(self.audio.plays,3)
         self.assertEqual(self.providers.inputs,[])
 
     def test_repeated_wait_does_not_extend_deadline(self):
         audio=FakeAudio([],self.events)
         with EventLog(self.folder) as log:
-            session=Session(self.s,self.store,None,audio,Dialogue(request(),self.s.persona_file),
+            session=Session(self.s,self.store,FakeProviders([],self.events),audio,
+                            Dialogue(request(),self.s.persona_file),
                             log,self.folder,'call',threading.Event())
             session.begin_wait('잠시만요')
             first=session.wait_started
@@ -347,7 +354,8 @@ class RuntimeTests(unittest.TestCase):
         audio=DelayedSpeechAudio([],self.events)
         audio.folder=self.folder
         with EventLog(self.folder) as log:
-            session=Session(self.s,self.store,None,audio,Dialogue(request(),self.s.persona_file),
+            session=Session(self.s,self.store,FakeProviders([],self.events),audio,
+                            Dialogue(request(),self.s.persona_file),
                             log,self.folder,'call',threading.Event())
             session.modem=FakeModem(self.events)
             session.started=time.monotonic()
@@ -384,7 +392,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(any(e['stage']=='turn.stale' for e in entries))
 
     def test_wait_can_end_with_stop(self):
-        result=self.run_call([{'play':1,'text':'잠시만요'},{'play':1,'text':'끊어주세요'}])
+        result=self.run_call([{'play':1,'text':'잠시만요'},{'play':2,'text':'끊어주세요'}])
         self.assertEqual(result['failureReason'],'USER_REQUESTED_STOP')
         self.assertEqual(self.providers.inputs,[])
 

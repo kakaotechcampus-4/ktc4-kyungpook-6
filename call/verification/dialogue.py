@@ -17,7 +17,8 @@ class Dialogue:
         self.request = request
         self.policy = json.loads(persona_file.read_text(encoding='utf-8'))
         required = {'greeting','identityRetry','expected','current','askValue','readback',
-                    'ack','retry','goodbye','stopped','wrongTarget','timeout','error','llmWait'}
+                    'ack','retry','goodbye','stopped','wrongTarget','timeout','error',
+                    'llmWait','waitAcknowledgement'}
         if not required <= self.policy['templates'].keys():
             raise ValueError('agent.json에 필수 대화 템플릿이 없습니다.')
         target_fields = set(self.request.target.model_dump())
@@ -29,7 +30,8 @@ class Dialogue:
                 raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
             for text in variants:
                 fields = {field for _, field, _, _ in Formatter().parse(text) if field is not None}
-                if not fields <= allowed_fields or (name == 'llmWait' and not fields <= target_fields):
+                if (not fields <= allowed_fields or
+                        (name in ('llmWait','waitAcknowledgement') and not fields <= target_fields)):
                     raise ValueError(f'agent.json 템플릿 변수 오류: {name}')
         self.items = []
         for q in request.questions:

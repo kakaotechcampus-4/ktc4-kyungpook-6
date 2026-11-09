@@ -157,6 +157,7 @@ class Session:
         if self.wait_started is None:
             self.wait_started = time.monotonic()
         self.wait_speech_before_deadline = False
+        self.play(self.dialogue.template('waitAcknowledgement'),prompt=False)
         self.log.emit('turn.wait',turn=self.turn,text=text,
                       timeout_seconds=self.s.wait_timeout_seconds)
 
