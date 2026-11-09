@@ -1,5 +1,6 @@
 """State machine owns completion and values; the LLM only interprets a turn."""
 import json
+import random
 from string import Formatter
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,9 +17,20 @@ class Dialogue:
         self.request = request
         self.policy = json.loads(persona_file.read_text(encoding='utf-8'))
         required = {'greeting','identityRetry','expected','current','askValue','readback',
-                    'ack','retry','goodbye','stopped','wrongTarget','timeout','error'}
+                    'ack','retry','goodbye','stopped','wrongTarget','timeout','error','llmWait'}
         if not required <= self.policy['templates'].keys():
             raise ValueError('agent.json에 필수 대화 템플릿이 없습니다.')
+        target_fields = set(self.request.target.model_dump())
+        allowed_fields = target_fields | {'naturalField','currentValue','expectedValue','value','question'}
+        for name, value in self.policy['templates'].items():
+            variants = [value] if isinstance(value, str) else value
+            if (not isinstance(variants, list) or not variants or
+                    any(not isinstance(text, str) or not text.strip() for text in variants)):
+                raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
+            for text in variants:
+                fields = {field for _, field, _, _ in Formatter().parse(text) if field is not None}
+                if not fields <= allowed_fields or (name == 'llmWait' and not fields <= target_fields):
+                    raise ValueError(f'agent.json 템플릿 변수 오류: {name}')
         self.items = []
         for q in request.questions:
             for field in ([q] if isinstance(q, Confirmation) else q.fields):
@@ -43,21 +55,33 @@ class Dialogue:
     def item(self):
         return self.items[self.index] if not self.complete else None
 
+    def template_variants(self, name, **kwargs):
+        return [text.format(**self.request.target.model_dump(), **kwargs)
+                for text in self.raw_variants(name)]
+
+    def raw_variants(self, name):
+        value = self.policy['templates'][name]
+        return [value] if isinstance(value, str) else value
+
     def template(self, name, **kwargs):
-        return self.policy['templates'][name].format(**self.request.target.model_dump(), **kwargs)
+        return random.choice(self.template_variants(name, **kwargs))
 
     def is_static_template(self, name):
-        return all(field is None for _, field, _, _ in Formatter().parse(self.policy['templates'][name]))
+        return all(field is None for text in self.raw_variants(name)
+                   for _, field, _, _ in Formatter().parse(text))
 
     def static_templates(self):
-        return {name: self.template(name) for name in self.policy['templates']
-                if self.is_static_template(name)}
+        return {f'{name}[{index}]': text for name in self.policy['templates']
+                for index, text in enumerate(self.raw_variants(name))
+                if all(field is None for _, field, _, _ in Formatter().parse(text))}
 
     def prewarm_texts(self):
         target_fields = self.request.target.model_dump().keys()
-        return [self.template(name) for name, template in self.policy['templates'].items()
+        return [text.format(**self.request.target.model_dump())
+                for name in self.policy['templates']
+                for text in self.raw_variants(name)
                 if all(field is None or field in target_fields
-                       for _, field, _, _ in Formatter().parse(template))]
+                       for _, field, _, _ in Formatter().parse(text))]
 
     def spoken(self, value):
         if isinstance(value, bool):
@@ -66,18 +90,26 @@ class Dialogue:
             return labels[str(value).lower()]
         return value
 
-    def question(self):
+    def question_spec(self):
         item = self.item
         if self.stage == 'IDENTITY':
-            return self.template('identityRetry')
+            return 'identityRetry', {}
         values = dict(naturalField=item['naturalField'], currentValue=self.spoken(item['currentValue']))
         if self.stage == 'EXPECTED':
-            return self.template('expected', **values, expectedValue=self.spoken(item['expectedValue']))
+            return 'expected', dict(values, expectedValue=self.spoken(item['expectedValue']))
         if self.stage == 'CURRENT':
-            return self.template('current', **values)
+            return 'current', values
         if self.stage == 'READBACK':
-            return self.template('readback', naturalField=item['naturalField'], value=self.spoken(self.candidate))
-        return self.template('askValue', naturalField=item['naturalField'])
+            return 'readback', dict(naturalField=item['naturalField'], value=self.spoken(self.candidate))
+        return 'askValue', {'naturalField':item['naturalField']}
+
+    def question(self):
+        name, values = self.question_spec()
+        return self.template(name, **values)
+
+    def question_variants(self):
+        name, values = self.question_spec()
+        return self.template_variants(name, **values)
 
     def state(self):
         return {'stage': self.stage, 'target': self.request.target.model_dump(exclude={'phoneNumber'}),

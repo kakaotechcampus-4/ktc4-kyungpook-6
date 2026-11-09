@@ -8,7 +8,7 @@ import unittest
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import httpx
 from fastapi.testclient import TestClient
@@ -77,6 +77,27 @@ class DialogueTests(unittest.TestCase):
         d=self.identified()
         self.assertFalse(d.answers)
         self.assertEqual(d.stage,'EXPECTED')
+
+    def test_template_variants_are_selected_randomly_and_cached_individually(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy=json.loads((ROOT/'agent.json').read_text())
+            policy['templates']['current']=['등록된 {naturalField}은 {currentValue}입니다.',
+                                            '현재 {naturalField}은 {currentValue}입니다.']
+            policy['templates']['mixed']=['고정 문구', '{naturalField} 확인 문구']
+            path=Path(tmp)/'agent.json'
+            path.write_text(json.dumps(policy,ensure_ascii=False))
+            d=Dialogue(request(),path)
+            with patch('verification.dialogue.random.choice',side_effect=lambda values: values[-1]):
+                self.assertEqual(d.template('current',naturalField='상호명',currentValue='땡땡식당'),
+                                 '현재 상호명은 땡땡식당입니다.')
+            self.assertIn('고정 문구',d.static_templates().values())
+            self.assertNotIn('{naturalField} 확인 문구',d.static_templates().values())
+            self.assertIn('고정 문구',d.prewarm_texts())
+            for invalid in ([],[''],['{missingField}']):
+                policy['templates']['llmWait']=invalid
+                path.write_text(json.dumps(policy,ensure_ascii=False))
+                with self.assertRaises(ValueError):
+                    Dialogue(request(),path)
 
     def test_expected_confirmation_and_goodbye(self):
         d=self.identified()

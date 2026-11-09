@@ -215,6 +215,21 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse((self.folder/'tts-static'/filename(dynamic_goodbye)).exists())
         self.assertTrue((self.folder/'calls'/self.cid/'tts'/filename(dynamic_goodbye)).exists())
 
+    def test_all_first_question_variants_are_prepared_before_dial(self):
+        policy=json.loads(self.s.persona_file.read_text())
+        original=policy['templates']['expected']
+        policy['templates']['expected']=[original,original.replace('현재 등록된','지금 등록된')]
+        self.s.persona_file=self.folder/'agent.json'
+        self.s.persona_file.write_text(json.dumps(policy,ensure_ascii=False))
+        self.run_call([])
+        dialogue=Dialogue(request(),self.s.persona_file)
+        dialogue._start_item()
+        expected=set(dialogue.question_variants())
+        before_dial=self.events[:next(i for i,event in enumerate(self.events) if event[0]=='dial')]
+        self.assertTrue(expected <= {text for stage,text in before_dial if stage=='tts'})
+        self.assertTrue(set(dialogue.template_variants('llmWait')) <=
+                        {text for stage,text in before_dial if stage=='tts'})
+
     def test_backchannel_is_preserved_without_stopping_playback(self):
         result=self.run_call([{'play':1,'text':'네네'},{'play':1,'text':'네 관계자입니다'},{'play':2,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
@@ -350,6 +365,23 @@ class RuntimeTests(unittest.TestCase):
                               {'play':2,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(self.providers.inputs,['네 관계자입니다'])
+
+    def test_value_turn_speaks_wait_phrase_while_llm_interprets(self):
+        result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                              {'play':2,'text':'다온식당이에요'},
+                              {'play':4,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(result['answers'][0]['value'],'다온식당')
+        self.assertEqual(self.providers.inputs,['다온식당이에요'])
+        llm_index=self.events.index(('llm','다온식당이에요'))
+        self.assertLess(self.events.index(('play',3)),llm_index)
+        self.assertLess(llm_index,self.events.index(('stop',3)))
+        log_file=next((self.folder/'calls'/self.cid).glob('call-*.jsonl'))
+        entries=[json.loads(line) for line in log_file.read_text().splitlines()]
+        wait_texts=Dialogue(request(),self.s.persona_file).template_variants('llmWait')
+        self.assertEqual(len([e for e in entries if e['stage']=='assistant.response'
+                              and e['text'] in wait_texts]),1)
+        self.assertFalse(any(e['stage']=='turn.stale' for e in entries))
 
     def test_wait_can_end_with_stop(self):
         result=self.run_call([{'play':1,'text':'잠시만요'},{'play':1,'text':'끊어주세요'}])

@@ -50,7 +50,8 @@ class CallRunner:
             dialogue._start_item()
             if stop.is_set():
                 raise CallFailure('SERVER_SHUTDOWN')
-            session.prepare(dialogue.question())
+            for text in dialogue.question_variants():
+                session.prepare(text)
             dialogue.stage = original_stage
             if stop.is_set():
                 raise CallFailure('SERVER_SHUTDOWN')
@@ -113,11 +114,13 @@ class Session:
                 self.prepared[text] = self.audio.prepare_playback(source,cache,turn=self.turn)
         return self.prepared[text]
 
-    def play(self, text):
+    def play(self, text, *, prompt=True):
         path = self.prepare(text)
         self.audio.play_prepared(path,turn=self.turn)
-        self.prompt_started = time.monotonic()
-        self.playbacks.append({'start':self.prompt_started, 'end':self.prompt_started+wav_duration(path),
+        started = time.monotonic()
+        if prompt:
+            self.prompt_started = started
+        self.playbacks.append({'start':started, 'end':started+wav_duration(path),
                                'text':text,'state':self.dialogue.state()})
         self.log.emit('assistant.response',turn=self.turn,text=text)
         print(json.dumps({'call_id':self.call_id,'stage':'assistant.response',
@@ -266,10 +269,19 @@ class Session:
                 decision = (Interpretation(identity=answer if answer != 'UNCLEAR' else 'UNKNOWN')
                             if self.dialogue.stage == 'IDENTITY' else Interpretation(kind=answer))
             else:
+                self.interrupt()
+                self.play(self.dialogue.template('llmWait'),prompt=False)
                 with self.log.span('llm.interpret',turn=self.turn) as trace:
                     trace['input'] = {'state':self.dialogue.state(), 'transcript':combined}
                     decision = self.providers.interpret(self.dialogue,combined)
                     trace['output'] = decision.model_dump(mode='json')
+                while self.audio.is_playing and not self.audio.is_speaking:
+                    if self.stop.is_set():
+                        raise CallFailure('SERVER_SHUTDOWN')
+                    if not self.active():
+                        break
+                    time.sleep(0.03)
+                self.interrupt()
                 if control_confident:
                     decision.control = result['control']
             if decision.control == 'WAIT':
