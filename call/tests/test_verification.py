@@ -497,6 +497,7 @@ class ProviderTests(unittest.TestCase):
                          f'첫 문장. {tag} 다음 문장.')
         self.assertEqual(with_tts_pauses('정말?! 네... 다음입니다.'),
                          f'정말?! {tag} 네... {tag} 다음입니다.')
+        self.assertEqual(with_tts_pauses('마지막 문장.  '), '마지막 문장.  ')
 
     def test_value_extraction_schema_does_not_accept_decisions(self):
         def handler(req):

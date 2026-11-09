@@ -17,7 +17,7 @@ def with_tts_pauses(text: str) -> str:
     def add_break(match):
         following = text[match.end():].lstrip()
         if not following:
-            return match.group() + ' ' + TTS_BREAK
+            return match.group()
         if following.startswith('<break'):
             return match.group()
         separator = ' ' if following and not text[match.end()].isspace() else ''
