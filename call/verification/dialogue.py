@@ -6,6 +6,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from .models import CallRequest, Confirmation, CustomReply, Interpretation
 
+def static_template_texts(policy):
+    """Return every variable-free variant that can be shared between calls."""
+    result = {}
+    for name, value in policy['templates'].items():
+        variants = [value] if isinstance(value, str) else value
+        if (not isinstance(variants, list) or not variants or
+                any(not isinstance(item, str) or not item.strip() for item in variants)):
+            raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
+        for index, item in enumerate(variants):
+            if all(field is None for _, field, _, _ in Formatter().parse(item)):
+                result[f'{name}[{index}]'] = item
+    return result
+
 @dataclass
 class Reply:
     text: str
@@ -73,9 +86,7 @@ class Dialogue:
                    for _, field, _, _ in Formatter().parse(text))
 
     def static_templates(self):
-        return {f'{name}[{index}]': text for name in self.policy['templates']
-                for index, text in enumerate(self.raw_variants(name))
-                if all(field is None for _, field, _, _ in Formatter().parse(text))}
+        return static_template_texts(self.policy)
 
     def prewarm_texts(self):
         target_fields = self.request.target.model_dump().keys()

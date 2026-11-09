@@ -256,10 +256,11 @@ class PhoneAudio:
             )
         return clean_path
 
-    def prepare_playback(self, source: Path, folder: Path, *, turn: int = 0) -> Path:
+    def prepare_playback(self, source: Path, folder: Path, *, turn: int = 0,
+                         force: bool = False) -> Path:
         """Predecode before dialing; content cache avoids repeated FFmpeg work."""
         phone_path = source.with_suffix('.8k.wav')
-        if not phone_path.exists():
+        if force or not phone_path.exists() or not phone_path.stat().st_size:
             with self.log.span('audio.tts_conversion', turn=turn) as result:
                 descriptor, temporary = tempfile.mkstemp(prefix=phone_path.stem + '.',
                                                           suffix='.wav', dir=phone_path.parent)
