@@ -16,7 +16,7 @@ const BASE: TaskResponse = {
   storeId: 44,
   storeName: '예시분식',
   storeAddress: '대구광역시 북구 대학로 80',
-  storePhone: null,
+  storePhone: '053-123-4567',
   lastCheckedAt: null,
   classification: 'NO_CHANGE',
   failureReason: null,
@@ -231,12 +231,12 @@ describe('toCallStatusLabel — 확인 전화 상태', () => {
 
   it('실패 사유 코드는 번역하지 않고 그대로 보여준다 — 삼키면 원인이 사라진다', () => {
     const result = toCallStatusLabel(
-      call({ status: 'FAILED', failureReason: 'NO_ANSWER', failureKind: 'RETRY_LATER' }),
+      call({ status: 'FAILED', failureReason: 'NO_ANSWER_OR_REJECTED', failureKind: 'RETRY_LATER' }),
     );
 
     expect(result?.tone).toBe('failed');
     expect(result?.label).toBe('전화 확인 실패');
-    expect(lines(result)).toContain('사유 코드: NO_ANSWER');
+    expect(lines(result)).toContain('사유 코드: NO_ANSWER_OR_REJECTED');
   });
 
   it.each([
@@ -336,9 +336,37 @@ describe('toAnalysisTask — 전화를 걸 수 있는가', () => {
       toAnalysisTask(
         task({
           classification: 'PRIORITY_CHECK',
-          call: call({ status: 'FAILED', failureReason: 'NO_ANSWER' }),
+          call: call({ status: 'FAILED', failureReason: 'NO_ANSWER_OR_REJECTED' }),
         }),
       ).canCall,
     ).toBe(true);
+  });
+
+  /*
+    번호 모양은 백엔드(CallService.CALLABLE_PHONE)와 같은 규칙으로 본다. 화면이 보지 않으면
+    걸 수 없는 번호에도 버튼이 떠서, 눌러 본 담당자가 "전화로 확인할 대상이 아닙니다" 만 받는다 —
+    그 문구로는 번호가 문제인지 카드가 문제인지 알 수 없다.
+  */
+  it.each([
+    ['053-123-4567', true],
+    ['0531234567', true],
+    ['053 123 4567', true],
+    ['(053) 123-4567', true],
+    ['+82 53 123 4567', true],
+    ['1234567', true],
+    ['123456', false],
+    ['1234567890123456', false],
+    ['053-123-456A', false],
+    ['', false],
+  ] as const)('번호가 %s 면 %s', (storePhone, expected) => {
+    expect(
+      toAnalysisTask(task({ classification: 'PRIORITY_CHECK', storePhone })).canCall,
+    ).toBe(expected);
+  });
+
+  it('번호가 없으면 걸지 않는다 — 버튼을 그리지 않아야 눌러 보고 409 를 받지 않는다', () => {
+    expect(
+      toAnalysisTask(task({ classification: 'PRIORITY_CHECK', storePhone: null })).canCall,
+    ).toBe(false);
   });
 });

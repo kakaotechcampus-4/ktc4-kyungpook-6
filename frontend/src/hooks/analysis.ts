@@ -181,11 +181,24 @@ export type AnalysisTask = {
   /**
    * 지금 전화를 걸 수 있는가. 전화는 되돌릴 수 없어서 걸 수 없는 카드에는 버튼을 그리지 않는다.
    *
-   * 번호가 없거나 물을 질문이 만들어지지 않는 경우는 여기서 가릴 수 없다 — 조사 결과 응답에
-   * 그 정보가 다 실리지 않기 때문이다. 그때는 백엔드가 409 로 거절하고 화면이 그 문구를 띄운다.
+   * 물을 질문이 만들어지지 않는 경우(휴업에서 폐업 제안, 미확인 상태)는 여기서 가릴 수 없다 —
+   * 그 판단은 백엔드가 수정안을 보고 한다. 그때는 409 로 거절하고 화면이 그 문구를 띄운다.
    */
   canCall: boolean;
 };
+
+/**
+ * 전화 API 가 받아 주는 번호 모양. 하이픈·공백·괄호를 지운 뒤 맨 앞 `+` 는 있어도 되고,
+ * 숫자는 7~15자리여야 한다.
+ *
+ * 백엔드(`CallService.CALLABLE_PHONE`)와 같은 규칙을 화면도 본다. 걸 수 없는 번호에 버튼을
+ * 그려 두면 담당자가 눌러 보고 "전화로 확인할 대상이 아닙니다" 를 받는데, 그 문구로는 번호가
+ * 문제인지 카드가 문제인지 알 수 없다 — 누르기 전에 버튼을 내리는 쪽이 낫다.
+ */
+function isCallablePhone(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  return /^\+?\d{7,15}$/.test(phone.replace(/[-\s()]/g, ''));
+}
 
 /** 분류별로 나눈 Task 목록. 화면의 네 섹션과 1:1로 대응한다. */
 export type AnalysisTaskGroups = Record<TaskClassification, AnalysisTask[]>;
@@ -274,6 +287,7 @@ export function toAnalysisTask(task: TaskResponse): AnalysisTask {
     canCall:
       CALLABLE.includes(classification) &&
       !task.verification &&
+      isCallablePhone(task.storePhone) &&
       (!task.call || task.call.status === 'FAILED'),
   };
 }

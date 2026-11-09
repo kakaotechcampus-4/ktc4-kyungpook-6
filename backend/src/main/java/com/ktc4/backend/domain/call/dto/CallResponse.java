@@ -36,7 +36,7 @@ public record CallResponse(
         LocalDateTime endedAt,
 
         @Schema(description = "실패 사유 코드. 실패가 아니면 null. **번역하지 않고 받은 값 그대로** 내려줍니다 — "
-                + "전화 API 가 정하는 값이라 우리가 뭉개면 원인이 사라집니다", nullable = true, example = "NO_ANSWER")
+                + "전화 API 가 정하는 값이라 우리가 뭉개면 원인이 사라집니다", nullable = true, example = "NO_ANSWER_OR_REJECTED")
         String failureReason,
 
         @Schema(description = "실패 사유를 **담당자가 할 일**로 묶은 값. 실패가 아니면 null.\n\n"
