@@ -60,6 +60,7 @@ class Dialogue:
         self.stopped = False
         self.stop_reason = None
         self.history = []
+        self.first_question = None
         self.last_text = self.template('greeting')
 
     @property
@@ -93,7 +94,8 @@ class Dialogue:
         return [text.format(**self.request.target.model_dump())
                 for name in self.policy['templates']
                 for text in self.raw_variants(name)
-                if all(field is None or field in target_fields
+                if name not in ('identityRetry','expected','current') and all(
+                       field is None or field in target_fields
                        for _, field, _, _ in Formatter().parse(text))]
 
     def spoken(self, value):
@@ -124,6 +126,16 @@ class Dialogue:
         name, values = self.question_spec()
         return self.template_variants(name, **values)
 
+    def preselect_first_question(self):
+        if self.first_question is None:
+            original_stage = self.stage
+            try:
+                self.stage = 'EXPECTED' if self.item['type'] == 'VALUE_CONFIRMATION' else 'CURRENT'
+                self.first_question = self.question()
+            finally:
+                self.stage = original_stage
+        return self.first_question
+
     def state(self):
         return {'stage': self.stage, 'target': self.request.target.model_dump(exclude={'phoneNumber'}),
                 'activeField': self.item if not self.complete else self.items[-1], 'candidate': self.candidate,
@@ -132,6 +144,10 @@ class Dialogue:
     def _start_item(self):
         self.stage = 'EXPECTED' if self.item['type'] == 'VALUE_CONFIRMATION' else 'CURRENT'
         self.candidate = None
+        if self.index == 0 and self.first_question is not None:
+            question = self.first_question
+            self.first_question = None
+            return question
         return self.question()
 
     def _commit(self, value):

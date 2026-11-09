@@ -39,20 +39,16 @@ class CallRunner:
             shared_cache = s.data_dir / 'tts-static'
             session = Session(s, self.store, self.providers, audio, dialogue, log, cache, call_id, stop,
                               shared_cache=shared_cache)
-            # Prepare every template that can be rendered without field answers.
+            # Prepare renderable templates, leaving identity retries and questions for their own paths.
             session.prepare(dialogue.last_text)
             for text in dialogue.prewarm_texts():
                 if stop.is_set():
                     raise CallFailure('SERVER_SHUTDOWN')
                 session.prepare(text)
-            # First question is deterministic and can be cached before dialing as well.
-            original_stage = dialogue.stage
-            dialogue._start_item()
+            # Choose one first-question variant now and reuse it after identity confirmation.
             if stop.is_set():
                 raise CallFailure('SERVER_SHUTDOWN')
-            for text in dialogue.question_variants():
-                session.prepare(text)
-            dialogue.stage = original_stage
+            session.prepare(dialogue.preselect_first_question())
             if stop.is_set():
                 raise CallFailure('SERVER_SHUTDOWN')
             with self.modem_factory(s.at_port, log=log) as modem:
