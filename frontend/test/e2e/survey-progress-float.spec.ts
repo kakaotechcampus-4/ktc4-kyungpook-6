@@ -80,8 +80,22 @@ test.describe("조사 진행 표시", () => {
 
     const float = page.getByRole("status").filter({ hasText: "작업 중" });
     await expect(float).toBeVisible();
-    /* 6곳 중 2곳 = 33%. 내림이라 34% 가 아니다. */
-    await expect(float).toContainText("33%");
+
+    /*
+      진행률은 글자로 그리지 않는다 — 원 둘레의 링이 전부다. 그래서 링이 얼마나
+      찼는지를 직접 본다. 6곳 중 2곳 = 33%, 내림이라 34% 가 아니다.
+      dashoffset = 둘레 x (1 - 0.33). 반지름 25 라 둘레는 2*pi*25 = 157.08.
+    */
+    const ring = float.locator("svg circle");
+    await expect(ring).toHaveAttribute(
+      "stroke-dashoffset",
+      String(2 * Math.PI * 25 * (1 - 33 / 100))
+    );
+
+    /* 눈에 보이지 않는 사용자에게는 버튼 이름으로 전한다. */
+    await expect(
+      float.getByRole("button", { name: /33%/ })
+    ).toBeVisible();
   });
 
   test("분석 결과 화면이 아닌 다른 화면에서도 뜬다", async ({ page }) => {
@@ -93,7 +107,8 @@ test.describe("조사 진행 표시", () => {
 
     const float = page.getByRole("status").filter({ hasText: "작업 중" });
     await expect(float).toBeVisible();
-    await expect(float).toContainText("0%");
+    /* 진행률은 글자가 아니라 버튼 이름에 담긴다. */
+    await expect(float.getByRole("button", { name: /0%/ })).toBeVisible();
   });
 
   test("조사가 끝나면 '작업 완료' 로 바뀌고, 눌러 결과 화면으로 간다", async ({

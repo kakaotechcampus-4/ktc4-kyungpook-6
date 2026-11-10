@@ -84,9 +84,12 @@ function SurveyProgressFloat() {
 
   return (
     /*
-      role="status" 로 상태가 바뀔 때만 읽히게 한다. 보이는 숫자는 3초마다 바뀌므로
-      aria-hidden 으로 가리고, 진행률은 버튼 이름에 담아 포커스했을 때만 읽히게 한다 —
-      살아 있는 영역에 퍼센트를 넣으면 스크린리더가 3초마다 같은 말을 반복한다.
+      상태는 원 모양으로만 알린다 — 글자를 아래에 두지 않는다(Figma 의 "작업 중 0%" 는
+      각 상태를 설명하는 캡션이지 화면에 그리는 글자가 아니다).
+
+      그래서 눈에 보이지 않는 사용자를 위한 길을 둘로 나눈다. role="status" 안의 sr-only 는
+      상태 이름만 담아 바뀔 때 한 번 읽히고, 진행률은 버튼 이름에 담아 포커스했을 때만
+      읽힌다 — 살아 있는 영역에 퍼센트를 넣으면 스크린리더가 3초마다 같은 말을 반복한다.
     */
     <div role="status" className={FLOAT_ANCHOR}>
       <span className="sr-only">{label}</span>
@@ -95,9 +98,13 @@ function SurveyProgressFloat() {
         <button
           type="button"
           onClick={openResult}
-          aria-label={`${description}. 조사 결과 보기`}
-          title={description}
-          className={`flex flex-col items-center rounded-2xl ${isRunning ? 'gap-2.5' : 'gap-1.5'} ${FLOAT_FOCUS}`}
+          aria-label={
+            isRunning
+              ? `${description} (${percent}%). 조사 결과 보기`
+              : `${description}. 조사 결과 보기`
+          }
+          title={isRunning ? `${description} (${percent}%)` : description}
+          className={`flex items-center rounded-2xl ${FLOAT_FOCUS}`}
         >
           {/* 원 + 진행 링. 링은 원 위에 겹쳐 그린다. */}
           <span className="relative block size-14">
@@ -131,34 +138,6 @@ function SurveyProgressFloat() {
             )}
           </span>
 
-          {/*
-            원 아래 라벨. Figma 는 "작업 중" 과 "0%" 를 두 줄로 둔다(115:5636, 14px/20px SemiBold).
-
-            도는 중에는 알약을 두지 않는다 — Figma 가 글자만 둔다. 다만 글자색은 흰색이 아니라
-            #422006 이다. Figma 스펙 시트는 반투명 회색 스크림 위에 네 상태를 올려 두어 흰 글씨가
-            읽히지만, 실제로 이 표시가 뜨는 자리는 밝은 가게 목록 위라 흰 글씨는 보이지 않는다.
-            원과 같은 색을 써서 스크림 위 흰 글씨와 같은 무게를 낸다.
-
-            끝난 상태(완료·실패)는 기존 알약을 그대로 둔다 — 이번에 바꾸기로 한 것은 도는 중뿐이다.
-          */}
-          {isRunning ? (
-            <span
-              aria-hidden="true"
-              className="flex w-10 flex-col items-center font-sans text-sm font-semibold leading-5 text-[#422006]"
-            >
-              <span className="whitespace-nowrap">{label}</span>
-              <span className="whitespace-nowrap">{percent}%</span>
-            </span>
-          ) : (
-            <span
-              aria-hidden="true"
-              className="flex flex-col items-center rounded-lg border border-solid border-[#e2e8f0] bg-white px-2 py-1 shadow-[0px_4px_16px_rgba(15,23,42,0.12)]"
-            >
-              <span className="whitespace-nowrap font-sans text-xs font-bold leading-4 text-[#1e293b]">
-                {label}
-              </span>
-            </span>
-          )}
         </button>
 
         {/*
