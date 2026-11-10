@@ -134,17 +134,6 @@ export type CallResponse = {
   transcript?: CallTranscriptLineResponse[] | null;
 };
 
-/** 한 번에 전화를 넣은 결과. */
-export type CallBulkResponse = {
-  /** 전화를 걸 만한 결과 수. */
-  targetCount: number;
-  /** 실제로 요청이 들어간 수. */
-  requested: number;
-  /** 번호가 없거나 물을 것이 없어 빠진 수. */
-  skipped: number;
-  calls: CallResponse[] | null;
-};
-
 /** Job 에 속한 Task 한 건. */
 export type TaskResponse = {
   taskId: number;
@@ -240,12 +229,3 @@ export const confirmTask = async (taskId: number) =>
  */
 export const requestCall = async (taskId: number) =>
   postRequest<CallResponse>(`/api/tasks/${taskId}/call`, undefined);
-
-/**
- * 그 조사 결과에서 **전화를 걸 만한 가게 전부**에 전화를 요청한다.
- *
- * 대기열은 전화 API 가 갖고 있어서, 한꺼번에 넣으면 전화 API 가 차례대로 발신한다 —
- * 화면이 한 통씩 기다리며 다음을 넣을 필요가 없다.
- */
-export const requestCallsForJob = async (jobId: number) =>
-  postRequest<CallBulkResponse>(`/api/jobs/${jobId}/calls`, undefined);
