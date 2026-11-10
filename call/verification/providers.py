@@ -1,8 +1,10 @@
-"""Pooled HTTP clients: Whisper, OpenAI-compatible chat, ElevenLabs, Jev."""
+"""Pooled HTTP clients and a local eSpeak fallback for exhausted ElevenLabs quota."""
 import hashlib
 import json
+import logging
 import os
 import re
+import subprocess
 import tempfile
 import wave
 from pathlib import Path
@@ -11,6 +13,7 @@ from .models import CustomReply, ValueExtraction
 
 TTS_SPEED = 0.98
 TTS_BREAK = '<break time="0.2s" />'
+logger = logging.getLogger(__name__)
 SENTENCE_END = re.compile(r'''[.!?。？！]+["'”’）)\]]*(?=\s|[가-힣]|$)''')
 
 def with_tts_pauses(text: str) -> str:
@@ -29,6 +32,24 @@ def tts_cache_path(text: str, folder: Path, voice_id: str, model: str) -> Path:
     digest = hashlib.sha256(json.dumps([voice_id, model, TTS_SPEED, spoken_text],
                                       ensure_ascii=False).encode()).hexdigest()
     return folder / f'{digest}.mp3'
+
+def local_tts_cache_path(text: str, folder: Path, voice: str, speed: int) -> Path:
+    # Keep local audio separate from ElevenLabs audio, even for identical text.
+    digest = hashlib.sha256(json.dumps(['espeak-ng', voice, speed, text],
+                                      ensure_ascii=False).encode()).hexdigest()
+    return folder / f'{digest}.wav'
+
+def elevenlabs_quota_exhausted(response: httpx.Response) -> bool:
+    if response.status_code == 402:
+        return True
+    try:
+        detail = response.json().get('detail', {})
+    except (ValueError, TypeError, AttributeError):
+        return False
+    if not isinstance(detail, dict):
+        return False
+    return (detail.get('code') in ('insufficient_credits', 'quota_exceeded') or
+            detail.get('status') in ('insufficient_credits', 'quota_exceeded'))
 
 VALUE_EXTRACTOR = '''당신은 매장 정보 확인 통화의 값 추출기입니다. JSON 객체만 반환하세요.
 키는 value(string/boolean/null), evidence(string) 두 개뿐입니다. 통화 제어, 답변 종류, 다음 질문, 응답 문장을 결정하지 마세요.
@@ -53,6 +74,7 @@ class Providers:
         self.http = client or httpx.Client(timeout=httpx.Timeout(settings.http_timeout, connect=5),
                                            limits=httpx.Limits(max_connections=6, max_keepalive_connections=6))
         self.owns_client = client is None
+        self.elevenlabs_exhausted = False
 
     def close(self):
         if self.owns_client:
@@ -240,10 +262,16 @@ class Providers:
         path = tts_cache_path(text, folder, s.elevenlabs_voice_id, s.tts_model)
         if path.exists() and path.stat().st_size:
             return path
+        if self.elevenlabs_exhausted:
+            return self.synthesize_local(text, folder)
         response = self.http.post(f'https://api.elevenlabs.io/v1/text-to-speech/{s.elevenlabs_voice_id}',
             headers={'xi-api-key':s.elevenlabs_api_key.get_secret_value(), 'Accept':'audio/mpeg'},
             params={'output_format':'mp3_44100_128'},
             json={'text':spoken_text,'model_id':s.tts_model,'voice_settings':{'speed':TTS_SPEED}})
+        if elevenlabs_quota_exhausted(response):
+            self.elevenlabs_exhausted = True
+            logger.warning('ElevenLabs TTS 사용량 소진: 이후 새 음성은 로컬 eSpeak으로 합성합니다.')
+            return self.synthesize_local(text, folder)
         response.raise_for_status()
         if not response.content:
             raise ValueError('TTS 응답이 비어 있습니다.')
@@ -252,6 +280,28 @@ class Providers:
         try:
             with os.fdopen(descriptor, 'wb') as output:
                 output.write(response.content)
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return path
+
+    def synthesize_local(self, text: str, folder: Path) -> Path:
+        voice, speed = self.settings.local_tts_voice, self.settings.local_tts_speed
+        path = local_tts_cache_path(text, folder, voice, speed)
+        if path.is_file() and path.stat().st_size:
+            return path
+        descriptor, temporary = tempfile.mkstemp(prefix=path.stem + '.', suffix='.wav', dir=folder)
+        os.close(descriptor)
+        try:
+            # eSpeak accepts plain text; ElevenLabs SSML break tags must not be spoken.
+            plain_text = re.sub(r'<break\b[^>]*>', ' ', text, flags=re.IGNORECASE)
+            try:
+                subprocess.run(['espeak-ng', '-v', voice, '-s', str(speed), '-w', temporary,
+                                plain_text], check=True, timeout=30, capture_output=True)
+            except FileNotFoundError as exc:
+                raise RuntimeError('ElevenLabs 사용량이 소진됐고 espeak-ng가 설치되지 않았습니다.') from exc
+            if not Path(temporary).stat().st_size:
+                raise ValueError('로컬 TTS 응답이 비어 있습니다.')
             os.replace(temporary, path)
         finally:
             Path(temporary).unlink(missing_ok=True)

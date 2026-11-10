@@ -36,7 +36,7 @@ Nginx Proxy Manager(NPM)가 별도 Docker 컨테이너에서 호스트의 포트
 호스트에서 직접 실행하려면:
 
 ```bash
-sudo apt-get install -y ffmpeg
+sudo apt-get install -y ffmpeg espeak-ng
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
@@ -49,7 +49,7 @@ uvicorn verification.api:app --host 127.0.0.1 --port "${BACKEND_PORT:-8000}" --w
 
 ### 공용 TTS 캐시 미리 생성
 
-`agent.json`에서 변수가 없는 템플릿 문구와 모든 변형을 찾아 `data/tts-static/`에 MP3와 통화용 8kHz WAV를 생성합니다. 같은 문구가 여러 템플릿에 있어도 한 번만 생성합니다. 실행 결과에 전체 고유 문구 수, 새 TTS 합성 수, WAV 생성 수, 재사용 수를 표시합니다. `.env`의 `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `TTS_MODEL`, `DATA_DIR`, `PERSONA_FILE` 설정을 사용하며 `ffmpeg`가 필요합니다.
+`agent.json`에서 변수가 없는 템플릿 문구와 모든 변형을 찾아 `data/tts-static/`에 음성 원본과 통화용 8kHz WAV를 생성합니다. ElevenLabs는 MP3, 사용량 소진 후 로컬 eSpeak은 WAV를 원본으로 저장합니다. 같은 문구가 여러 템플릿에 있어도 한 번만 생성합니다. 실행 결과에 전체 고유 문구 수, 새 TTS 합성 수, WAV 생성 수, 재사용 수를 표시합니다. `.env`의 `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `TTS_MODEL`, `LOCAL_TTS_VOICE`, `LOCAL_TTS_SPEED`, `DATA_DIR`, `PERSONA_FILE` 설정을 사용하며 `ffmpeg`와 `espeak-ng`가 필요합니다.
 
 ```bash
 ./cache-tts.sh               # 이미 완성된 캐시는 재사용
@@ -59,7 +59,7 @@ uvicorn verification.api:app --host 127.0.0.1 --port "${BACKEND_PORT:-8000}" --w
 
 **컨테이너는 서버를 띄우기 전에 이 작업을 자동으로 수행합니다.** 캐시가 비어 있으면 첫 통화 중에 합성이 일어나 응답이 늦어지므로, 그 비용을 시작 시점으로 옮깁니다. 이미 완성된 캐시는 API 호출 없이 건너뛰므로 재시작 비용은 거의 없습니다. TTS 제공자 장애 등으로 준비에 실패하면 경고만 남기고 서버는 그대로 시작합니다(통화 중 합성으로 대체). 시작을 지체 없이 하려면 `PREBUILD_TTS_CACHE=0`으로 끌 수 있습니다. 호스트에서 직접 실행할 때는 `./cache-tts.sh`를 먼저 돌리세요.
 
-문구·음성 ID·TTS 모델·속도가 바뀌면 파일명 해시가 달라지므로, 더 이상 어떤 템플릿으로도 도달할 수 없는 MP3·WAV 쌍은 기본적으로 정리합니다. 캐시 폴더에서 `<sha256>.mp3`와 `<sha256>.8k.wav` 두 형식만 대상으로 하며 다른 파일은 건드리지 않습니다. 실행 결과의 `정리` 수로 확인합니다.
+문구·음성 ID·TTS 모델·속도가 바뀌면 파일명 해시가 달라지므로, 더 이상 어떤 템플릿으로도 도달할 수 없는 캐시 파일은 기본적으로 정리합니다. 캐시 폴더에서 `<sha256>.mp3`, `<sha256>.wav`, `<sha256>.8k.wav`만 대상으로 하며 다른 파일은 건드리지 않습니다. 실행 결과의 `정리` 수로 확인합니다.
 
 수동으로 실행하려면 Docker에서는 `docker compose exec verification /app/cache-tts.sh`를 사용합니다. `--force`도 같은 방식으로 전달합니다. `agent.json`에 새 템플릿이나 변형을 추가하면 다음 실행에서 변수 없는 문구가 자동으로 포함됩니다. 변수에 따라 바뀌는 문구는 통화별로 생성합니다.
 
@@ -181,13 +181,13 @@ curl --fail-with-body \
 | 통화 음성 | `AT+QPCMV=1,0`, USB NMEA 직렬 포트, 8kHz / mono / PCM16 |
 | STT | 기존 `mlapi.run` Whisper 호환 `/v1/audio/transcriptions`, 기본 `whisper-large-v3` |
 | 의미 분석 | OpenAI 호환 게이트웨이의 `/chat/completions`, 기본 `gpt-6.1-terra` (`temperature` 미지정) |
-| TTS | ElevenLabs `/v1/text-to-speech/{voice_id}` (`ELEVENLABS_VOICE_ID`), 기본 모델 `eleven_multilingual_v2` |
+| TTS | ElevenLabs `/v1/text-to-speech/{voice_id}` (`ELEVENLABS_VOICE_ID`), 기본 모델 `eleven_multilingual_v2`; 사용량 소진 시 로컬 `espeak-ng` 한국어 음성 |
 | 발화 제어·답변 분류·끼어들기 판정 | 요청에 지정된 Jev `/v1/decisions`, `typesafe/jev-latest` |
 | HTTP/저장 | FastAPI, SQLite WAL |
 
 모뎀 오디오 기본값 `QAUDMOD=3`, `QRXGAIN=8192`, `QMIC=16384,1024`, `QSIDET=0`을 기존 구성에서 이어받았습니다. 통화 전 값을 읽고 설정을 검증한 뒤 종료 시 복원합니다. GPS NMEA 출력 충돌을 방지하고, 종료 시 `QPCMV=0`을 보냅니다. 실제 Voice over USB 지원 여부는 모뎀 펌웨어와 통신망에 달려 있습니다.
 
-STT 입력은 **항상 FFmpeg로 16kHz / mono / PCM16 WAV로 변환**합니다. 기존 highpass, lowpass, 잡음 감소 필터를 유지합니다. STT 클라이언트도 WAV 형식을 재검사하여 8kHz 파일이 직접 전송되는 것을 막습니다. TTS는 MP3를 8kHz WAV로 변환해 NMEA 포트에 100ms 단위로 전송합니다.
+STT 입력은 **항상 FFmpeg로 16kHz / mono / PCM16 WAV로 변환**합니다. 기존 highpass, lowpass, 잡음 감소 필터를 유지합니다. STT 클라이언트도 WAV 형식을 재검사하여 8kHz 파일이 직접 전송되는 것을 막습니다. TTS 원본은 ElevenLabs MP3 또는 로컬 WAV이며, FFmpeg로 통화용 8kHz WAV를 만들어 NMEA 포트에 100ms 단위로 전송합니다. ElevenLabs의 `insufficient_credits`·`quota_exceeded` 또는 HTTP 402에만 로컬 합성으로 전환합니다. 속도 제한(429), 인증 오류 등은 그대로 오류로 처리합니다. 사용량 소진이 확인된 뒤에는 같은 서버 프로세스에서 새 문구에 대해 ElevenLabs를 재호출하지 않습니다. 기존 ElevenLabs 캐시는 계속 재사용합니다.
 
 ## 대화 규칙
 
@@ -221,7 +221,7 @@ SQLite 자체가 FIFO 큐입니다. 접수는 트랜잭션으로 저장되고 wo
 
 발신 전 첫 인사와 첫 질문의 TTS·8kHz 변환을 완료합니다. 인사말 변형도 통화마다 하나만 선택합니다. `agent.json`의 템플릿을 확인해 변수가 없는 문구와 매장 정보만으로 완성되는 문구를 미리 준비하되, 관계자 재확인(`identityRetry`), 인사말의 다른 변형, 첫 질문에 쓰이는 `expected`·`current` 템플릿은 이 일괄 준비에서 제외합니다. 관계자 재확인과 첫 질문은 각각 변형 중 하나를 무작위로 미리 골라 그 문구만 준비하고, 통화 중에도 같은 문구를 사용합니다. 관계자 재확인은 자주 쓰는 경로라 통화 중 합성 지연을 없애려고 발신 전에 준비합니다. 각 질문 단계에서는 한 변형을 고정해 되물을 때 재사용합니다. `llmWait`의 대기 안내도 모두 준비하고, Jev 판정 후 LLM 값 추출이나 `CUSTOM` 답변 생성이 필요할 때 무작위 문구를 LLM 요청과 동시에 재생합니다. 이 안내는 질문 상태를 바꾸지 않습니다. 준비 실패 시 발신하지 않습니다. 연결 후에는 녹음 스트림이 준비되는 대로 캐시된 첫 인사를 재생합니다.
 
-빠른 응답을 위해 HTTP 연결 재사용, 600ms VAD, 템플릿 기반 질문과 TTS/변환 결과 캐시를 사용합니다. 변수가 없는 템플릿은 `data/tts-static/`에 MP3와 8kHz WAV를 저장해 다음 통화에서도 재사용합니다. 변수 문구는 통화별 `data/calls/<verificationId>/tts/`에 저장합니다. 공용 캐시의 파일명은 문구·음성 ID·TTS 모델·속도를 반영하므로 이 값이 바뀌면 다시 합성합니다. 쓰이지 않게 된 파일은 캐시를 다시 만들 때 정리합니다. STT는 발화 단위, TTS는 완성된 음성 단위이며 스트리밍 추론은 아닙니다. 실제 응답 지연은 STT/Jev/LLM/TTS 서비스에 따라 달라지며 실측 성능을 보장하지 않습니다. `turn.response_ready.since_utterance_end_ms` 로그로 측정할 수 있습니다.
+빠른 응답을 위해 HTTP 연결 재사용, 600ms VAD, 템플릿 기반 질문과 TTS/변환 결과 캐시를 사용합니다. 변수가 없는 템플릿은 `data/tts-static/`에 음성 원본과 8kHz WAV를 저장해 다음 통화에서도 재사용합니다. 변수 문구는 통화별 `data/calls/<verificationId>/tts/`에 저장합니다. ElevenLabs 캐시 키는 문구·음성 ID·TTS 모델·속도를, 로컬 캐시 키는 문구·음성·속도를 반영합니다. 쓰이지 않게 된 파일은 캐시를 다시 만들 때 정리합니다. STT는 발화 단위, TTS는 완성된 음성 단위이며 스트리밍 추론은 아닙니다. 실제 응답 지연은 STT/Jev/LLM/TTS 서비스에 따라 달라지며 실측 성능을 보장하지 않습니다. `turn.response_ready.since_utterance_end_ms` 로그로 측정할 수 있습니다.
 
 프로세스 종료 시 진행 중 통화의 정리와 장치 해제를 기다립니다. 통화 종료 결과는 최종 상태 기록 전에 별도 트랜잭션으로 남겨 재시작 후에도 완료 여부를 복구합니다. 종료 결과 자체를 기록하지 못한 통화는 재시작 시 `SERVER_RESTARTED`로 실패 처리하여 중복 발신을 피합니다. 저장 장애가 계속되면 추가 발신을 멈추고 `/healthz`와 새 통화 접수를 503으로 응답합니다. 아직 가져가지 않은 요청은 `PENDING_MAX_AGE_SECONDS`(기본 900초) 이내일 때만 발신하고, 지난 요청은 `QUEUE_EXPIRED`로 종료합니다. `QUEUE_CAPACITY`는 진행 중 요청을 포함한 상한입니다.
 
@@ -250,4 +250,4 @@ python -m unittest discover -s tests -v
 `docker compose logs -f verification`에서는 재생을 시작한 상담사 답변(`assistant.response`)과 STT 전사(`user.transcript`)가 통화 ID·턴과 함께 한 줄 JSON으로 출력됩니다. 모뎀·오디오 상세 이벤트는 통화별 JSONL 파일에서 확인합니다. 서버 시작과 오류 등 기본 운영 로그는 별도로 출력될 수 있습니다.
 
 Jev는 [공식 System One의 noul 요청·응답 계약](https://docs.typesafe.ai/api/system-one)을 참고하되, URL과 모델은 요청에서 지정한 게이트웨이 값을 사용합니다. 해당 게이트웨이의 실제 인증과 호환 응답은 운영 키로 확인해야 합니다. TTS 계약은 [ElevenLabs 공식 문서](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)를 참고했습니다.
-TTS는 발화 속도 `0.98`로 요청하며 문장 사이의 마침표·물음표·느낌표 뒤에 `<break time="0.2s" />`를 넣습니다. 마지막 문장 뒤에는 붙이지 않으며 소수점과 이미 들어 있는 쉼 태그는 중복 처리하지 않습니다.
+ElevenLabs TTS는 발화 속도 `0.98`로 요청하며 문장 사이의 마침표·물음표·느낌표 뒤에 `<break time="0.2s" />`를 넣습니다. 마지막 문장 뒤에는 붙이지 않으며 소수점과 이미 들어 있는 쉼 태그는 중복 처리하지 않습니다. 로컬 eSpeak에는 이 태그를 전달하지 않습니다. 로컬 음성은 기계적인 음색이므로 운영 환경에서 청취 확인이 필요합니다. 통화별 `tts.prepare` 로그의 `provider` 필드로 실제 음성 출처를 확인할 수 있습니다.

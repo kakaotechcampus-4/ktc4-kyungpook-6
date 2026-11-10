@@ -18,6 +18,8 @@ class Settings(BaseModel):
     stt_model: str = 'whisper-large-v3'
     llm_model: str = 'gpt-6.1-terra'
     tts_model: str = 'eleven_multilingual_v2'
+    local_tts_voice: str = Field(default='ko', min_length=1)
+    local_tts_speed: int = Field(default=160, ge=80, le=450)
     jev_model: str = 'typesafe/jev-latest'
     at_port: str = '/dev/ttyUSB2'
     voice_port: str = '/dev/ttyUSB1'

@@ -4,7 +4,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from pydantic import SecretStr
 
@@ -24,6 +24,33 @@ class FakeAudio:
 
 
 class CacheTTSTests(unittest.TestCase):
+    def test_quota_fallback_builds_local_cache_and_reuses_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary) / 'tts-static'
+            settings = SimpleNamespace(elevenlabs_voice_id='voice', tts_model='model',
+                                       elevenlabs_api_key=SecretStr('key'), http_timeout=5,
+                                       local_tts_voice='ko', local_tts_speed=160)
+            response = Mock(status_code=402)
+            client = Mock()
+            client.post.return_value = response
+            provider = Providers(settings, client=client)
+            audio = FakeAudio()
+            policy = {'templates': {'hello': ['안녕하세요.', '반갑습니다.']}}
+            def local_audio(command, **kwargs):
+                Path(command[command.index('-w')+1]).write_bytes(b'RIFF-local-audio')
+            with patch('verification.providers.subprocess.run',side_effect=local_audio) as run:
+                with redirect_stdout(io.StringIO()):
+                    first = build_cache(policy, folder, provider, audio)
+                    second = build_cache(policy, folder, provider, audio)
+                    forced = build_cache(policy, folder, provider, audio, force=True)
+            self.assertEqual((first.synthesized, first.converted), (2, 2))
+            self.assertEqual((second.synthesized, second.skipped), (0, 2))
+            self.assertEqual((forced.synthesized, forced.converted), (2, 2))
+            self.assertEqual(client.post.call_count, 1)
+            self.assertEqual(run.call_count, 4)
+            self.assertEqual(len(list(folder.glob('*.mp3'))), 0)
+            self.assertEqual(len(list(folder.glob('*.wav'))), 4)
+
     def test_dynamic_templates_skip_and_force_rebuild(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary) / 'tts-static'
@@ -148,6 +175,19 @@ class CacheTTSTests(unittest.TestCase):
             self.assertEqual(prune_cache(folder, {digest}), [])
             self.assertEqual(len(prune_cache(folder, set())), 2)
             self.assertFalse(list(folder.iterdir()))
+
+    def test_prune_cache_removes_stale_local_audio_pair(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            digest = 'f' * 64
+            local = folder / f'{digest}.wav'
+            phone = folder / f'{digest}.8k.wav'
+            local.write_bytes(b'local')
+            phone.write_bytes(b'phone')
+            self.assertEqual(prune_cache(folder, {digest}), [])
+            self.assertEqual(prune_cache(folder, set()), [phone, local])
+            self.assertFalse(local.exists())
+            self.assertFalse(phone.exists())
 
     def test_prune_never_reaches_outside_the_cache_folder(self):
         with tempfile.TemporaryDirectory() as temporary:
