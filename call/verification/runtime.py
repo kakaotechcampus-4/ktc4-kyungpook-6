@@ -81,6 +81,7 @@ class CallRunner:
                         raise
             # Success only after playback and modem cleanup have finished.
             try:
+                self.store.record_outcome(call_id, reason)
                 self.store.finish(call_id, reason)
             except sqlite3.OperationalError as exc:
                 raise ResultSaveFailure(reason) from exc

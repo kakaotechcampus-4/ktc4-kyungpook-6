@@ -12,6 +12,7 @@ class Worker:
         self.store, self.runner, self.lock_file = store, runner, lock_file
         self.stop_event = threading.Event()
         self.wakeup = threading.Event()
+        self.save_blocked = threading.Event()
         self.thread = None
         self.lock = None
         self.db_lock = None
@@ -47,10 +48,13 @@ class Worker:
             if pending_finish is not None:
                 call_id, reason = pending_finish
                 try:
+                    self.store.record_outcome(call_id, reason)
                     self.store.finish(call_id, reason)
                     pending_finish = None
+                    self.save_blocked.clear()
                     continue
                 except Exception as exc:
+                    self.save_blocked.set()
                     log.error('Call %s result save failed (%s)', call_id, type(exc).__name__)
                     if self.stop_event.is_set():
                         shutdown_deadline = shutdown_deadline or time.monotonic() + 5
@@ -73,6 +77,7 @@ class Worker:
                 self.runner(call_id,request,self.stop_event)
             except ResultSaveFailure as exc:
                 pending_finish = (call_id, exc.reason)
+                self.save_blocked.set()
             except CallFailure as exc:
                 pending_finish = (call_id, str(exc))
             except InterruptedError as exc:

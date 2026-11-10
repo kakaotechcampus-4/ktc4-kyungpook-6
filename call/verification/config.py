@@ -37,6 +37,7 @@ class Settings(BaseModel):
     max_turns: int = Field(default=120, ge=2, le=300)
     queue_capacity: int = Field(default=1000, ge=1, le=10000)
     http_timeout: float = Field(default=20, ge=1, le=60)
+    pending_max_age_seconds: float = Field(default=900, ge=60, le=86400)
     jev_timeout: float = Field(default=4, ge=0.5, le=60)
     jev_threshold: float = Field(default=0.7, ge=0.5, le=1)
 
