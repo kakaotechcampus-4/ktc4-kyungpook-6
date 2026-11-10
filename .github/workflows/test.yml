@@ -15,6 +15,7 @@ jobs:
       ai: ${{ steps.filter.outputs.ai }}
       call: ${{ steps.filter.outputs.call }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      app: ${{ steps.filter.outputs.app }}
       bot: ${{ steps.filter.outputs.bot }}
       scripts: ${{ steps.filter.outputs.scripts }}
     steps:
@@ -36,6 +37,9 @@ jobs:
               - '.github/workflows/test.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/test.yml'
+            app:
+              - 'app/**'
               - '.github/workflows/test.yml'
             call:
               - 'call/**'
@@ -143,6 +147,30 @@ jobs:
           # Orval 이 API 코드를 만들 백엔드 Swagger JSON 주소(dev 백엔드). 생성 코드는 커밋하지 않는다.
           BACKEND_SWAGGER_URL: ${{ secrets.BACKEND_SWAGGER_URL }}
 
+  app-test:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app
+
+      # 앱은 frontend 와 달리 Orval 로 만드는 코드가 없어서 백엔드 Swagger 가 필요 없다.
+      - name: Run app tests
+        run: npm test
+        working-directory: app
+
   bot-test:
     needs: changes
     if: needs.changes.outputs.bot == 'true'
@@ -194,7 +222,7 @@ jobs:
 
   all-tests-passed:
     name: All tests passed
-    needs: [changes, backend-test, ai-test, call-test, frontend-test, bot-test, scripts-test]
+    needs: [changes, backend-test, ai-test, call-test, frontend-test, app-test, bot-test, scripts-test]
     if: always()
     runs-on: ubuntu-latest
     steps:
