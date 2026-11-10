@@ -9,6 +9,13 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
 
   return {
+    /*
+      웹으로 올릴 때 하위 경로를 받는다(예: /app/child/). 값이 없으면 "/" 라서
+      APK 빌드는 지금까지와 같다 — Capacitor 는 루트에서 연다.
+      라우터도 같은 값을 쓴다(App.tsx 의 basename = import.meta.env.BASE_URL).
+    */
+    base: env.VITE_BASE_PATH || "/",
+
     plugins: [react(), tailwindcss()],
     server: {
       /*

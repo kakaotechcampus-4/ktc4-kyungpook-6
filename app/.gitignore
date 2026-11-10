@@ -10,3 +10,6 @@ dist
 # build-apk.sh 가 만든 APK. 산출물이라 올리지 않는다.
 build-apk
 
+
+# build-web.sh 가 만든 웹 산출물. 산출물이라 올리지 않는다.
+build-web
