@@ -181,17 +181,7 @@ https://github.com/user-attachments/assets/a3106e2c-ee03-4d85-8f72-5cc16f91b427
 
 [![AI 확인 전화 흐름: 담당자가 확인 전화 → LTE 모뎀으로 발신 → 관계자 확인 → 항목마다 묻고 듣기 → 수정안과 통화 기록](./docs/images/readme/feature-call.png)](./docs/images/readme/feature-call.png)
 
-관리자 화면에서 통화가 진행되는 흐름을 예시로 그리면 이렇습니다.
-
-<img src="./docs/images/readme/hero.gif" width="100%" alt="관리자 화면에서 AI가 가게에 확인 전화를 걸고, 통화 내용으로 영업시간 변경을 찾아 수정 제안을 올리면 담당자가 승인하는 장면 (예시 화면)" />
-
-<sub>예시 화면입니다. 실제 시연 녹화가 준비되면 이 자리를 바꿉니다.</sub>
-
-<!-- 시연 영상 자리: 소리가 있는 시연 영상(mp4, 10MB 이하)을 GitHub 이슈 입력창에 끌어다 놓고 생긴 링크를 이 줄 대신 붙인다 -->
-
 ### 02. AI 가게 조사
-
-<!-- 움짤 자리: 가게 여러 곳 선택 → 조사 시작 → 바뀐 가게만 '우선 확인'으로 올라오는 장면 (docs/images/readme/02-investigation.gif) -->
 
 [![AI 가게 조사 흐름: 국세청 사업자 상태 → 카카오맵 대조 → 에이전트 웹검색 → 규칙 판정 → 우선 확인 또는 변화 없음](./docs/images/readme/feature-investigation.png)](./docs/images/readme/feature-investigation.png)
 
@@ -228,7 +218,6 @@ https://github.com/user-attachments/assets/a3106e2c-ee03-4d85-8f72-5cc16f91b427
 | 통화 | 걸린 시간 | 주고받은 횟수 |
 | --- | --- | --- |
 | 세 항목을 끝까지 확인 | 79초 | 4번 |
-| 한 항목 답하고 끊음 | 33초 | 2번 |
 
 모델별 비교와 측정 조건은 [2차 조사 문서](./ai/docs/2차_조사.md#측정)에 있습니다.
 
