@@ -48,6 +48,29 @@ test.describe("조사 진행 표시", () => {
     await logIn(page);
   });
 
+  /*
+    도는 중 원의 색과 보더는 Figma 115:5633 그대로여야 한다.
+
+    계산된 값으로 본다 — 보더 두께가 공유 토큰(FLOAT_CIRCLE 의 border-4)을
+    덮어쓰는 구조라, Tailwind 가 내보내는 CSS 순서가 바뀌면 조용히 4px 로 돌아간다.
+    클래스 문자열만 보는 검사로는 그걸 못 잡는다.
+  */
+  test("도는 중에는 어두운 원에 6px 보더다", async ({ page }) => {
+    await page.route("**/api/jobs/latest", (route) =>
+      route.fulfill({ json: job("IN_PROGRESS", 2) })
+    );
+
+    await page.goto("/");
+
+    const float = page.getByRole("status").filter({ hasText: "작업 중" });
+    await expect(float).toBeVisible();
+
+    const circle = float.locator("span.size-14 > span").first();
+    await expect(circle).toHaveCSS("background-color", "rgb(66, 32, 6)");
+    await expect(circle).toHaveCSS("border-top-width", "6px");
+    await expect(circle).toHaveCSS("border-top-color", "rgb(241, 245, 249)");
+  });
+
   test("조사가 도는 동안 가게 목록에도 진행률이 뜬다", async ({ page }) => {
     await page.route("**/api/jobs/latest", (route) =>
       route.fulfill({ json: job("IN_PROGRESS", 2) })
