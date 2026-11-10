@@ -4,6 +4,7 @@ import com.ktc4.backend.domain.business.enums.BusinessState;
 import com.ktc4.backend.domain.investigation.dto.InvestigationTarget;
 import com.ktc4.backend.domain.investigation.dto.NtsTarget;
 import com.ktc4.backend.domain.job.dto.CreatedJob;
+import com.ktc4.backend.domain.job.dto.JobTargetStore;
 import com.ktc4.backend.domain.job.entity.Job;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.repository.JobRepository;
@@ -105,6 +106,9 @@ class JobServiceCreateTest extends PostgresContainerTest {
         assertThat(job.getTargetCount()).isEqualTo(2);
         assertThat(job.getCompletedCount()).isZero();
         assertThat(job.getRequestedBy()).isEqualTo("7");
+        assertThat(job.getTargetStores()).containsExactly(
+                new JobTargetStore(closedByNts.getStoreId(), "폐업가게", "가상특별시 예시구 샘플로 123", "053-111-1111"),
+                new JobTargetStore(matched.getStoreId(), "정상가게", "가상특별시 예시구 샘플로 123", "053-111-1111"));
         assertThat(created.targetCount()).isEqualTo(2);
         assertThat(created.excluded()).extracting(ExcludedStore::storeId, ExcludedStore::reason)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(

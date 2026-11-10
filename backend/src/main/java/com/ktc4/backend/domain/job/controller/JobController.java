@@ -98,6 +98,7 @@ public class JobController {
             summary = "조사 진행도·결과 조회",
             description = """
                     조사 하나의 진행도(`completedCount` / `targetCount`)와 지금까지 끝난 가게의 결과를 내려줍니다.
+                    조사 중에는 `pendingStores` 에 아직 Task 가 만들어지지 않은 대상 가게가 들어 있습니다.
                     화면은 몇 초마다 다시 불러 진행도를 보여 주고, `status` 가 `DONE` · `FAILED` 가 되면 그만 부릅니다.
 
                     - 가게별 `classification` 이 **null 이면 조사 실패**입니다 (이유는 `failureReason`)

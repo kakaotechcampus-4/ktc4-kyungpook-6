@@ -3,6 +3,7 @@ package com.ktc4.backend.domain.job.controller;
 import com.ktc4.backend.domain.call.service.CallBulkService;
 import com.ktc4.backend.domain.investigation.service.InvestigationRunner;
 import com.ktc4.backend.domain.job.dto.JobResultResponse;
+import com.ktc4.backend.domain.job.dto.JobTargetStore;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.service.JobQueryService;
 import com.ktc4.backend.domain.job.service.JobService;
@@ -89,6 +90,22 @@ class JobControllerQueryTest {
     private static TaskResultResponse failedTask() {
         return new TaskResultResponse(2L, 6L, "실패가게", "대구광역시 북구 대학로 81", StoreStatus.OPEN, null,
                 null, null, "AI 응답 시간이 초과됐습니다", List.of(), List.of(), null, null);
+    }
+
+    @Test
+    @DisplayName("진행 중인 조사는 아직 처리되지 않은 가게의 표시 정보를 내려준다")
+    void pendingStoresAreVisible() throws Exception {
+        given(jobQueryService.getJob(42L)).willReturn(new JobResultResponse(
+                42L, JobStatus.IN_PROGRESS, 2, 1, CREATED_AT, null, null,
+                List.of(priorityTask()),
+                List.of(new JobTargetStore(6L, "조사 전 가게", "대구광역시 중구 동성로 1", "053-222-2222"))));
+
+        getAsAdmin("/api/jobs/42")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pendingStores[0].storeId").value(6))
+                .andExpect(jsonPath("$.pendingStores[0].storeName").value("조사 전 가게"))
+                .andExpect(jsonPath("$.pendingStores[0].storeAddress").value("대구광역시 중구 동성로 1"))
+                .andExpect(jsonPath("$.pendingStores[0].storePhone").value("053-222-2222"));
     }
 
     @ParameterizedTest

@@ -1,7 +1,10 @@
 package com.ktc4.backend.domain.job.entity;
 
 import com.ktc4.backend.domain.job.enums.JobStatus;
+import com.ktc4.backend.domain.job.dto.JobTargetStore;
 import com.ktc4.backend.global.entity.BaseTimeEntity;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -17,6 +20,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 담당자가 실행한 "가게 정보 일괄 조사" 작업 단위.
@@ -56,6 +60,11 @@ public class Job extends BaseTimeEntity {
     @Column(name = "target_count", nullable = false)
     private int targetCount;
 
+    /** 조사 시작 당시의 대상 가게. Task 가 만들어지기 전에도 결과 화면에서 목록을 보여 준다. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "target_stores", columnDefinition = "jsonb", nullable = false)
+    private List<JobTargetStore> targetStores;
+
     /** 조사 완료된 가게 수 */
     @Column(name = "completed_count", nullable = false)
     private int completedCount;
@@ -70,11 +79,12 @@ public class Job extends BaseTimeEntity {
 
     @Builder
     private Job(String requestedBy, JobStatus status,
-                int targetCount, int completedCount,
+                int targetCount, List<JobTargetStore> targetStores, int completedCount,
                 LocalDateTime finishedAt, String errorMessage) {
         this.requestedBy = requestedBy;
         this.status = status;
         this.targetCount = targetCount;
+        this.targetStores = targetStores == null ? List.of() : List.copyOf(targetStores);
         this.completedCount = completedCount;
         this.finishedAt = finishedAt;
         this.errorMessage = errorMessage;
