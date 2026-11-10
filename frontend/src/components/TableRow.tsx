@@ -160,7 +160,8 @@ function TableRow({
         봐야 할 수 있어서, 보이게 두고 왜 빠지는지만 알려준다.
       */}
       <div className="flex h-5 min-w-px flex-1 items-center gap-1 overflow-clip">
-        <span className="min-w-0 flex-1">{renderCellText(name)}</span>
+        {/* p 를 담으므로 span 이 아니라 div 다 — span 안의 p 는 유효하지 않은 마크업이다. */}
+        <div className="min-w-0 flex-1">{renderCellText(name)}</div>
         {/*
           title 은 감싼 span 에 둔다 — SVG 요소의 title 속성으로는 브라우저가 툴팁을 띄우지 않는다
           (SVG 는 title 자식 요소를 쓴다). 영업 상태 뱃지도 같은 이유로 바깥 칸에 title 을 둔다.
