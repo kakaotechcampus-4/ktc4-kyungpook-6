@@ -64,6 +64,7 @@ const CALLABLE: TaskClassification[] = ['priority', 'additional'];
 export const REQUESTED_AT_LABEL = '요청 시각';
 
 export type CallStatusLabel = {
+  callId: number;
   label: string;
   tone: 'progress' | 'done' | 'failed';
   /**
@@ -72,18 +73,7 @@ export type CallStatusLabel = {
    */
   phase: CallPhase;
   details: StatusDetail[];
-  /** 통화 내용(전사). 전화 중·전화 완료에만 담는다. 없으면 빈 배열. */
-  transcript: TranscriptLine[];
 };
-
-/** 판에 찍는 전사 한 줄. agent: 우리 AI 상담원 · store: 가게 */
-export type TranscriptLine = { speaker: 'agent' | 'store'; text: string };
-
-function transcriptOf(call: CallResponse): TranscriptLine[] {
-  return (call.transcript ?? [])
-    .filter((line) => line.text.trim() !== '')
-    .map((line) => ({ speaker: line.speaker === 'AGENT' ? 'agent' : 'store', text: line.text }));
-}
 
 /** waiting 대기(PENDING) · calling 통화 중(IN_PROGRESS) · done 완료 · failed 실패 */
 export type CallPhase = 'waiting' | 'calling' | 'done' | 'failed';
@@ -122,9 +112,9 @@ export function toCallStatusLabel(
 
   if (call.status === 'PENDING' || call.status === 'IN_PROGRESS') {
     return {
+      callId: call.callId,
       tone: 'progress',
       phase: call.status === 'PENDING' ? 'waiting' : 'calling',
-      transcript: call.status === 'IN_PROGRESS' ? transcriptOf(call) : [],
       label: '전화 확인 중',
       details: requestedDetail,
     };
@@ -147,9 +137,9 @@ export function toCallStatusLabel(
     /* 사유 코드는 전화 API 가 정하는 값이라 번역하지 않는다 — 모르는 코드를 삼키면 원인이 사라진다. */
     const guide = FAILURE_GUIDE[call.failureKind ?? 'UNKNOWN'];
     return {
+      callId: call.callId,
       tone: 'failed',
       phase: 'failed',
-      transcript: [],
       label:
         call.failureKind === 'OUR_SIDE' ? '전화를 걸지 못했습니다' : '전화 확인 실패',
       details: [
@@ -512,6 +502,8 @@ export type UseAnalysisResultPageResult = {
   finishedAtLabel: string | undefined;
   /** 분류별 Task 목록. 화면의 네 섹션이 그대로 쓴다. */
   groups: AnalysisTaskGroups;
+  /** 조사 대상이지만 아직 결과가 나오지 않은 가게. */
+  pendingStores: PendingStoreResponse[];
   /** 조사 결과 조회 중 여부. Skeleton 노출 여부에 쓰인다. */
   isPending: boolean;
   /** 조회 실패 여부. 목업 결과로 대체해 보여준다. 아래 noJobYet 인 경우는 빼고 센다. */

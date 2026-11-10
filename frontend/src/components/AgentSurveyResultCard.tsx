@@ -162,12 +162,11 @@ type AgentSurveyResultCardProps = {
    * 확인 기록은 그 답을 읽은 담당자의 판단이다. 전화가 끝나도 카드는 아직 처리 전이다.
    */
   callStatus?: {
+    callId: number;
     /** 전화 버튼 자리에 찍을 단계. 없으면(아직 안 걸었으면) "전화하기" 버튼이다. */
     phase: CallPhase;
     /** 단계 버튼을 누르면 그 아래에 펼치는 세부. */
     details: StatusDetail[];
-    /** 통화 내용(전사). 전화 중·전화 완료 판의 세부 아래에 붙는다. */
-    transcript?: { speaker: 'agent' | 'store'; text: string }[];
   };
   /**
    * "전화하기" 클릭. **걸 수 없는 카드면 넘기지 않는다** — 그러면 버튼이 비활성이 된다.
@@ -258,10 +257,10 @@ function AgentSurveyResultCard({
       const requestedAt = callStatus.details.find((detail) => detail.label === REQUESTED_AT_LABEL);
       return (
         <CallPhaseButton
+          callId={callStatus.callId}
           phase={callStatus.phase}
           details={callStatus.details.filter((detail) => detail.label !== REQUESTED_AT_LABEL)}
           footnote={requestedAt ? `${requestedAt.value} 요청` : undefined}
-          transcript={callStatus.transcript}
         />
       );
     }
