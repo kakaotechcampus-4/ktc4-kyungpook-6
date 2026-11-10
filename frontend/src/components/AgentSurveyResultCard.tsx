@@ -259,7 +259,7 @@ function AgentSurveyResultCard({
       return (
         <CallPhaseButton
           phase={callStatus.phase}
-          details={callStatus.details.filter((detail) => detail !== requestedAt)}
+          details={callStatus.details.filter((detail) => detail.label !== REQUESTED_AT_LABEL)}
           footnote={requestedAt ? `${requestedAt.value} 요청` : undefined}
           transcript={callStatus.transcript}
         />
