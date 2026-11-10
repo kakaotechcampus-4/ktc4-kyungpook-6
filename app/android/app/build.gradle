@@ -16,6 +16,28 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    /*
+      점주 앱과 아동 앱을 APK 두 개로 가른다. 웹 코드는 하나이고, 빌드할 때
+      VITE_APP_ROLE 로 시작 화면만 달라진다(app/src/appRole.ts).
+      여기서 가르는 것은 "폰에서 서로 다른 앱으로 보이게" 하는 데 필요한 것뿐이다
+      — 패키지 이름이 같으면 한 폰에 둘을 같이 깔 수 없다.
+
+      이름과 아이콘 색은 src/child · src/owner 의 res 가 main 을 덮어쓴다.
+      웹 자산(assets/public)은 플레이버로 나누지 않는다. cap sync 가 main 에만
+      쓰기 때문이고, 그래서 빌드 스크립트가 역할마다 build → sync → assemble 을
+      한 바퀴씩 돈다(app/scripts/build-apk.sh).
+    */
+    flavorDimensions "role"
+    productFlavors {
+        child {
+            dimension "role"
+            applicationId "com.ktc4kyungpook6.goodradar.child"
+        }
+        owner {
+            dimension "role"
+            applicationId "com.ktc4kyungpook6.goodradar.owner"
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
