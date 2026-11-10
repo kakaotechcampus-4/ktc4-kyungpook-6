@@ -30,44 +30,78 @@
 
 ## 실제 통화 들어 보기
 
-에이전트가 LTE 모뎀으로 실제 전화를 걸어 나눈 시연 통화입니다. 왜 거는지에 따라 묻는 방식이 다릅니다.
+에이전트가 LTE 모뎀으로 실제 전화를 걸어 나눈 시연 통화입니다. 백엔드가 통화 서버에 확인할 항목을 보내면, 통화 서버가 가게에 전화해 묻고 답을 돌려줍니다.
 
-<!-- 확인: 가게 쪽을 누가 받았는지(팀원이 점주 역할 등) 한 줄 덧붙일지 정한다 -->
+### ① 바뀐 정보를 확인하는 전화
 
-<table>
-<tr>
-<th width="50%" align="center"><h3>① 바뀐 정보를 확인하는 전화</h3></th>
-<th width="50%" align="center"><h3>② 90일 넘게 확인하지 않은 가게에 거는 전화</h3></th>
-</tr>
-<tr>
-<td align="center">
+조사에서 상호명이 바뀐 것 같다는 신호가 잡힌 가게에, 그 값이 지금 맞는지 묻습니다. 가게가 맞다고 답하자 새 상호명을 답으로 돌려줍니다. 연결부터 끝까지 37초 걸렸습니다.
 
-<!-- 통화 ① 자리: mp3 를 영상(mp4)으로 바꿔 GitHub 이슈 입력창에 끌어다 놓고 생긴 https://github.com/user-attachments/assets/... 링크를 이 줄 대신 붙인다 -->
+**[POST] /v1/verification-call**
 
-<br><sub>통화 녹음 준비 중</sub><br><br>
+**Request Body**
 
-</td>
-<td align="center">
+```json
+{
+    "target": {
+        "storeLocation": "대구광역시 북구 대학로 80",
+        "storeName": "프롬프트 카페",
+        "phoneNumber": "010-0000-0000"
+    },
+    "questions": [
+        {
+            "id": "q1",
+            "type": "VALUE_CONFIRMATION",
+            "field": "storeName",
+            "naturalField": "상호명",
+            "currentValue": "프롬프트 카페",
+            "expectedValue": "프롬프트 베이커리"
+        }
+    ]
+}
+```
 
-<!-- 통화 ② 자리: 위와 같은 방법으로 링크를 붙인다 -->
+**Response Body**
 
-<br><sub>통화 녹음 준비 중</sub><br><br>
+```json
+{
+    "verificationId": "b6016a24-54bb-4428-b394-5b73f3b55cd3"
+}
+```
 
-</td>
-</tr>
-<tr>
-<td valign="top">
+**Phone Call Example**
 
-조사에서 다른 값이 잡히면, 그 값이 지금 맞는지 하나씩 확인합니다.
+https://github.com/user-attachments/assets/87e25fa9-48d1-46d6-9d7d-96a0eb7ca48e
 
-</td>
-<td valign="top">
+**[GET] /v1/verification-call/b6016a24-54bb-4428-b394-5b73f3b55cd3**
+
+**Response Body**
+
+```json
+{
+    "verificationId": "b6016a24-54bb-4428-b394-5b73f3b55cd3",
+    "status": "COMPLETED",
+    "answers": [
+        {
+            "questionId": "q1",
+            "field": "storeName",
+            "value": "프롬프트 베이커리"
+        }
+    ],
+    "createdAt": "2026-11-10T18:37:28.349928+00:00",
+    "startedAt": "2026-11-10T18:37:30.469015+00:00",
+    "connectedAt": "2026-11-10T18:37:40.568922+00:00",
+    "endedAt": "2026-11-10T18:38:17.682458+00:00",
+    "failureReason": null
+}
+```
+
+### ② 90일 넘게 확인하지 않은 가게에 거는 전화
 
 확인한 지 오래된 가게에는 짚을 값 없이, 바뀐 것이 있는지부터 묻습니다.
 
-</td>
-</tr>
-</table>
+<!-- 통화 ② 자리: ①과 같은 구조(요청, 응답, 녹음, 결과)로 채운다. type 은 CHANGE_DETECTION -->
+
+<sub>통화 녹음 준비 중</sub>
 
 ## 주요 기능
 
