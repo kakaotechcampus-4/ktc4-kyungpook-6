@@ -70,6 +70,7 @@ public enum CallFailureKind {
             Map.entry("PROCESSING_ERROR", OUR_SIDE),    // STT·LLM·TTS·장치 오류
             Map.entry("SERVER_RESTARTED", OUR_SIDE),
             Map.entry("SERVER_SHUTDOWN", OUR_SIDE),
+            Map.entry("QUEUE_EXPIRED", OUR_SIDE),          // 15분 이상 대기해 발신하지 않음
 
             // 이따 다시 걸면 된다
             Map.entry("NO_ANSWER_OR_REJECTED", RETRY_LATER),  // 안 받음과 거절이 한 코드다 — 덜 단정적인 쪽으로

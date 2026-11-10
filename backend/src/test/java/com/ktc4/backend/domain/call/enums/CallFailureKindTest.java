@@ -40,6 +40,7 @@ class CallFailureKindTest {
             "PROCESSING_ERROR,       OUR_SIDE",          // STT·LLM·TTS·장치 오류
             "SERVER_RESTARTED,       OUR_SIDE",
             "SERVER_SHUTDOWN,        OUR_SIDE",
+            "QUEUE_EXPIRED,         OUR_SIDE",
             "NO_ANSWER_OR_REJECTED,  RETRY_LATER",
             "REMOTE_HANGUP,          RETRY_LATER",
             "INPUT_TIMEOUT,          RETRY_LATER",
