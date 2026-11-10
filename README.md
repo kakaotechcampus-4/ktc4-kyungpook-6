@@ -13,7 +13,7 @@
 backend/    Spring Boot · Java 21     가게·조사·인증·QR 체크인 API
 ai/         FastAPI · Python          가게 정보 2차 조사 (웹검색·카카오맵·국세청)
 frontend/   React · Vite              관리자 웹 (가게 목록, 조사 결과 검토)
-app/        Capacitor · React         점주용 앱 (QR 스캔) — 아직 껍데기
+app/        Capacitor · React         점주 앱 · 아동 앱 (한 코드에서 APK 둘)
 docs/       팀 공통 문서              용어집, 깃·Jira 규칙, 에러 규격
 scripts/    deploy.sh                 compose 파일을 묶어 배포
 .github/    워크플로                  테스트, 배포, 멘토 자동 배정, 디스코드 알림
@@ -31,7 +31,7 @@ scripts/    deploy.sh                 compose 파일을 묶어 배포
 | `backend/` | `brew install gradle` (Java 21) | `./scripts/test.sh` → `gradle test` |
 | `ai/` | `uv sync` | `./scripts/test.sh` → `uv run pytest tests/` |
 | `frontend/` | `npm ci` | `./scripts/test.sh` → `npm run lint` |
-| `app/` | `npm ci` | `npm test` (테스트 파일은 아직 없음) |
+| `app/` | `npm ci` | `npm test` → `vitest run` |
 
 **백엔드는 Gradle wrapper 를 쓰지 않습니다.** `brew install gradle` 로 설치한 Gradle 을 쓰고,
 배포는 `gradle:8-jdk21` 이미지로, CI 는 러너의 Gradle 로 빌드합니다. `./gradlew` 를 부르는
