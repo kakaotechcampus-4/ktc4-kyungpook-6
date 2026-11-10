@@ -39,6 +39,17 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       BIZNO_API_KEY: ${BIZNO_API_KEY:-}
       NTS_SERVICE_KEY: ${NTS_SERVICE_KEY:-}
+      # 국세청 상태 조회 배치의 주기(크론). `-` 를 주면 배치를 아예 등록하지 않는다 —
+      # 시드로 넣은 국세청 확인 기록을 배치가 덮어쓰면 안 되는 기간에만 쓰고,
+      # 끈 동안에는 실제 폐업·휴업도 반영되지 않는다.
+      #
+      # ⚠️ 다른 값들과 달리 `:-` 뒤를 비워 두면 안 된다. compose 는 변수가 없어도 키를 만들어
+      # 빈 문자열을 넣는데, @Scheduled 는 빈 크론을 트리거 없는 일회성 작업으로 보고
+      # "One-time task only supported with specified initial delay" 로 기동을 멈춘다(실측).
+      # 그래서 기본값을 여기에도 적는다 — application.yml 의 nts-check.cron 과 같은 값이어야 한다.
+      # `:-` 는 변수가 없을 때뿐 아니라 비어 있을 때도 이 값을 쓰므로, .env 에 `NTS_CHECK_CRON=` 만
+      # 남겨도 기동이 깨지지 않는다.
+      NTS_CHECK_CRON: ${NTS_CHECK_CRON:-0 0 3 * * *}
       VERIFICATION_API_BASE_URL: ${VERIFICATION_API_BASE_URL:-}
       VERIFICATION_API_KEY: ${VERIFICATION_API_KEY:-}
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}

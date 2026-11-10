@@ -54,10 +54,19 @@ public class NtsCheckScheduler {
     /**
      * 모든 가게를 사업자등록번호 단위로 묶어 국세청 상태를 조회하고 결과를 기록한다.
      *
-     * <p>새벽 3시(한국 시간)에 도는 이유는 담당자가 화면을 쓰지 않는 시간대라서다. 서버 시간대에
-     * 상관없이 같은 시각에 돌도록 {@code zone} 을 명시한다.
+     * <p>기본값인 새벽 3시(한국 시간)에 도는 이유는 담당자가 화면을 쓰지 않는 시간대라서다. 서버
+     * 시간대에 상관없이 같은 시각에 돌도록 {@code zone} 을 명시한다.
+     *
+     * <p>주기를 {@code nts-check.cron} 으로 뺀 이유는 다른 배치(업로드 정리·좌표 채우기·전화 상태
+     * 조회)가 이미 전부 설정값으로 주기를 받는데 이 배치만 상수였기 때문이다. 환경마다 다른 주기를
+     * 줄 수 없었고, 배치를 잠시 멈춰야 할 때 손댈 곳이 코드뿐이었다.
+     *
+     * <p><b>{@code -} 를 주면 이 배치를 등록하지 않는다</b>({@link Scheduled#CRON_DISABLED}).
+     * 시드로 넣은 국세청 확인 기록({@code StoreImportItem.ntsCheck})을 배치가 덮어쓰면 안 되는
+     * 기간에 쓴다 — 꾸며낸 사업자등록번호로 넣은 기록은 다음 회차에 {@code NOT_REGISTERED} 로
+     * 바뀌고, 그러면 그 가게들이 조사 대상에서 통째로 빠진다.
      */
-    @Scheduled(cron = "0 0 3 * * *", zone = BATCH_ZONE)
+    @Scheduled(cron = "${nts-check.cron:0 0 3 * * *}", zone = BATCH_ZONE)
     public void checkAllStores() {
         // 기록 시각은 JVM 기본 시간대로 둔다 — created_at/updated_at 을 채우는 JPA Auditing 과 같은
         // 기준이어야 한 행 안에서 시각끼리 비교가 된다. 실행 시점만 BATCH_ZONE 으로 고정한다.
