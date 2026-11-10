@@ -44,6 +44,11 @@ public class CallWithoutApiConfig {
             public CallSnapshot read(String externalId) {
                 throw new CallNotConfigured("테스트에서는 전화 API 를 부르지 않습니다");
             }
+
+            @Override
+            public String readLogs(String externalId, int after) {
+                throw new CallNotConfigured("테스트에서는 전화 API 를 부르지 않습니다");
+            }
         };
     }
 

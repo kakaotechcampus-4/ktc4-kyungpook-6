@@ -119,6 +119,38 @@ export type CallResponse = {
   answers: CallAnswerResponse[] | null;
 };
 
+/** Call API에서 기록되는 공개 대화·판정 로그. */
+export type CallLogEntry =
+  | {
+      sequence: number;
+      timestamp: string;
+      turn: number;
+      type: 'ASSISTANT' | 'USER';
+      text: string;
+    }
+  | {
+      sequence: number;
+      timestamp: string;
+      turn: number;
+      type: 'JEV';
+      verdict: 'PROCESS' | 'IGNORE' | 'INTERRUPT' | 'BACKCHANNEL';
+      answer: 'YES' | 'NO' | 'VALUE' | 'CUSTOM' | 'UNCLEAR';
+      answerConfidence: number;
+      control: 'STOP' | 'WAIT' | 'CONTINUE' | 'REPEAT';
+      controlConfidence: number;
+    };
+
+export type CallLogsResponse = {
+  verificationId: string;
+  status: CallStatusResponse;
+  startedAt: string | null;
+  connectedAt: string | null;
+  endedAt: string | null;
+  failureReason: string | null;
+  logs: CallLogEntry[];
+  nextCursor: number;
+};
+
 /** 한 번에 전화를 넣은 결과. */
 export type CallBulkResponse = {
   /** 전화를 걸 만한 결과 수. */
@@ -225,6 +257,10 @@ export const confirmTask = async (taskId: number) =>
  */
 export const requestCall = async (taskId: number) =>
   postRequest<CallResponse>(`/api/tasks/${taskId}/call`, undefined);
+
+/** callId로 통화 로그를 조회한다. 다음 조회에는 응답의 nextCursor를 after에 전달한다. */
+export const getCallLogs = async (callId: number, after = 0) =>
+  getRequest<CallLogsResponse>(`/api/calls/${callId}/logs`, { after });
 
 /**
  * 그 조사 결과에서 **전화를 걸 만한 가게 전부**에 전화를 요청한다.
