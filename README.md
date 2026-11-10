@@ -70,7 +70,7 @@
 
 **Phone Call Example**
 
-https://github.com/user-attachments/assets/87e25fa9-48d1-46d6-9d7d-96a0eb7ca48e
+https://github.com/user-attachments/assets/8fbd5db4-c600-4ec3-8ace-a63005753155
 
 **[GET] /v1/verification-call/b6016a24-54bb-4428-b394-5b73f3b55cd3**
 
