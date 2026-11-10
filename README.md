@@ -34,11 +34,13 @@
 
 ### ① 바뀐 정보를 확인하는 전화
 
-조사에서 상호명이 바뀐 것 같다는 신호가 잡힌 가게에, 그 값이 지금 맞는지 묻습니다. 가게가 맞다고 답하자 새 상호명을 답으로 돌려줍니다. 연결부터 끝까지 37초 걸렸습니다.
+조사에서 상호명이 바뀐 것 같다는 신호가 잡힌 가게에, 새 상호명이 맞는지 묻습니다. 가게가 맞다고 답하자 새 상호명을 답으로 돌려줍니다. 연결부터 끝까지 37초 걸렸습니다.
 
-**[POST] /v1/verification-call**
+#### 1. 백엔드가 확인할 항목을 보냅니다
 
-**Request Body**
+![POST](https://img.shields.io/badge/POST-CA8A04?style=flat-square) `/v1/verification-call`
+
+**요청**
 
 ```json
 {
@@ -60,21 +62,21 @@
 }
 ```
 
-**Response Body**
+**응답**
 
 ```json
 {
-    "verificationId": "b6016a24-54bb-4428-b394-5b73f3b55cd3"
+    "verificationId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 }
 ```
 
-**Phone Call Example**
+#### 2. 에이전트가 가게에 전화합니다
 
 https://github.com/user-attachments/assets/8fbd5db4-c600-4ec3-8ace-a63005753155
 
-**[GET] /v1/verification-call/b6016a24-54bb-4428-b394-5b73f3b55cd3**
+#### 3. 들은 답을 결과로 돌려받습니다
 
-**Response Body**
+![GET](https://img.shields.io/badge/GET-2563EB?style=flat-square) `/v1/verification-call/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
 
 ```json
 {
@@ -97,11 +99,81 @@ https://github.com/user-attachments/assets/8fbd5db4-c600-4ec3-8ace-a63005753155
 
 ### ② 90일 넘게 확인하지 않은 가게에 거는 전화
 
-확인한 지 오래된 가게에는 짚을 값 없이, 바뀐 것이 있는지부터 묻습니다.
+확인한 지 오래된 가게에는 짚을 값 없이, 등록된 상호명과 영업 여부가 지금도 그대로인지 하나씩 묻습니다. 둘 다 그대로라는 답을 돌려줍니다. 연결부터 끝까지 47초 걸렸습니다.
 
-<!-- 통화 ② 자리: ①과 같은 구조(요청, 응답, 녹음, 결과)로 채운다. type 은 CHANGE_DETECTION -->
+#### 1. 백엔드가 확인할 항목을 보냅니다
 
-<sub>통화 녹음 준비 중</sub>
+![POST](https://img.shields.io/badge/POST-CA8A04?style=flat-square) `/v1/verification-call`
+
+**요청**
+
+```json
+{
+    "target": {
+        "storeLocation": "대구광역시 북구 대학로 80",
+        "storeName": "프롬프트 카페",
+        "phoneNumber": "010-0000-0000"
+    },
+    "questions": [
+        {
+            "id": "q1",
+            "type": "CHANGE_DETECTION",
+            "fields": [
+                {
+                    "field": "storeName",
+                    "naturalField": "상호명",
+                    "currentValue": "프롬프트 카페"
+                },
+                {
+                    "field": "isOpen",
+                    "naturalField": "영업 여부",
+                    "currentValue": true
+                }
+            ]
+        }
+    ]
+}
+```
+
+**응답**
+
+```json
+{
+    "verificationId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+#### 2. 에이전트가 가게에 전화합니다
+
+https://github.com/user-attachments/assets/e74c1553-b893-4f8a-8eac-ac0a0172970e
+
+#### 3. 들은 답을 결과로 돌려받습니다
+
+![GET](https://img.shields.io/badge/GET-2563EB?style=flat-square) `/v1/verification-call/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+
+```json
+{
+    "verificationId": "673d4ad1-c4c5-4022-89ec-8b087e956d21",
+    "status": "COMPLETED",
+    "answers": [
+        {
+            "questionId": "q1",
+            "field": "storeName",
+            "value": "프롬프트 카페"
+        },
+        {
+            "questionId": "q1",
+            "field": "isOpen",
+            "value": true
+        }
+    ],
+    "createdAt": "2026-11-10T19:25:15.875312+00:00",
+    "startedAt": "2026-11-10T19:25:18.017049+00:00",
+    "connectedAt": "2026-11-10T19:25:40.174306+00:00",
+    "endedAt": "2026-11-10T19:26:26.904355+00:00",
+    "failureReason": null
+}
+```
 
 ## 주요 기능
 
