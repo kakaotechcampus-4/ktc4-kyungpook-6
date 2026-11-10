@@ -10,6 +10,7 @@ import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
 import com.ktc4.backend.domain.store.entity.StoreMenu;
+import com.ktc4.backend.domain.store.enums.InvestigationExclusionReason;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.event.StoreBizNoChanged;
@@ -29,7 +30,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,13 +71,22 @@ public class StoreService {
      *
      * <p>정렬 키를 storeId 로 고정하는 이유는 새 가게가 등록돼도 앞 페이지 항목이 밀리지 않게 하기 위해서다.
      *
+     * <p>가게마다 <b>지금 조사를 시작하면 빠지는지와 그 이유</b>를 함께 담는다. 담당자가 60곳을 고르고
+     * 조사를 시작했는데 56곳만 조사되는 일이 있어서다 — 제외는 설계된 동작인데 화면이 미리도 나중에도
+     * 설명하지 않았다. 명단을 새로 주입하면 다음 국세청 배치까지는 전부 그 상태라 같은 혼란이 반복된다.
+     *
      * @param page  0부터 시작하는 페이지 번호
      * @param limit 한 페이지당 건수
      * @return 가게 목록과 페이지 정보
      */
     public PageResponse<StoreResponse> getStores(int page, int limit) {
-        Page<Store> stores = storeRepository.findAll(
-                PageRequest.of(page, limit, Sort.by(Sort.Direction.ASC, "storeId")));
+        /*
+          국세청 확인 기록을 바깥 조인으로 함께 읽는다 — 제외 판정에 그 기록이 필요하다.
+          가게마다 따로 물으면 N+1 이라 조사 생성이 쓰는 조회(findWithNtsCheckByStoreIdIn)와 같은 방식으로
+          한 번에 읽는다. 아직 확인되지 않은 가게도 빠지지 않는다(그 가게가 바로 NO_NTS_CHECK 로 빠질 가게다).
+          정렬은 질의가 storeId 오름차순으로 고정하므로 Pageable 에 Sort 를 얹지 않는다.
+        */
+        Page<StoreWithNtsCheck> rows = storeRepository.findAllWithNtsCheck(PageRequest.of(page, limit));
 
         /*
           화면이 "마지막 확인" 과 "최근 변경" 을 따로 보여줄 수 있게 변경 시각을 같이 내려준다.
@@ -86,8 +95,34 @@ public class StoreService {
 
           이 쪽(20건)을 쿼리 한 번으로 가져온다 — 가게마다 따로 물으면 N+1 이다.
         */
-        Map<Long, LocalDateTime> lastChanges = lastChangedAt(stores.getContent());
-        return PageResponse.of(stores, store -> StoreResponse.of(store, lastChanges.get(store.getStoreId())));
+        Map<Long, LocalDateTime> lastChanges =
+                lastChangedAt(rows.getContent().stream().map(StoreWithNtsCheck::store).toList());
+        return PageResponse.of(rows, row -> StoreResponse.of(
+                row.store(), lastChanges.get(row.store().getStoreId()), exclusionReason(row)));
+    }
+
+    /**
+     * 그 가게가 지금 조사에서 빠지는지와 그 이유.
+     *
+     * <p>판정은 조사 생성과 <b>같은 코드</b>인 {@link InvestigationTargetSelector#exclusionReason}
+     * 을 그대로 부른다. 규칙을 여기에 베껴 두면 목록이 미리 보여 준 제외와 실제로 빠지는 가게가 갈라진다.
+     *
+     * @param row 가게와 국세청 확인 기록(없을 수 있음)
+     * @return 빠지는 이유, 조사 대상이면 {@code null}
+     */
+    private static InvestigationExclusionReason exclusionReason(StoreWithNtsCheck row) {
+        return InvestigationTargetSelector.exclusionReason(StoreCheckResponse.from(row)).orElse(null);
+    }
+
+    /**
+     * 가게 한 곳의 제외 사유. 목록이 아니라 수정·확인 완료 응답에 담을 때 쓴다.
+     *
+     * <p>한 건이라 국세청 확인 기록을 그 가게 것만 따로 읽는다. 비워 두지 않는 이유는, 비면 화면이
+     * "빠지지 않는다"로 읽기 때문이다 — 사유가 없는 것과 빠지지 않는 것은 다른 이야기다.
+     */
+    private InvestigationExclusionReason exclusionReason(Store store) {
+        StoreNtsCheck check = storeNtsCheckRepository.findById(store.getStoreId()).orElse(null);
+        return exclusionReason(new StoreWithNtsCheck(store, check));
     }
 
     private Map<Long, LocalDateTime> lastChangedAt(List<Store> stores) {
@@ -188,7 +223,7 @@ public class StoreService {
                 eventPublisher.publishEvent(new StoreBizNoChanged(storeId, changedBizNo));
             }
         }
-        return StoreResponse.from(store);
+        return StoreResponse.from(store, exclusionReason(store));
     }
 
     /*
@@ -351,6 +386,6 @@ public class StoreService {
 
         store.confirm(confirmedAt);
 
-        return StoreResponse.from(store);
+        return StoreResponse.from(store, exclusionReason(store));
     }
 }

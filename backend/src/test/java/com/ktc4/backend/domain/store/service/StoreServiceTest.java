@@ -1,6 +1,7 @@
 package com.ktc4.backend.domain.store.service;
 
 import com.ktc4.backend.domain.business.enums.BusinessState;
+import com.ktc4.backend.domain.store.dto.ExcludedStore;
 import com.ktc4.backend.domain.store.dto.StoreChange;
 import com.ktc4.backend.domain.store.dto.StoreCheckResponse;
 import com.ktc4.backend.domain.store.dto.StoreLastChange;
@@ -9,6 +10,7 @@ import com.ktc4.backend.domain.store.dto.StoreSnapshot;
 import com.ktc4.backend.domain.store.dto.StoreUpdateRequest;
 import com.ktc4.backend.domain.store.dto.StoreWithNtsCheck;
 import com.ktc4.backend.domain.store.entity.Store;
+import com.ktc4.backend.domain.store.enums.InvestigationExclusionReason;
 import com.ktc4.backend.domain.store.enums.NtsCheckFilter;
 import com.ktc4.backend.domain.store.enums.NtsLookupResult;
 import com.ktc4.backend.domain.store.enums.StatusComparison;
@@ -40,7 +42,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -139,15 +143,22 @@ class StoreServiceTest {
     @DisplayName("getStores — 최근 변경 시각")
     class LastChangedAt {
 
-        private Page<Store> storePage(Store... stores) {
-            return new PageImpl<>(List.of(stores), PageRequest.of(0, 20), stores.length);
+        /*
+          목록 조회는 국세청 확인 기록을 바깥 조인으로 함께 읽는다(제외 판정에 필요). 이 묶음은 변경 시각만
+          보므로 기록은 비워 둔다 — 기록이 없으면 NO_NTS_CHECK 로 빠지는데, 그 판정은 아래 ExclusionPreview 가 본다.
+        */
+        private Page<StoreWithNtsCheck> storePage(Store... stores) {
+            List<StoreWithNtsCheck> rows = List.of(stores).stream()
+                    .map(store -> new StoreWithNtsCheck(store, null))
+                    .toList();
+            return new PageImpl<>(rows, PageRequest.of(0, 20), rows.size());
         }
 
         @Test
         @DisplayName("바뀐 적이 있으면 그 시각을 함께 내려준다")
         void fillsLastChangedAt() {
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
-            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage(store));
+            when(storeRepository.findAllWithNtsCheck(any(Pageable.class))).thenReturn(storePage(store));
             when(storeChangeHistoryRepository.findLastChangedAtByStoreIds(List.of(1L)))
                     .thenReturn(List.of(new StoreLastChange(1L, CHANGED_AT)));
 
@@ -161,7 +172,7 @@ class StoreServiceTest {
         @DisplayName("바뀐 적이 없는 가게는 비워 둔다 — 날짜를 지어내지 않는다")
         void leavesLastChangedAtEmpty() {
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
-            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage(store));
+            when(storeRepository.findAllWithNtsCheck(any(Pageable.class))).thenReturn(storePage(store));
             when(storeChangeHistoryRepository.findLastChangedAtByStoreIds(List.of(1L)))
                     .thenReturn(List.of());
 
@@ -174,7 +185,7 @@ class StoreServiceTest {
         @Test
         @DisplayName("한 쪽을 한 번에 묻는다 — 가게마다 따로 물으면 N+1 이다")
         void asksOnceForThePage() {
-            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage(
+            when(storeRepository.findAllWithNtsCheck(any(Pageable.class))).thenReturn(storePage(
                     store(1L, StoreStatus.OPEN, "1234567890"),
                     store(2L, StoreStatus.OPEN, "2234567890"),
                     store(3L, StoreStatus.OPEN, "3234567890")));
@@ -189,11 +200,101 @@ class StoreServiceTest {
         @Test
         @DisplayName("가게가 없으면 아예 묻지 않는다")
         void asksNothingWhenPageIsEmpty() {
-            when(storeRepository.findAll(any(Pageable.class))).thenReturn(storePage());
+            when(storeRepository.findAllWithNtsCheck(any(Pageable.class))).thenReturn(storePage());
 
             storeService.getStores(0, 20);
 
             verify(storeChangeHistoryRepository, never()).findLastChangedAtByStoreIds(anyCollection());
+        }
+    }
+
+    /*
+      담당자가 60곳을 골라 조사를 시작했는데 56곳만 조사된 일이 있었다. 차이 4곳은 국세청 대조 기록이 없어
+      빠진 가게였는데, 화면이 미리도 나중에도 그걸 설명하지 않았다. 목록이 가게마다 "빠지는지·왜" 를 들고
+      있어야 화면이 미리 알려 줄 수 있다.
+    */
+    @Nested
+    @DisplayName("getStores — 조사 제외 예고")
+    class ExclusionPreview {
+
+        private StoreWithNtsCheck checked(long storeId, StoreStatus status,
+                                          NtsLookupResult result, BusinessState state) {
+            Store store = store(storeId, status, result == NtsLookupResult.NO_BIZ_NO ? null : "1234567890");
+            return new StoreWithNtsCheck(store, check(store, result, state, null));
+        }
+
+        private List<StoreResponse> getStores(StoreWithNtsCheck... rows) {
+            when(storeRepository.findAllWithNtsCheck(any(Pageable.class)))
+                    .thenReturn(new PageImpl<>(List.of(rows), PageRequest.of(0, 20), rows.length));
+            return storeService.getStores(0, 20).content();
+        }
+
+        @Test
+        @DisplayName("국세청 대조 기록이 아직 없는 가게는 NO_NTS_CHECK 로 빠진다고 알려준다")
+        void marksNotYetCheckedStore() {
+            StoreResponse response = getStores(
+                    new StoreWithNtsCheck(store(1L, StoreStatus.OPEN, "1234567890"), null)).get(0);
+
+            assertThat(response.investigationExcluded()).isTrue();
+            assertThat(response.investigationExclusionReason())
+                    .isEqualTo(InvestigationExclusionReason.NO_NTS_CHECK);
+        }
+
+        @Test
+        @DisplayName("조사 대상인 가게는 빠지지 않는다고 알려준다 — 사유를 지어내지 않는다")
+        void leavesTargetStoreUnmarked() {
+            StoreResponse response = getStores(
+                    checked(1L, StoreStatus.OPEN, NtsLookupResult.CONFIRMED, BusinessState.ACTIVE)).get(0);
+
+            assertThat(response.investigationExcluded()).isFalse();
+            assertThat(response.investigationExclusionReason()).isNull();
+        }
+
+        @Test
+        @DisplayName("국세청과 상태가 다른 가게도 빠지지 않는다 — AI 없이 1차 수정안으로 조사된다")
+        void mismatchIsStillInvestigated() {
+            StoreResponse response = getStores(
+                    checked(1L, StoreStatus.OPEN, NtsLookupResult.CONFIRMED, BusinessState.CLOSED)).get(0);
+
+            assertThat(response.investigationExcluded()).isFalse();
+        }
+
+        /*
+          제외 판정이 조사 생성과 같은 코드인지를 고정한다. 규칙을 베껴 두면 목록이 미리 보여 준 제외와
+          실제로 조사에서 빠지는 가게가 갈라지고, 그러면 담당자는 숫자가 줄어든 이유를 끝까지 알 수 없다.
+        */
+        @Test
+        @DisplayName("사유가 조사 생성(InvestigationTargetSelector)이 내는 것과 가게별로 같다")
+        void matchesInvestigationTargetSelector() {
+            List<StoreWithNtsCheck> rows = List.of(
+                    new StoreWithNtsCheck(store(1L, StoreStatus.OPEN, "1234567890"), null),
+                    checked(2L, StoreStatus.OPEN, NtsLookupResult.CONFIRMED, BusinessState.ACTIVE),
+                    checked(3L, StoreStatus.CLOSED, NtsLookupResult.CONFIRMED, BusinessState.CLOSED),
+                    checked(4L, StoreStatus.SUSPENDED, NtsLookupResult.CONFIRMED, BusinessState.SUSPENDED),
+                    checked(5L, StoreStatus.OPEN, NtsLookupResult.NO_BIZ_NO, null),
+                    checked(6L, StoreStatus.OPEN, NtsLookupResult.CONFIRMED, BusinessState.CLOSED));
+
+            when(storeRepository.findAllWithNtsCheck(any(Pageable.class)))
+                    .thenReturn(new PageImpl<>(rows, PageRequest.of(0, 20), rows.size()));
+            when(storeRepository.findWithNtsCheckByStoreIdIn(any())).thenReturn(rows);
+
+            Map<Long, InvestigationExclusionReason> fromList = storeService.getStores(0, 20).content().stream()
+                    .filter(StoreResponse::investigationExcluded)
+                    .collect(Collectors.toMap(StoreResponse::storeId,
+                            StoreResponse::investigationExclusionReason));
+
+            List<Long> storeIds = rows.stream().map(row -> row.store().getStoreId()).toList();
+            Map<Long, InvestigationExclusionReason> fromSelector =
+                    new InvestigationTargetSelector(storeRepository).select(storeIds).excluded().stream()
+                            .collect(Collectors.toMap(ExcludedStore::storeId, ExcludedStore::reason));
+
+            assertThat(fromList).isEqualTo(fromSelector);
+            // 비교가 "둘 다 비어서 같다" 로 통과하지 않게, 실제로 사유가 나오는 묶음인지 함께 고정한다
+            assertThat(fromList).containsOnlyKeys(1L, 3L, 4L, 5L)
+                    .containsEntry(1L, InvestigationExclusionReason.NO_NTS_CHECK)
+                    .containsEntry(3L, InvestigationExclusionReason.ALREADY_CLOSED)
+                    .containsEntry(4L, InvestigationExclusionReason.ALREADY_SUSPENDED)
+                    .containsEntry(5L, InvestigationExclusionReason.DATA_PROBLEM);
         }
     }
 
@@ -453,15 +554,24 @@ class StoreServiceTest {
             assertThat(check.getBizNo()).isEqualTo("1234567890");
         }
 
+        /*
+          전에는 "findById 를 한 번도 부르지 않는다" 로 봤는데, 응답에 담을 조사 제외 사유를 구하려고
+          읽기는 한다. 지켜야 하는 건 읽지 않는 것이 아니라 되돌리지 않는 것이라, 호출 여부가 아니라
+          기록의 값이 그대로인지를 본다 — 더 좁은 약속이 아니라 더 정확한 약속이다.
+        */
         @Test
-        @DisplayName("같은 번호를 다시 보내면 국세청 확인 기록을 건드리지 않는다")
+        @DisplayName("같은 번호를 다시 보내면 국세청 확인 기록을 되돌리지 않는다")
         void keepsNtsCheckWhenBizNoUnchanged() {
             Store store = store(1L, StoreStatus.OPEN, "1234567890");
+            StoreNtsCheck check = confirmedClosed(store, "1234567890");
             when(storeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(store));
+            when(storeNtsCheckRepository.findById(1L)).thenReturn(Optional.of(check));
 
             storeService.updateStore(1L, bizNoOnly("123-45-67890"), ADMIN_EDIT);
 
-            verify(storeNtsCheckRepository, never()).findById(anyLong());
+            assertThat(check.getCheckResult()).isEqualTo(NtsLookupResult.CONFIRMED);
+            assertThat(check.getNtsState()).isEqualTo(BusinessState.CLOSED);
+            assertThat(check.getLastSuccessAt()).isEqualTo(CHECKED_AT);
         }
 
         @Test
