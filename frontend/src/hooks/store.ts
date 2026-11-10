@@ -25,7 +25,10 @@ export type SelectableStore = {
 };
 
 /** 고른 가게 id → 그 가게의 조사 제외 사유(빠지지 않으면 null). */
-export type Selection = ReadonlyMap<string, InvestigationExclusionReason | null>;
+export type StoreSelection = ReadonlyMap<
+  string,
+  InvestigationExclusionReason | null
+>;
 
 export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   /** 조사 시작 모달 열림 여부. */
@@ -66,7 +69,7 @@ export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
  * 넣을 때 제외 사유를 함께 적는다 — 다른 페이지로 넘어가도 모달이 "이 중 몇 곳이 빠지는지" 를 셀 수 있게.
  */
 export function applySelection(
-  prev: Selection,
+  prev: StoreSelection,
   stores: readonly SelectableStore[],
   checked: boolean,
 ): Map<string, InvestigationExclusionReason | null> {

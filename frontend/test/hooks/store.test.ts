@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySelection } from '../../src/hooks/store';
-import type { SelectableStore, Selection } from '../../src/hooks/store';
+import type { SelectableStore, StoreSelection } from '../../src/hooks/store';
 import type { InvestigationExclusionReason } from '../../src/services/store';
 
 /** 조사에서 빠지지 않는 가게 — 선택이 기억할 사유가 없다. */
@@ -12,7 +12,7 @@ const excluded = (
 ): SelectableStore => ({ id, exclusionReason: reason });
 
 /** 1페이지에서 가게 2개를 골라 둔 상태. */
-const PAGE1_PICKED: Selection = new Map([
+const PAGE1_PICKED: StoreSelection = new Map([
   ['p1-a', null],
   ['p1-b', null],
 ]);
@@ -39,7 +39,7 @@ describe('applySelection', () => {
   });
 
   it('현재 페이지에서 일부만 골라 둔 것도 전체 해제 때 함께 빠진다', () => {
-    const selected: Selection = new Map([
+    const selected: StoreSelection = new Map([
       ['p1-a', null],
       ['p2-a', null],
     ]);
