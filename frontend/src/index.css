@@ -6,3 +6,14 @@
     "Pretendard Variable", Pretendard, system-ui, -apple-system,
     "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;
 }
+
+@layer base {
+  /*
+    Tailwind v4 는 button 의 기본 커서를 default(화살표)로 되돌린다. 그러면 눌리는 것과 아닌 것이
+    마우스로 구분되지 않는다. 눌리는 버튼에만 손가락을 다시 건다 — 비활성 버튼은 화살표 그대로 둔다.
+  */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
