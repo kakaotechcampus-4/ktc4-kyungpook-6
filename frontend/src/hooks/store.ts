@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { estimateSurveyMinutes, useAgentSurveyTrigger } from './agentSurvey';
 import type { UseAgentSurveyTriggerResult } from './agentSurvey';
 import { useModal } from './modal';
+import { useSurveyProgressContext } from './surveyProgress';
+import { JOB_RESULT_QUERY_PREFIX } from './analysis';
 import { startJob } from '../services/analysis';
 import { messageOf } from '../utils/apiError';
 
@@ -63,6 +65,9 @@ export function useStoreListPage(): UseStoreListPageResult {
     string | undefined
   >(undefined);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  /* 조사가 돌고 있으면 우하단 자리는 진행 표시가 쓴다. */
+  const { progress } = useSurveyProgressContext();
 
   const isSelected = (id: string) => selectedIds.has(id);
 
@@ -83,7 +88,10 @@ export function useStoreListPage(): UseStoreListPageResult {
   };
 
   /* 트리거 노출은 현재 페이지가 아니라 전체 선택 수로 판단한다. */
-  const agentSurvey = useAgentSurveyTrigger(selectedIds.size);
+  const agentSurvey = useAgentSurveyTrigger(
+    selectedIds.size,
+    Boolean(progress),
+  );
   const surveyModal = useModal();
 
   /*
@@ -109,6 +117,12 @@ export function useStoreListPage(): UseStoreListPageResult {
     onMutate: () => setSurveyErrorMessage(undefined),
     onSuccess: ({ jobId }) => {
       surveyModal.close();
+      /*
+        우하단 진행 표시가 보는 '가장 최근 조사' 캐시를 바로 갱신한다.
+        조사가 없는 동안에는 폴링을 멈춰 두므로(hooks/surveyProgress), 이걸 하지 않으면
+        조사를 시작해도 표시가 다음 새로고침까지 뜨지 않는다.
+      */
+      queryClient.invalidateQueries({ queryKey: JOB_RESULT_QUERY_PREFIX });
       navigate(`/analysis/${jobId}`);
     },
     onError: (error) => setSurveyErrorMessage(messageOf(error)),
