@@ -47,7 +47,17 @@ public class StoreController {
     private final StoreService storeService;
     private final StoreManagementService storeManagementService;
 
-    @Operation(summary = "가게 목록 조회", description = "가게 목록을 storeId 오름차순으로 페이지 단위 조회합니다.")
+    @Operation(summary = "가게 목록 조회", description = """
+            가게 목록을 storeId 오름차순으로 페이지 단위 조회합니다.
+
+            가게마다 **지금 조사를 시작하면 그 가게가 조사에서 빠지는지**(`investigationExcluded`)와
+            빠진다면 그 이유(`investigationExclusionReason`)를 함께 담습니다. 판정은 조사 생성이 쓰는
+            것과 같은 코드(`InvestigationTargetSelector.exclusionReason`)가 하므로, 화면은 이 값을
+            그대로 보여주기만 하고 `lastCheckedAt` 같은 다른 값으로 다시 판정하지 마세요 —
+            그러면 목록이 미리 알려 준 제외와 실제로 빠지는 가게가 어긋납니다.
+
+            사유는 코드 값 그대로 내려갑니다. 화면 문구는 화면이 정합니다.
+            """)
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "page 가 음수이거나 limit 이 1~100 범위를 벗어난 경우",
