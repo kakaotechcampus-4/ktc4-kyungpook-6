@@ -201,33 +201,13 @@ https://github.com/user-attachments/assets/e74c1553-b893-4f8a-8eac-ac0a0172970e
 
 급식카드만 있으면 가까운 가게를 찾아 주문하고, 가게에서는 QR 하나로 확인합니다.
 
-<table>
-<tr>
-<td align="center" width="25%"><img src="./docs/images/readme/child-1.png" width="200" alt="아동 앱 급식카드 인증 화면" /><br><b>1</b><br>급식카드 번호로<br>한 번만 인증</td>
-<td align="center"><b>→</b></td>
-<td align="center" width="25%"><img src="./docs/images/readme/child-2.png" width="200" alt="아동 앱 주변 가게 지도와 검색 결과 화면" /><br><b>2</b><br>지도에서 주변 가게를<br>찾고 영업 중인 곳 고르기</td>
-<td align="center"><b>→</b></td>
-<td align="center" width="25%"><img src="./docs/images/readme/child-3.png" width="200" alt="아동 앱 메뉴 선택과 주문 화면" /><br><b>3</b><br>메뉴와 포장·매장 식사를<br>고르고 주문</td>
-<td align="center"><b>→</b></td>
-<td align="center" width="25%"><img src="./docs/images/readme/child-4.png" width="200" alt="아동 앱 내 QR과 주문 상태 화면" /><br><b>4</b><br>가게에서 QR을 보여 주고<br>조리 상태 확인</td>
-</tr>
-</table>
+[![아동 앱 흐름: 1 급식카드 번호로 한 번만 인증 → 2 지도에서 주변 가게를 찾고 영업 중인 곳 고르기 → 3 메뉴와 포장·매장 식사를 고르고 주문 → 4 가게에서 QR을 보여 주고 조리 상태 확인](./docs/images/readme/app-child.png)](./docs/images/readme/app-child.png)
 
 ### 04. 점주 앱
 
 사업자등록증 사진으로 가입하고, 영업 정보를 고치고, 들어온 주문을 받아 QR로 방문을 확인합니다.
 
-<table>
-<tr>
-<td align="center" width="25%"><img src="./docs/images/readme/owner-1.png" width="200" alt="점주 앱 사업자등록증 인식 결과 화면" /><br><b>1</b><br>사업자등록증 사진으로<br>가입 정보 채우기</td>
-<td align="center"><b>→</b></td>
-<td align="center" width="25%"><img src="./docs/images/readme/owner-2.png" width="200" alt="점주 앱 가게 관리 화면" /><br><b>2</b><br>영업시간·메뉴·<br>식사 방법 관리</td>
-<td align="center"><b>→</b></td>
-<td align="center" width="25%"><img src="./docs/images/readme/owner-3.png" width="200" alt="점주 앱 주문 목록 화면" /><br><b>3</b><br>들어온 주문 보고<br>체크인</td>
-<td align="center"><b>→</b></td>
-<td align="center" width="25%"><img src="./docs/images/readme/owner-4.png" width="200" alt="점주 앱 QR 확인 결과 화면" /><br><b>4</b><br>QR로 주문한 아동을<br>확인하고 조리 시작</td>
-</tr>
-</table>
+[![점주 앱 흐름: 1 사업자등록증 사진으로 가입 정보 채우기 → 2 영업시간·메뉴·식사 방법 관리 → 3 들어온 주문 보고 체크인 → 4 QR로 주문한 아동을 확인하고 조리 시작](./docs/images/readme/app-owner.png)](./docs/images/readme/app-owner.png)
 
 ## AI가 판단하는 방식
 
