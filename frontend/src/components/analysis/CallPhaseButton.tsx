@@ -1,5 +1,7 @@
 import { Icon } from '@iconify/react';
+import { useQuery } from '@tanstack/react-query';
 import { Fragment, useEffect, useId, useRef, useState } from 'react';
+import { getCallLogs } from '../../services/analysis';
 import type { StatusDetail } from '../ui/StatusChip';
 
 /**
@@ -17,13 +19,12 @@ const PHASE = {
 export type CallPhase = keyof typeof PHASE;
 
 type CallPhaseButtonProps = {
+  callId: number;
   phase: CallPhase;
   /** 누르면 아래에 펼치는 세부(들은 답·할 일·사유 코드). */
   details: StatusDetail[];
   /** 판 오른쪽 위에 작은 글자로 곁들이는 한 줄. 예: "2026. 11. 10. 14:02 요청" */
   footnote?: string;
-  /** 통화 내용(전사). 있으면 세부 아래 "통화 내용" 으로 붙는다. 전화 중이면 지금까지 오간 말이다. */
-  transcript?: { speaker: 'agent' | 'store'; text: string }[];
   className?: string;
 };
 
@@ -34,10 +35,10 @@ type CallPhaseButtonProps = {
  * 찍혀 겹쳐 보여서 버튼 하나로 합쳤다.
  */
 function CallPhaseButton({
+  callId,
   phase,
   details,
   footnote,
-  transcript = [],
   className,
 }: CallPhaseButtonProps) {
   const [open, setOpen] = useState(false);
@@ -46,6 +47,28 @@ function CallPhaseButton({
   const panelId = useId();
   const { label, color, outline } = PHASE[phase];
   const transcriptRef = useRef<HTMLOListElement>(null);
+  const { data: callLogs, isPending, isError, refetch } = useQuery({
+    queryKey: ['callLogs', callId, phase],
+    queryFn: () => getCallLogs(callId),
+    enabled: open && phase !== 'waiting',
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: phase === 'calling' ? 0 : Infinity,
+    refetchInterval: (query) =>
+      open && phase === 'calling' &&
+      query.state.data?.status !== 'COMPLETED' &&
+      query.state.data?.status !== 'FAILED'
+        ? 1_000
+        : false,
+  });
+  const visibleLogs = (callLogs?.logs ?? []).filter(
+    (entry) => entry.type === 'JEV' || entry.text.trim() !== '',
+  );
+  const callStillRunning =
+    phase === 'calling' &&
+    callLogs?.status !== 'COMPLETED' &&
+    callLogs?.status !== 'FAILED';
 
   useEffect(() => {
     if (!open) return undefined;
@@ -64,14 +87,18 @@ function CallPhaseButton({
       모르면 스크롤하지 않으므로 끌어온다.
     */
     panelRef.current?.scrollIntoView({ block: 'nearest' });
-    /* 전사는 마지막 말이 가장 궁금하다 — 열 때 맨 아래(가장 최근)로 내린다. */
-    if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
-
     return () => {
       document.removeEventListener('pointerdown', closeOnOutside);
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
+
+  /* 새 발화나 Jev 판정이 들어오면 가장 최근 기록을 보여 준다. */
+  useEffect(() => {
+    if (open && transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [open, visibleLogs.length]);
 
   return (
     <div ref={rootRef} className={['relative w-full', className].filter(Boolean).join(' ')}>
@@ -132,39 +159,63 @@ function CallPhaseButton({
               </dl>
             ) : null}
 
-            {transcript.length > 0 ? (
+            {phase !== 'waiting' ? (
               /*
-                통화 내용. 세부(무엇을 들었나) 아래에 원문(어떻게 말했나)을 둔다 — 담당자가 답을 의심할 때
-                확인하는 자리다. 길면 판 안에서 스크롤한다(판이 화면을 덮지 않게 높이를 묶는다).
+                통화 내용과 Jev 판정을 발생 순서대로 둔다. 길면 판 안에서 스크롤한다.
               */
               <section aria-label="통화 내용" className="mt-3 border-t border-solid border-[#f1f5f9] pt-3">
                 <p className="mb-2 font-sans text-xs font-medium leading-4 text-[#64748b]">
                   {/* 통화 중인 것은 버튼("전화 중")과 맨 아래 … 가 이미 보인다 — 제목에 또 적지 않는다. */}
                   통화 내용
                 </p>
-                <ol
-                  ref={transcriptRef}
-                  className="flex max-h-48 flex-col gap-1.5 overflow-y-auto font-sans text-sm leading-5"
-                >
-                  {transcript.map((line, index) => (
-                    <li key={index} className="grid grid-cols-[2.25rem_1fr] gap-2">
-                      <span
-                        className={`font-medium ${line.speaker === 'agent' ? 'text-[#94a3b8]' : 'text-[#3b82f6]'}`}
-                      >
-                        {line.speaker === 'agent' ? 'AI' : '가게'}
-                      </span>
-                      <span className={`break-keep ${line.speaker === 'agent' ? 'text-[#64748b]' : 'text-[#1e293b]'}`}>
-                        {line.text}
-                      </span>
-                    </li>
-                  ))}
-                  {phase === 'calling' ? (
-                    <li className="grid grid-cols-[2.25rem_1fr] gap-2 text-[#94a3b8]">
-                      <span />
-                      <span className="animate-pulse">…</span>
-                    </li>
-                  ) : null}
-                </ol>
+                {isError ? (
+                  <p className="font-sans text-sm text-[#dc2626]">
+                    통화 내용을 불러오지 못했습니다.{' '}
+                    <button type="button" onClick={() => void refetch()} className="underline">
+                      다시 시도
+                    </button>
+                  </p>
+                ) : null}
+                {isPending && !isError ? (
+                  <p className="font-sans text-sm text-[#64748b]">통화 내용을 불러오는 중입니다.</p>
+                ) : null}
+                {!isPending && !isError && visibleLogs.length === 0 ? (
+                  <p className="font-sans text-sm text-[#64748b]">아직 통화 내용이 없습니다.</p>
+                ) : null}
+                {visibleLogs.length > 0 ? (
+                  <ol
+                    ref={transcriptRef}
+                    className="flex max-h-48 flex-col gap-1.5 overflow-y-auto font-sans text-sm leading-5"
+                  >
+                    {visibleLogs.map((line) =>
+                      line.type === 'JEV' ? (
+                        <li key={line.sequence} className="rounded-md bg-[#f8fafc] px-2 py-1.5 font-sans text-xs leading-4 text-[#475569]">
+                          <span className="font-semibold">Jev 판정 · 턴 {line.turn}</span>
+                          <span className="block break-all">처리 {line.verdict}</span>
+                          <span className="block break-all">답변 {line.answer} · 신뢰도 {line.answerConfidence.toFixed(2)}</span>
+                          <span className="block break-all">대화 제어 {line.control} · 신뢰도 {line.controlConfidence.toFixed(2)}</span>
+                        </li>
+                      ) : (
+                        <li key={line.sequence} className="grid grid-cols-[2.25rem_1fr] gap-2">
+                          <span
+                            className={`font-medium ${line.type === 'ASSISTANT' ? 'text-[#94a3b8]' : 'text-[#3b82f6]'}`}
+                          >
+                            {line.type === 'ASSISTANT' ? 'AI' : '가게'}
+                          </span>
+                          <span className={`break-keep ${line.type === 'ASSISTANT' ? 'text-[#64748b]' : 'text-[#1e293b]'}`}>
+                            {line.text}
+                          </span>
+                        </li>
+                      ),
+                    )}
+                    {callStillRunning ? (
+                      <li className="grid grid-cols-[2.25rem_1fr] gap-2 text-[#94a3b8]">
+                        <span />
+                        <span className="animate-pulse">…</span>
+                      </li>
+                    ) : null}
+                  </ol>
+                ) : null}
               </section>
             ) : null}
           </div>

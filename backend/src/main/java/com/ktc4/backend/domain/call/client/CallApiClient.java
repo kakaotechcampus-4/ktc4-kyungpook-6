@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * 전화 API 서버의 {@code POST /v1/verification-call} 과 {@code GET /v1/verification-call/{id}} 를 부른다.
+ * 전화 API 서버의 통화 요청·상태 조회·로그 조회 경로를 부른다.
  *
  * <p>재시도는 하지 않는다 — 발신 요청을 우리가 몰래 두 번 보내면 가게에 전화가 두 번 간다. 조회 실패는
  * 폴러가 다음 차례에 다시 읽으므로 여기서 기다릴 이유가 없다.
@@ -123,6 +123,22 @@ public class CallApiClient implements CallClient {
             throw new CallContractError("전화 API 가 상태를 보내지 않았습니다");
         }
         return toSnapshot(response);
+    }
+
+    @Override
+    public String readLogs(String externalId, int after) {
+        String body = call(() -> client().get()
+                .uri(CALL_PATH + "/{verificationId}/logs?after={after}", externalId, after)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, (req, res) -> {
+                    throw translateStatus(res.getStatusCode(), "전화 로그 조회");
+                })
+                .body(String.class));
+        if (isBlank(body)) {
+            throw new CallContractError("전화 API 가 로그를 보내지 않았습니다");
+        }
+        return body;
     }
 
     private RestClient client() {

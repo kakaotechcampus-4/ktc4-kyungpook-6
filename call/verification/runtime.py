@@ -296,7 +296,7 @@ class Session:
             control_threshold = (self.s.jev_stop_threshold if result['control'] == 'STOP'
                                  else self.s.jev_threshold)
             control_confident = result['control_confidence'] >= control_threshold
-            answer_confident = result['answer_confidence'] >= self.s.jev_threshold
+            answer_confident = result['answer_confidence'] >= self.s.jev_answer_threshold
             if (self.dialogue.stage == 'READBACK' and result['answer'] == 'YES' and
                     result['answer_confidence'] < self.s.jev_readback_yes_threshold):
                 answer_confident = False
@@ -315,6 +315,9 @@ class Session:
             elif control_confident and result['control'] == 'WAIT':
                 self.begin_wait(combined)
                 continue
+            elif result['control'] == 'WAIT':
+                # An uncertain pause request must not confirm the active question.
+                decision = Interpretation()
             elif control_confident and result['control'] == 'REPEAT':
                 decision = Interpretation()
                 repeat_requested = True

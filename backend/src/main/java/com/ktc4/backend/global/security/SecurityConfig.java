@@ -165,6 +165,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/jobs/**").hasRole("ADMIN")
                         // 조사 결과로 가게 정보를 바꾼다
                         .requestMatchers("/api/tasks/**").hasRole("ADMIN")
+                        // 통화 대화와 판정 로그에는 상대방 발화가 들어 있으므로 관리자만 조회한다.
+                        .requestMatchers("/api/calls/**").hasRole("ADMIN")
                         // 점주 앱의 가게 상세 조회·운영 정보 저장 — 점주·관리자. "그 가게에 연결된 점주인지"는 서비스가 본다
                         // (체크인과 같은 방식). 가게 ID 를 숫자로 좁히는 이유: GET /api/stores/* 로 두면
                         // GET /api/stores/nts-checks 와도 맞아 아래 nts-checks 규칙보다 먼저 걸린다 — AI 서버 키는 막히고

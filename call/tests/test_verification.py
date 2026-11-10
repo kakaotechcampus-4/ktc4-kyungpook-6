@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from verification.api import create_app
 from verification.config import Settings
 from verification.dialogue import Dialogue, validate_policy
+from verification.hardware.telemetry import EventLog
 from verification.models import CallRequest, CustomReply, Interpretation, ValueExtraction
 from verification.providers import Providers, with_tts_pauses
 from verification.store import Store, QueueFull
@@ -539,6 +540,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(p.classify_utterance('왜 전화하셨나요?','상호명이 맞으세요?',{},
                                               overlapping=True)['verdict'],'INTERRUPT')
 
+    def test_jev_custom_uses_answer_threshold_without_lowering_safety_threshold(self):
+        for confidence,verdict in ((.4,'PROCESS'),(.39,'IGNORE')):
+            body=self.jev_answers(answer='CUSTOM',irrelevant=.95)
+            body['answers']['answer']['confidence']=confidence
+            p=self.provider(lambda req:httpx.Response(200,json=body))
+            self.assertEqual(p.classify_utterance('왜 전화하셨나요?','상호명이 맞으세요?',{})
+                             ['verdict'],verdict)
+
     def test_custom_llm_uses_full_history_and_validates_reply(self):
         d=Dialogue(request(),ROOT/'agent.json')
         d.history=[{'role':'user','content':f'대화 {i}'} for i in range(12)]
@@ -639,6 +648,68 @@ class ProviderTests(unittest.TestCase):
         self.assertIn('unsupported parameter: temperature',str(error.exception))
 
 class APITests(unittest.TestCase):
+    def test_logs_are_available_during_call_and_incremental(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s=settings(Path(tmp))
+            first_events=threading.Event()
+            finish_call=threading.Event()
+
+            def factory(s,store,providers):
+                def runner(cid,req,stop):
+                    folder=s.data_dir/'calls'/cid
+                    store.started(cid)
+                    store.connected(cid)
+                    with EventLog(folder) as log:
+                        log.emit('assistant.response',turn=0,text='관계자분 맞으실까요?')
+                        log.emit('user.transcript',turn=1,text='네 맞습니다')
+                        log.emit('jev',status='ok',turn=1,output={
+                            'verdict':'PROCESS','answer':'YES','answer_confidence':0.49,
+                            'control':'CONTINUE','control_confidence':1.0})
+                        log.emit('stt',status='ok',turn=1,output={'text':'비공개 내부 기록'})
+                        first_events.set()
+                        finish_call.wait(2)
+                        log.emit('assistant.response',turn=1,text='상호명을 확인하겠습니다.')
+                    store.finish(cid)
+                return runner
+
+            with TestClient(create_app(s,factory)) as client:
+                headers={'Authorization':'Bearer api-test'}
+                cid=client.post('/v1/verification-call',json=PAYLOAD,headers=headers).json()['verificationId']
+                url=f'/v1/verification-call/{cid}/logs'
+                try:
+                    self.assertTrue(first_events.wait(2))
+                    self.assertEqual(client.get(url).status_code,401)
+                    response=client.get(url,headers=headers)
+                    self.assertEqual(response.status_code,200)
+                    body=response.json()
+                    self.assertEqual(body['status'],'IN_PROGRESS')
+                    self.assertIsNotNone(body['connectedAt'])
+                    self.assertEqual(body['nextCursor'],3)
+                    self.assertEqual([entry['type'] for entry in body['logs']],
+                                     ['ASSISTANT','USER','JEV'])
+                    self.assertEqual(body['logs'][1]['text'],'네 맞습니다')
+                    self.assertEqual(body['logs'][2]['answer'],'YES')
+                    self.assertEqual(body['logs'][2]['answerConfidence'],0.49)
+                    self.assertEqual(body['logs'][2]['control'],'CONTINUE')
+                    self.assertNotIn('비공개 내부 기록',str(body))
+                    self.assertEqual(client.get(url+'?after=3',headers=headers).json()['logs'],[])
+                finally:
+                    finish_call.set()
+                deadline=time.monotonic()+2
+                while time.monotonic()<deadline:
+                    response=client.get(url+'?after=3',headers=headers)
+                    if response.json()['status']=='COMPLETED':
+                        break
+                    time.sleep(.01)
+                body=response.json()
+                self.assertEqual(body['status'],'COMPLETED')
+                self.assertEqual(body['nextCursor'],4)
+                self.assertEqual(body['logs'][0]['text'],'상호명을 확인하겠습니다.')
+                self.assertEqual(body['logs'][0]['sequence'],4)
+                self.assertEqual(client.get(url+'?after=-1',headers=headers).status_code,422)
+                self.assertEqual(client.get('/v1/verification-call/not-a-uuid/logs',headers=headers).status_code,422)
+                self.assertEqual(client.get('/v1/verification-call/00000000-0000-0000-0000-000000000000/logs',headers=headers).status_code,404)
+
     def test_post_get_auth_validation_and_unknown_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             s=settings(Path(tmp))

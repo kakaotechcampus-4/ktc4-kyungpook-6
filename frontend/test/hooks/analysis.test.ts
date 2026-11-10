@@ -405,25 +405,11 @@ describe('toCallStatusLabel — 전화 버튼 단계', () => {
   });
 });
 
-describe('toCallStatusLabel — 통화 내용(전사)', () => {
-  const transcript = [
-    { speaker: 'AGENT', text: '선한영향력 가게 확인차 연락드렸습니다.' },
-    { speaker: 'STORE', text: '네, 말씀하세요.' },
-    { speaker: 'STORE', text: '   ' },
-  ] as const;
-
-  it.each(['IN_PROGRESS', 'COMPLETED'] as const)('%s 면 빈 줄을 빼고 담는다', (status) => {
-    expect(toCallStatusLabel(call({ status, transcript: [...transcript] }))?.transcript).toEqual([
-      { speaker: 'agent', text: '선한영향력 가게 확인차 연락드렸습니다.' },
-      { speaker: 'store', text: '네, 말씀하세요.' },
-    ]);
-  });
-
-  it.each(['PENDING', 'FAILED'] as const)('%s 면 담지 않는다', (status) => {
-    expect(toCallStatusLabel(call({ status, transcript: [...transcript] }))?.transcript).toEqual([]);
-  });
-
-  it('응답에 칸이 없어도 빈 배열이다 — 백엔드에 아직 없는 칸이다', () => {
-    expect(toCallStatusLabel(call({ status: 'COMPLETED' }))?.transcript).toEqual([]);
-  });
+describe('toCallStatusLabel — 통화 로그 조회', () => {
+  it.each(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED'] as const)(
+    '%s 상태에서 실제 Call API 조회에 쓸 id를 전달한다',
+    (status) => {
+      expect(toCallStatusLabel(call({ callId: 42, status }))?.callId).toBe(42);
+    },
+  );
 });

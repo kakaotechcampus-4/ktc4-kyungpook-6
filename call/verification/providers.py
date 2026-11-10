@@ -210,7 +210,7 @@ class Providers:
                           and choices['control']['choice'] in ('STOP','WAIT','REPEAT'))
         unsafe_custom = scores['unsafe_custom'] >= s.jev_threshold
         custom_question = (choices['answer']['choice'] == 'CUSTOM'
-                           and choices['answer']['confidence'] >= s.jev_threshold)
+                           and choices['answer']['confidence'] >= s.jev_answer_threshold)
         if (scores['irrelevant'] >= s.jev_threshold and not urgent_control and
                 not unsafe_custom and not custom_question):
             verdict = 'IGNORE'

@@ -245,6 +245,49 @@ class CallApiClientTest {
     }
 
     @Nested
+    @DisplayName("통화 로그 조회 (GET)")
+    class ReadLogs {
+
+        private static final String BODY = """
+                {
+                  "verificationId": "11111111-2222-4333-8444-555555555555",
+                  "status": "IN_PROGRESS",
+                  "logs": [{"sequence": 1, "type": "JEV", "answer": "YES", "control": "CONTINUE"}],
+                  "nextCursor": 1
+                }
+                """;
+
+        @Test
+        void 커서와_인증을_보내고_응답을_그대로_돌려준다() {
+            server.expect(requestTo(CALL_URL + "/" + VERIFICATION_ID + "/logs?after=3"))
+                    .andExpect(method(HttpMethod.GET))
+                    .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer 전화키"))
+                    .andRespond(withSuccess(BODY, MediaType.APPLICATION_JSON));
+
+            assertThat(client.readLogs(VERIFICATION_ID, 3)).isEqualTo(BODY);
+            server.verify();
+        }
+
+        @Test
+        void 빈_성공_본문은_약속_위반이다() {
+            server.expect(requestTo(CALL_URL + "/" + VERIFICATION_ID + "/logs?after=0"))
+                    .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+            assertThatThrownBy(() -> client.readLogs(VERIFICATION_ID, 0))
+                    .isInstanceOf(CallContractError.class);
+        }
+
+        @Test
+        void 상위_서버_오류를_번역한다() {
+            server.expect(requestTo(CALL_URL + "/" + VERIFICATION_ID + "/logs?after=0"))
+                    .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+
+            assertThatThrownBy(() -> client.readLogs(VERIFICATION_ID, 0))
+                    .isInstanceOf(CallTransientError.class);
+        }
+    }
+
+    @Nested
     @DisplayName("오류 번역")
     class Errors {
 

@@ -20,7 +20,7 @@
       "{storeLocation}에 등록된 {storeName}의 가게 정보를 확인하려고 연락드렸습니다. 해당 매장 관계자분이실까요?"
     ],
     "expected": [
-      "현재 등록된 {naturalField}은 {currentValue}인데요. 혹시 {expectedValue}으로 바뀐 게 맞을까요?",
+      "현재 등록된 {naturalField}은 {currentValue}인데요. 혹시 현재는 {expectedValue}으로 바뀐 게 맞을까요?",
       "기존에 등록된 {naturalField}은 {currentValue}인데요. 지금은 {expectedValue}으로 변경된 게 맞으실까요?",
       "{naturalField}이 {currentValue}으로 등록되어 있는데요. 혹시 현재는 {expectedValue}으로 바뀐 게 맞을까요?"
     ],

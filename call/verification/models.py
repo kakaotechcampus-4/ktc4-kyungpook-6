@@ -81,6 +81,34 @@ class CallResult(Model):
     endedAt: str | None = None
     failureReason: str | None = None
 
+class ConversationLog(Model):
+    sequence: int
+    timestamp: str
+    turn: int
+    type: Literal['ASSISTANT', 'USER']
+    text: str
+
+class JevLog(Model):
+    sequence: int
+    timestamp: str
+    turn: int
+    type: Literal['JEV']
+    verdict: Literal['PROCESS', 'IGNORE', 'INTERRUPT', 'BACKCHANNEL']
+    answer: Literal['YES', 'NO', 'VALUE', 'CUSTOM', 'UNCLEAR']
+    answerConfidence: float
+    control: Literal['STOP', 'WAIT', 'CONTINUE', 'REPEAT']
+    controlConfidence: float
+
+class CallLogs(Model):
+    verificationId: str
+    status: Literal['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED']
+    startedAt: str | None
+    connectedAt: str | None
+    endedAt: str | None
+    failureReason: str | None
+    logs: list[ConversationLog | JevLog]
+    nextCursor: int
+
 class Interpretation(Model):
     identity: Literal['YES', 'NO', 'UNKNOWN'] = 'UNKNOWN'
     control: Literal['STOP', 'WAIT', 'CONTINUE'] = 'CONTINUE'

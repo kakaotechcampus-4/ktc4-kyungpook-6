@@ -73,6 +73,7 @@ uvicorn verification.api:app --host 127.0.0.1 --port "${BACKEND_PORT:-8000}" --w
 
 1. 가게의 전화번호·상호·주소와 확인 질문을 `POST /v1/verification-call`로 제출합니다.
 2. 응답의 `verificationId`를 저장하고 `GET /v1/verification-call/{verificationId}`로 상태를 조회합니다. 결과를 별도로 푸시하는 웹훅은 없습니다.
+   대화와 Jev 판정은 `GET /v1/verification-call/{verificationId}/logs`를 재조회해 확인할 수 있습니다.
 3. 상태가 `COMPLETED` 또는 `FAILED`가 되면 `answers`를 읽습니다. `FAILED`에서도 부분 답변이 있을 수 있으므로 업무 정책에 따라 검토합니다.
 
 ### POST /v1/verification-call
@@ -136,6 +137,35 @@ curl --fail-with-body \
 | COMPLETED | 모든 필드를 확인하고 통화를 마침 |
 | FAILED | 연결 실패, 확인 미완료, 응답 거부, 기술적 실패 등 |
 
+### GET /v1/verification-call/{verificationId}/logs
+
+통화 중에도 상담사 발화, 상대방의 STT 대화, Jev의 답변·통화 제어 판정을 시간순으로 조회합니다. 통화별 로그가 기록되는 즉시 다음 GET에 반영됩니다. 처음에는 `after` 없이 조회하고, 이후에는 응답의 `nextCursor`를 `after`에 넣어 새 항목만 받으세요. `PENDING`처럼 발신 전이면 `logs`는 빈 배열일 수 있습니다. 인증·UUID 오류 처리는 기존 GET과 같습니다.
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $VERIFICATION_API_KEY" \
+  "http://localhost:${BACKEND_PORT:-8000}/v1/verification-call/11111111-2222-4333-8444-555555555555/logs?after=0"
+```
+
+```json
+{
+  "verificationId":"11111111-2222-4333-8444-555555555555",
+  "status":"IN_PROGRESS",
+  "startedAt":"2026-11-01T00:00:04+00:00",
+  "connectedAt":"2026-11-01T00:00:10+00:00",
+  "endedAt":null,
+  "failureReason":null,
+  "logs":[
+    {"sequence":1,"timestamp":"2026-11-01T00:00:11+00:00","turn":0,"type":"ASSISTANT","text":"관계자분 맞으실까요?"},
+    {"sequence":2,"timestamp":"2026-11-01T00:00:15+00:00","turn":1,"type":"USER","text":"네 맞습니다"},
+    {"sequence":3,"timestamp":"2026-11-01T00:00:16+00:00","turn":1,"type":"JEV","verdict":"PROCESS","answer":"YES","answerConfidence":0.99,"control":"CONTINUE","controlConfidence":1.0}
+  ],
+  "nextCursor":3
+}
+```
+
+`answer`는 `YES`·`NO`·`VALUE`·`CUSTOM`·`UNCLEAR`, `control`은 `STOP`·`WAIT`·`CONTINUE`·`REPEAT`입니다. 신뢰도가 적용 문턱값보다 낮으면 Jev의 선택이 실제 상태 머신에 채택되지 않을 수 있습니다. 원본 Jev 입력과 STT/TTS 내부 진단 정보는 이 API에 포함하지 않습니다.
+
 주요 `failureReason`: `CONNECTION_FAILED`, `NO_ANSWER_OR_REJECTED`, `WRONG_TARGET`, `IDENTITY_UNCONFIRMED`, `USER_REQUESTED_STOP`, `REMOTE_HANGUP`, `INPUT_TIMEOUT`, `WAIT_TIMEOUT`, `QUEUE_EXPIRED`, `CALL_TIME_LIMIT`, `TURN_LIMIT`, `PROCESSING_ERROR`, `SERVER_RESTARTED`, `SERVER_SHUTDOWN`.
 
 통화 도중 종료를 요청하면 인사 후 종료하며 미수집 항목이 있으면 FAILED입니다. 그 전에 확인한 답변은 보존합니다. 모든 답변을 수집한 뒤 마무리 중 종료를 요청하거나 상대방이 먼저 끊으면 COMPLETED입니다. STT/TTS/Jev 등의 기술적 실패는 부분 답변과 함께 FAILED로 남깁니다. 기술적 실패 후 자동 재발신은 하지 않습니다.
@@ -183,7 +213,7 @@ STT 입력은 **항상 FFmpeg로 16kHz / mono / PCM16 WAV로 변환**합니다. 
 4. 중단 의도가 기준값 이상이면 송신 재생을 중지합니다. **동일 STT 텍스트**를 재사용해 대화를 진행합니다. 단순 추임새면 재생을 유지하고 텍스트를 버퍼에 보관합니다. 예를 들어 “네네” 다음에 “아직 땡땡식당입니다”가 들어오면 다음 의미 분석 입력은 “네네 아직 땡땡식당입니다”입니다. 추임새만으로 값을 확정하지 않습니다.
 5. `STOP`이면 종료 인사 후 통화를 끊습니다. `WAIT`이면 재생을 멈추고 `agent.json`의 `waitAcknowledgement` 안내를 말한 뒤 같은 질문을 유지한 채 상대방의 다음 응답을 기다립니다. 다음 발화가 답변이면 대화를 재개하고, “이제 말씀하세요”처럼 답변이 없는 재개 신호이면 질문을 다시 읽습니다. 최초 `WAIT`부터 최대 60초(`WAIT_TIMEOUT_SECONDS`, 기본 60, 최대 60)가 지나면 종료 인사 후 끊습니다. 반복된 `WAIT`도 기한을 연장하지 않습니다. `REPEAT`이면 명시적인 재청취 요청에 한해 `agent.json`의 `repeat` 문구로 방금 말한 질문을 다시 읽고 질문 상태를 유지합니다. 인식이 불분명하면 `REPEAT`가 아니라 재질문 경로를 사용합니다. `CONTINUE`이면 일반 답변으로 처리합니다. 모호한 끼어들기 판정은 상대에게 발언권을 줍니다. Jev 요청이나 응답 형식이 실패하면 같은 질문을 다시 묻습니다. 재질문 자체가 다음 응답까지의 간격을 주므로 추가 대기는 넣지 않습니다. 연속 실패가 `JEV_MAX_FAILURES`(기본 3, 최대 5)에 도달하면 준비된 오류 안내 후 FAILED로 종료합니다.
 
-STT가 끝났을 때 TTS가 이미 끝났더라도 실제 녹음 시작 시각을 사용하므로 중간 발화가 일반 응답으로 잘못 분류되는 것을 줄입니다. RMS VAD이며 별도 AEC는 없습니다. 실제 통화 환경의 에코·배경음에 따라 `SPEECH_RMS_THRESHOLD`, `SILENCE_SECONDS`, `JEV_THRESHOLD`를 조정해야 합니다.
+STT가 끝났을 때 TTS가 이미 끝났더라도 실제 녹음 시작 시각을 사용하므로 중간 발화가 일반 응답으로 잘못 분류되는 것을 줄입니다. RMS VAD이며 별도 AEC는 없습니다. 실제 통화 환경의 에코·배경음에 따라 `SPEECH_RMS_THRESHOLD`, `SILENCE_SECONDS`를 조정해야 합니다. Jev 답변 판정은 `JEV_ANSWER_THRESHOLD`(기본 0.4)를 사용하고, 제어·안전성 판정은 `JEV_THRESHOLD`(기본 0.7)를 사용합니다. `STOP`과 `READBACK`의 `YES`는 각각 별도 기준 0.9를 유지합니다.
 
 ## 큐, 재시작, 속도
 

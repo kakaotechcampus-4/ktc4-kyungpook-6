@@ -93,6 +93,7 @@ public enum ErrorCode {
     // 값이 없어도 앱은 뜨고 다른 기능은 그대로 돌게 두고, 전화를 걸려고 할 때만 이것으로 거절한다.
     CALL_TARGET_NOT_ELIGIBLE(HttpStatus.CONFLICT, "전화로 확인할 대상이 아닙니다"),
     CALL_ALREADY_REQUESTED(HttpStatus.CONFLICT, "이미 전화를 요청한 조사 결과입니다"),
+    CALL_NOT_FOUND(HttpStatus.NOT_FOUND, "전화 기록을 찾을 수 없습니다"),
     CALL_NOT_AVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금 전화를 걸 수 없습니다"),
     CALL_API_ERROR(HttpStatus.BAD_GATEWAY, "전화 API 호출에 실패했습니다"),
 

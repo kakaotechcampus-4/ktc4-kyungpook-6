@@ -87,4 +87,77 @@ test.describe("전화 단계 버튼", () => {
     await expect(button).toHaveAttribute("aria-expanded", "false");
     await expect(card.getByText("WRONG_TARGET")).toHaveCount(0);
   });
+
+  test("완료된 전화는 한 번 조회해 발화와 Jev 판정을 순서대로 보여 준다", async ({ page }) => {
+    const job = structuredClone(FAILED_CALL_JOB);
+    job.tasks[0].call.status = "COMPLETED";
+    let requests = 0;
+    await page.route("**/api/jobs/latest", (route) => route.fulfill({ json: job }));
+    await page.route("**/api/calls/2/logs*", (route) => {
+      requests += 1;
+      return route.fulfill({ json: {
+        verificationId: "2", status: "COMPLETED", startedAt: null, connectedAt: null,
+        endedAt: null, failureReason: null, nextCursor: 3,
+        logs: [
+          { sequence: 1, timestamp: "2026-11-10T11:29:01Z", turn: 0, type: "ASSISTANT", text: "안녕하세요." },
+          { sequence: 2, timestamp: "2026-11-10T11:29:05Z", turn: 1, type: "USER", text: "네 맞습니다." },
+          { sequence: 3, timestamp: "2026-11-10T11:29:06Z", turn: 1, type: "JEV", verdict: "PROCESS", answer: "YES", answerConfidence: 0.9, control: "CONTINUE", controlConfidence: 1 },
+        ],
+      } });
+    });
+    await page.reload();
+
+    const button = page.getByRole("button", { name: "전화 완료" });
+    await button.click();
+    const transcript = page.getByRole("region", { name: "통화 내용" });
+    await expect(transcript.getByText("안녕하세요.")).toBeVisible();
+    await expect(transcript.getByText("네 맞습니다.")).toBeVisible();
+    await expect(transcript.getByText("Jev 판정 · 턴 1")).toBeVisible();
+    await expect(transcript.getByText("처리 PROCESS")).toBeVisible();
+    await expect(transcript.getByText("답변 YES · 신뢰도 0.90")).toBeVisible();
+    await expect(transcript.getByText("대화 제어 CONTINUE · 신뢰도 1.00")).toBeVisible();
+    await expect(transcript.locator("li")).toHaveCount(3);
+    const rows = await transcript.locator("li").allTextContents();
+    expect(rows[0]).toContain("안녕하세요.");
+    expect(rows[1]).toContain("네 맞습니다.");
+    expect(rows[2]).toContain("Jev 판정");
+    await page.waitForTimeout(1_300);
+    expect(requests).toBe(1);
+    await button.click();
+    await button.click();
+    await expect(transcript.getByText("네 맞습니다.")).toBeVisible();
+    expect(requests).toBe(1);
+  });
+
+  test("진행 중인 전화는 열린 동안 1초마다 새 발화를 조회한다", async ({ page }) => {
+    const job = structuredClone(FAILED_CALL_JOB);
+    job.tasks[0].call.status = "IN_PROGRESS";
+    let requests = 0;
+    await page.route("**/api/jobs/latest", (route) => route.fulfill({ json: job }));
+    await page.route("**/api/calls/2/logs*", (route) => {
+      requests += 1;
+      return route.fulfill({ json: {
+        verificationId: "2", status: "IN_PROGRESS", startedAt: null, connectedAt: null,
+        endedAt: null, failureReason: null, nextCursor: requests >= 2 ? 3 : 1,
+        logs: [
+          { sequence: 1, timestamp: "2026-11-10T11:29:01Z", turn: 0, type: "ASSISTANT", text: "안녕하세요." },
+          ...(requests >= 2 ? [{ sequence: 2, timestamp: "2026-11-10T11:29:05Z", turn: 1, type: "USER", text: "새 발화입니다." }] : []),
+          ...(requests >= 2 ? [{ sequence: 3, timestamp: "2026-11-10T11:29:06Z", turn: 1, type: "JEV", verdict: "PROCESS", answer: "VALUE", answerConfidence: 0.49, control: "CONTINUE", controlConfidence: 0.97 }] : []),
+        ],
+      } });
+    });
+    await page.reload();
+
+    const button = page.getByRole("button", { name: "전화 중" });
+    await button.click();
+    const transcript = page.getByRole("region", { name: "통화 내용" });
+    await expect(transcript.getByText("안녕하세요.")).toBeVisible();
+    await expect(transcript.getByText("새 발화입니다.")).toBeVisible({ timeout: 2_500 });
+    await expect(transcript.getByText("답변 VALUE · 신뢰도 0.49")).toBeVisible();
+    expect(requests).toBeGreaterThanOrEqual(2);
+    await button.click();
+    const requestsAfterClose = requests;
+    await page.waitForTimeout(1_300);
+    expect(requests).toBe(requestsAfterClose);
+  });
 });
