@@ -35,10 +35,14 @@ const CIRCLE: Record<
   { background: string; icon: string; iconColor: string }
 > = {
   running: {
-    /* 도는 중에만 흰 배경이다. 주위 링이 진행률을 그리므로 원 안은 비워 둔다. */
-    background: 'bg-white',
+    /*
+      도는 중에는 색이 뒤집힌다 — 어두운 원에 밝은 로봇이다(Figma 115:5633).
+      유휴 상태 버튼(AgentSurveyTrigger)과 한눈에 갈리라고 designer 가 반전시켰다.
+      보더도 4px -> 6px 로 두꺼워진다. FLOAT_CIRCLE 은 유휴 버튼과 공유하므로 여기서만 덮는다.
+    */
+    background: 'bg-[#422006] border-[6px]',
     icon: 'mingcute:robot-fill',
-    iconColor: 'text-[#422006]',
+    iconColor: 'text-[#FEF08A]',
   },
   done: {
     background: 'bg-[#15803d]',
@@ -53,11 +57,15 @@ const CIRCLE: Record<
 };
 
 /**
- * 진행 링의 둘레. 반지름 26 = 56/2 - 4/2 이라 링이 원의 보더(4px) 자리에 정확히 겹친다.
+ * 진행 링의 둘레. 반지름 25 = 56/2 - 6/2 이라 링이 원의 보더(6px) 자리에 정확히 겹친다.
  * stroke-dasharray 에 둘레를 넣고 dashoffset 으로 남은 만큼을 비워 진행률을 그린다.
  */
-const RING_RADIUS = 26;
+const RING_RADIUS = 25;
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
+const RING_WIDTH = 6;
+
+/** 진행 링 색. Figma 115:5637 Green/400. */
+const RING_COLOR = '#4ADE80';
 
 /**
  * 조사 진행 상태 표시. 화면 우하단에 떠 있고, 조사가 도는 동안 **모든 화면**에서 보인다.
@@ -89,7 +97,7 @@ function SurveyProgressFloat() {
           onClick={openResult}
           aria-label={`${description}. 조사 결과 보기`}
           title={description}
-          className={`flex flex-col items-center gap-1.5 rounded-2xl ${FLOAT_FOCUS}`}
+          className={`flex flex-col items-center rounded-2xl ${isRunning ? 'gap-2.5' : 'gap-1.5'} ${FLOAT_FOCUS}`}
         >
           {/* 원 + 진행 링. 링은 원 위에 겹쳐 그린다. */}
           <span className="relative block size-14">
@@ -112,8 +120,8 @@ function SurveyProgressFloat() {
                   cy="28"
                   r={RING_RADIUS}
                   fill="none"
-                  stroke="#3b82f6"
-                  strokeWidth="4"
+                  stroke={RING_COLOR}
+                  strokeWidth={RING_WIDTH}
                   strokeLinecap="round"
                   strokeDasharray={RING_LENGTH}
                   strokeDashoffset={RING_LENGTH * (1 - percent / 100)}
@@ -124,22 +132,33 @@ function SurveyProgressFloat() {
           </span>
 
           {/*
-            원 아래 라벨. Figma 는 "작업 중" 과 "0%" 를 두 줄로 둔다.
-            어느 화면 위에 떠도 읽히도록 흰 알약에 담는다(목록 화면은 흰 배경, 그 밖은 #f8fafc).
+            원 아래 라벨. Figma 는 "작업 중" 과 "0%" 를 두 줄로 둔다(115:5636, 14px/20px SemiBold).
+
+            도는 중에는 알약을 두지 않는다 — Figma 가 글자만 둔다. 다만 글자색은 흰색이 아니라
+            #422006 이다. Figma 스펙 시트는 반투명 회색 스크림 위에 네 상태를 올려 두어 흰 글씨가
+            읽히지만, 실제로 이 표시가 뜨는 자리는 밝은 가게 목록 위라 흰 글씨는 보이지 않는다.
+            원과 같은 색을 써서 스크림 위 흰 글씨와 같은 무게를 낸다.
+
+            끝난 상태(완료·실패)는 기존 알약을 그대로 둔다 — 이번에 바꾸기로 한 것은 도는 중뿐이다.
           */}
-          <span
-            aria-hidden="true"
-            className="flex flex-col items-center rounded-lg border border-solid border-[#e2e8f0] bg-white px-2 py-1 shadow-[0px_4px_16px_rgba(15,23,42,0.12)]"
-          >
-            <span className="whitespace-nowrap font-sans text-xs font-bold leading-4 text-[#1e293b]">
-              {label}
+          {isRunning ? (
+            <span
+              aria-hidden="true"
+              className="flex w-10 flex-col items-center font-sans text-sm font-semibold leading-5 text-[#422006]"
+            >
+              <span className="whitespace-nowrap">{label}</span>
+              <span className="whitespace-nowrap">{percent}%</span>
             </span>
-            {isRunning && (
-              <span className="whitespace-nowrap font-sans text-xs font-semibold leading-4 text-[#475569]">
-                {percent}%
+          ) : (
+            <span
+              aria-hidden="true"
+              className="flex flex-col items-center rounded-lg border border-solid border-[#e2e8f0] bg-white px-2 py-1 shadow-[0px_4px_16px_rgba(15,23,42,0.12)]"
+            >
+              <span className="whitespace-nowrap font-sans text-xs font-bold leading-4 text-[#1e293b]">
+                {label}
               </span>
-            )}
-          </span>
+            </span>
+          )}
         </button>
 
         {/*
