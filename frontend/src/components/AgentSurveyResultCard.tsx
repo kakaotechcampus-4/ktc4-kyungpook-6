@@ -2,8 +2,10 @@ import { Icon } from '@iconify/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import phoneIcon from '../assets/phone.svg';
 import Skeleton from './ui/Skeleton';
-import StatusChip from './ui/StatusChip';
-import type { StatusDetail, StatusTone } from './ui/StatusChip';
+import CallPhaseButton from './analysis/CallPhaseButton';
+import { REQUESTED_AT_LABEL } from '../hooks/analysis';
+import type { CallPhase } from './analysis/CallPhaseButton';
+import type { StatusDetail } from './ui/StatusChip';
 
 /** 조사로 확인한 근거 한 건. Figma 112:5486 / 112:5480 / 112:5508 */
 export type SurveyEvidence = {
@@ -106,19 +108,6 @@ const LIST_ITEM =
 const EVIDENCE_SOURCE =
   'flex w-fit items-center gap-1 font-sans text-sm font-semibold leading-5 text-[#3b82f6]';
 
-/**
- * 확인 전화 상태 → 칩 색. 실패를 다른 상태와 같은 색으로 두면 "걸었다" 와 "안 받았다" 가 같아 보이고,
- * 담당자가 다시 걸어야 하는 카드를 넘긴다.
- */
-const CALL_STATUS_CHIP = {
-  /** 아직 통화 중이거나 발신을 기다린다. */
-  progress: { tone: 'progress', icon: 'material-symbols:call', pulse: true },
-  /** 확인을 마쳤다. */
-  done: { tone: 'done', icon: 'material-symbols:call', pulse: false },
-  /** 연결 실패·확인 미완료. 다시 걸 수 있다. */
-  failed: { tone: 'warning', icon: 'material-symbols:phone-missed', pulse: false },
-} as const satisfies Record<string, { tone: StatusTone; icon: string; pulse: boolean }>;
-
 /** 하단 버튼 공통. Figma 112:5496 / 112:5498 (h 40, radius 8) */
 const ACTION_BUTTON =
   'flex h-10 w-full shrink-0 items-center justify-center gap-1 overflow-clip rounded-lg p-2.5 font-sans text-sm font-semibold leading-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
@@ -138,6 +127,11 @@ type AgentSurveyResultCardProps = {
   storeName?: string;
   /** 주소. Figma 112:5477 */
   address?: string;
+  /**
+   * 가게 전화번호. 주소 아래에 찍는다.
+   * issue 가 missing 이면 흐리게("전화번호 없음"), invalid 면 번호 옆에 "걸 수 없는 번호" 를 붙인다.
+   */
+  phone?: { value: string; issue?: 'missing' | 'invalid' };
   /** 조사가 찾은 근거 목록. */
   evidences?: SurveyEvidence[];
   /** 조사가 제안하는 수정 사항 / 추가 확인 사항 목록. */
@@ -168,9 +162,12 @@ type AgentSurveyResultCardProps = {
    * 확인 기록은 그 답을 읽은 담당자의 판단이다. 전화가 끝나도 카드는 아직 처리 전이다.
    */
   callStatus?: {
-    label: string;
-    tone: keyof typeof CALL_STATUS_CHIP;
+    /** 전화 버튼 자리에 찍을 단계. 없으면(아직 안 걸었으면) "전화하기" 버튼이다. */
+    phase: CallPhase;
+    /** 단계 버튼을 누르면 그 아래에 펼치는 세부. */
     details: StatusDetail[];
+    /** 통화 내용(전사). 전화 중·전화 완료 판의 세부 아래에 붙는다. */
+    transcript?: { speaker: 'agent' | 'store'; text: string }[];
   };
   /**
    * "전화하기" 클릭. **걸 수 없는 카드면 넘기지 않는다** — 그러면 버튼이 비활성이 된다.
@@ -195,8 +192,8 @@ type AgentSurveyResultCardProps = {
  * Figma 112:5474(수정 사항·근거 링크) / 112:5502(추가 확인 사항·링크 없음)
  *
  * 전화하기 버튼은 Figma 791:127 그대로다 — 우선확인·추가확인 카드에서 "직접 수정하기" 와 한 줄에
- * 반씩 놓는다. 카드의 전화 상태 줄(callStatus)은 아직 Figma 노드가 없어, 새 색·뱃지를 만들지 않고
- * 이미 쓰는 색만 썼다(PROMPT-165) — 디자인이 나왔을 때 지울 코드를 줄이려는 것이다.
+ * 반씩 놓는다. 전화를 건 뒤에는 그 자리가 단계 버튼(전화 대기중·전화 중·전화 완료·전화 실패)이 되고,
+ * 누르면 바로 아래에 세부(요청 시각·들은 답·할 일)를 펼친다(CallPhaseButton).
  *
  * 근거와 수정 사항을 한 흐름(gap 8px)으로 이어 붙인 것은 Figma 112:5478 그대로다.
  * 담당자가 "왜 바꾸는지"를 읽은 직후에 "무엇이 바뀌는지"를 보게 하려는 배치라,
@@ -205,6 +202,7 @@ type AgentSurveyResultCardProps = {
 function AgentSurveyResultCard({
   storeName,
   address,
+  phone,
   evidences = [],
   changes = [],
   failureReason,
@@ -246,6 +244,41 @@ function AgentSurveyResultCard({
     );
   };
 
+  /**
+   * 전화 버튼 자리. 아직 안 걸었으면 "전화하기", 걸었으면 그 단계 버튼을 찍는다.
+   * 번호가 없거나 걸 수 없는 모양이면 onCall 이 없어서 "전화하기" 가 비활성이 된다.
+   * 실패한 전화를 다시 거는 길은 지금 화면에 두지 않는다(백엔드는 허용한다 — 담당자가 정할 일이라
+   * 디자인이 자리를 정하면 붙인다).
+   */
+  const renderCallButton = () => {
+    const disabled = isLoading || isProcessing || !onCall;
+
+    if (callStatus) {
+      /* 요청 시각은 칸에서 빼서 판 맨 아래 작은 글자로 내린다. */
+      const requestedAt = callStatus.details.find((detail) => detail.label === REQUESTED_AT_LABEL);
+      return (
+        <CallPhaseButton
+          phase={callStatus.phase}
+          details={callStatus.details.filter((detail) => detail !== requestedAt)}
+          footnote={requestedAt ? `${requestedAt.value} 요청` : undefined}
+          transcript={callStatus.transcript}
+        />
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={onCall}
+        disabled={disabled}
+        className={`${ACTION_BUTTON} ${SECONDARY_BUTTON}`}
+      >
+        <img src={phoneIcon} alt="" width={22} height={22} className="shrink-0" />
+        전화하기
+      </button>
+    );
+  };
+
   /*
     카드에 overflow-clip 을 두지 않는다 — 전화 상태 칩의 세부가 카드 밖으로 펼쳐질 때 잘린다.
     모서리 둥글림은 border 가 그리므로 잘라 낼 내용이 없다.
@@ -253,22 +286,38 @@ function AgentSurveyResultCard({
   return (
     <article
       className={[
-        'flex w-full flex-col items-start gap-3 rounded-lg border border-solid border-[#e2e8f0] p-3',
+        'flex w-full flex-col items-start gap-3 rounded-lg border border-solid border-[#e2e8f0] bg-white p-3',
         className,
       ]
         .filter(Boolean)
         .join(' ')}
       {...props}
     >
-      {/* 상호명 + 주소. Figma 112:5475 */}
-      <div className="flex w-full items-center justify-between gap-2">
+      {/* 상호명 + 주소·전화번호. Figma 112:5475 (전화번호 줄은 Figma 노드가 없어 주소와 같은 글꼴로 덧붙였다) */}
+      <div className="flex w-full items-start justify-between gap-2">
         {/* Figma는 둘 다 한 줄(whitespace-nowrap)이라, 길어지면 줄바꿈 대신 말줄임한다. */}
         <h3 className="min-w-0 flex-1 truncate font-sans text-base font-semibold leading-6 text-black">
           {isLoading ? <Skeleton className="h-6 w-24" /> : storeName}
         </h3>
-        <p className="max-w-[60%] shrink-0 truncate font-sans text-sm font-normal leading-5 text-[#1e293b]">
-          {isLoading ? <Skeleton className="h-5 w-40" /> : address}
-        </p>
+        <div className="flex max-w-[60%] shrink-0 flex-col items-end gap-0.5">
+          <p className="max-w-full truncate font-sans text-sm font-normal leading-5 text-[#1e293b]">
+            {isLoading ? <Skeleton className="h-5 w-40" /> : address}
+          </p>
+          {isLoading ? (
+            <Skeleton className="h-5 w-28" />
+          ) : phone ? (
+            <p
+              className={`flex max-w-full items-center gap-1 font-sans text-sm font-normal leading-5 ${
+                phone.issue === 'missing' ? 'text-[#94a3b8]' : 'text-[#1e293b]'
+              }`}
+            >
+              <span className="truncate">{phone.value}</span>
+              {phone.issue === 'invalid' ? (
+                <span className="shrink-0 font-medium text-[#b45309]">· 걸 수 없는 번호</span>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {/* 근거 + 수정 사항. Figma 112:5478 */}
@@ -332,20 +381,6 @@ function AgentSurveyResultCard({
           </>
         ) : null}
 
-        {/*
-          확인 전화 상태. 요약 한마디만 늘 보이고, 요청 시각·들은 답·사유 코드는 칩에 마우스를 올리거나
-          누르면 펼친다 — 한 줄에 이어 붙이면 실패 줄이 카드 폭을 넘어 요점이 묻혔다.
-
-          버튼 묶음이 아니라 내용 바로 아래에 둔다. 버튼 묶음은 mt-auto 로 카드 바닥에 붙는데,
-          옆 카드가 길어 이 카드가 늘어나면 칩까지 바닥으로 끌려가 내용과 멀리 떨어졌다.
-        */}
-        {callStatus ? (
-          <StatusChip
-            {...CALL_STATUS_CHIP[callStatus.tone]}
-            label={callStatus.label}
-            details={callStatus.details}
-          />
-        ) : null}
       </div>
 
       {/*
@@ -403,17 +438,7 @@ function AgentSurveyResultCard({
             지금 걸 수 없는 카드(걸어 둔 전화가 진행 중·완료)는 onCall 이 없다. 버튼을 숨기면
             카드마다 줄 모양이 달라지므로 자리는 두고 비활성으로 둔다 — 전화는 되돌릴 수 없다.
           */}
-          {showCall ? (
-            <button
-              type="button"
-              onClick={onCall}
-              disabled={isLoading || isProcessing || !onCall}
-              className={`${ACTION_BUTTON} ${SECONDARY_BUTTON}`}
-            >
-              <img src={phoneIcon} alt="" width={22} height={22} className="shrink-0" />
-              전화하기
-            </button>
-          ) : null}
+          {showCall ? renderCallButton() : null}
         </div>
       </div>
     </article>
