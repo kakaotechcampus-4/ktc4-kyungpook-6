@@ -46,6 +46,13 @@ async function selectFirstStore(page: Page) {
 test.describe("조사 진행 표시", () => {
   test.beforeEach(async ({ page }) => {
     await logIn(page);
+    /* 백엔드가 없어도 미설정 API의 401 때문에 로그인 화면으로 이동하지 않게 한다. */
+    await page.route((url) => url.pathname.startsWith('/api/'), (route) =>
+      route.fulfill({ status: 500, json: { title: "테스트용 응답" } })
+    );
+    await page.route("**/api/auth/me", (route) =>
+      route.fulfill({ json: { email: "admin@example.com" } })
+    );
   });
 
   /*
@@ -232,7 +239,8 @@ test.describe("조사 진행 표시", () => {
     await page.getByRole("button", { name: "선택한 가게 조사 시작" }).click();
     await page.getByRole("button", { name: "조사 시작하기" }).click();
 
-    await expect(page).toHaveURL(/\/analysis\/7$/);
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("checkbox", { name: "정든 국밥집 선택" })).not.toBeChecked();
     await expect(
       page.getByRole("status").filter({ hasText: "작업 중" })
     ).toBeVisible();
