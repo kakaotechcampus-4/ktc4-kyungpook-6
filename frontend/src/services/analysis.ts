@@ -99,6 +99,19 @@ export type CallAnswerResponse = {
 };
 
 /**
+ * 통화 전사 한 줄.
+ *
+ * ⚠️ **백엔드 응답에 아직 없는 칸이다.** 화면(전화 중·전화 완료 판의 "통화 내용")을 먼저 만들려고
+ * 이름과 모양을 임시로 정했다. 백엔드가 스펙을 공개하면 이름·모양을 그쪽에 맞춘다
+ * (docs/깃_협업_규칙.md "파트 간 API 계약 — 백엔드가 먼저 공개합니다" 와 순서가 반대다).
+ */
+export type CallTranscriptLineResponse = {
+  /** AGENT: 우리 쪽 AI 상담원 · STORE: 가게(점주) */
+  speaker: 'AGENT' | 'STORE';
+  text: string;
+};
+
+/**
  * 조사 결과 한 건으로 건 확인 전화.
  *
  * **담당자 확인 기록(`verification`)과 다른 것이다.** 전화는 점주에게 물어본 결과이고
@@ -117,17 +130,8 @@ export type CallResponse = {
   failureKind: CallFailureKindResponse | null;
   /** 진행 중이거나 실패한 통화의 부분 결과도 들어온다. */
   answers: CallAnswerResponse[] | null;
-};
-
-/** 한 번에 전화를 넣은 결과. */
-export type CallBulkResponse = {
-  /** 전화를 걸 만한 결과 수. */
-  targetCount: number;
-  /** 실제로 요청이 들어간 수. */
-  requested: number;
-  /** 번호가 없거나 물을 것이 없어 빠진 수. */
-  skipped: number;
-  calls: CallResponse[] | null;
+  /** ⚠️ 임시 — 백엔드에 아직 없다(CallTranscriptLineResponse 참고). 오지 않으면 화면이 "통화 내용" 을 그리지 않는다. */
+  transcript?: CallTranscriptLineResponse[] | null;
 };
 
 /** Job 에 속한 Task 한 건. */
@@ -225,12 +229,3 @@ export const confirmTask = async (taskId: number) =>
  */
 export const requestCall = async (taskId: number) =>
   postRequest<CallResponse>(`/api/tasks/${taskId}/call`, undefined);
-
-/**
- * 그 조사 결과에서 **전화를 걸 만한 가게 전부**에 전화를 요청한다.
- *
- * 대기열은 전화 API 가 갖고 있어서, 한꺼번에 넣으면 전화 API 가 차례대로 발신한다 —
- * 화면이 한 통씩 기다리며 다음을 넣을 필요가 없다.
- */
-export const requestCallsForJob = async (jobId: number) =>
-  postRequest<CallBulkResponse>(`/api/jobs/${jobId}/calls`, undefined);
