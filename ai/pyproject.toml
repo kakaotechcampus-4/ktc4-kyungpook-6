@@ -1,7 +1,7 @@
 [project]
 name = "store-info-agent"
 version = "0.1.0"
-description = "참여가게 DB의 정보를 공개정보와 대조해 담당자 확인 대상을 선별하는 에이전트"
+description = "가게 정보가 바뀌었는지 조사해 수정안을 돌려주는 AI 서버. 사업자등록증 읽기도 맡는다."
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=2.3.0",
