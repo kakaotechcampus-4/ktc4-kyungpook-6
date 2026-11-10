@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ComponentPropsWithoutRef } from "react";
 import { getStores } from "../services/store";
 import type { StoreResponse, StoreStatus } from "../services/store";
+import type { InvestigationExclusionReason } from "../services/store";
 import { useStoreListPage } from "../hooks/store";
 import { useStoreEditModal } from "../hooks/storeEdit";
 import type { StoreEditTarget } from "../hooks/storeEdit";
@@ -13,6 +14,7 @@ import TableRow from "../components/TableRow";
 import AgentSurveyTrigger from "../components/AgentSurveyTrigger";
 import AgentSurveyModal from "../components/AgentSurveyModal";
 import { formatDateTime } from "../utils/date";
+import { exclusionReasonTitle } from "../utils/exclusionLabel";
 import type { BusinessStatus } from "../components/TableRow";
 
 /** 가게 목록의 한 건. 필드는 TableRow가 받는 props 기준. */
@@ -23,6 +25,13 @@ export interface Store {
   status?: BusinessStatus;
   address: string;
   lastChecked: string;
+  /**
+   * 지금 조사를 시작하면 이 가게가 빠지는 이유. 빠지지 않으면 null.
+   *
+   * **백엔드가 판정한 값을 그대로 들고 있는다.** 화면이 lastCheckedAt 이 비었는지 같은 값으로
+   * 다시 판정하면, 목록이 미리 알려 준 제외와 조사가 실제로 빼는 가게가 어긋난다.
+   */
+  exclusionReason: InvestigationExclusionReason | null;
   /**
    * 수정 모달에 넘길 원본 값. 표기용으로 "-" 를 채운 위 필드들과 달리
    * 서버가 준 값 그대로다. 목업 행에는 없어서 그 행의 연필은 눌리지 않는다.
@@ -50,6 +59,9 @@ function toStore(store: StoreResponse): Store {
     address: store.addressRoad ?? "-",
     /* 서버는 "2026-10-13T20:12:45.589672" 처럼 마이크로초까지 준다. 화면 표기는 utils/date 로 통일한다. */
     lastChecked: formatDateTime(store.lastCheckedAt) ?? "-",
+    exclusionReason: store.investigationExcluded
+      ? store.investigationExclusionReason
+      : null,
     editTarget: {
       storeId: store.storeId,
       name: store.name,
@@ -77,6 +89,8 @@ const FALLBACK_STORES: Store[] = [
     status: "open",
     address: "대구 북구 대학로 80",
     lastChecked: "2026-09-01 10:00",
+    /* 목업 행은 서버에 없는 가게라 제외 판정을 받은 적이 없다. */
+    exclusionReason: null,
   },
   {
     id: "fallback-2",
@@ -85,6 +99,7 @@ const FALLBACK_STORES: Store[] = [
     status: "closed",
     address: "대구 북구 대학로 82",
     lastChecked: "2026-08-28 14:30",
+    exclusionReason: null,
   },
 ];
 
@@ -102,6 +117,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
     isTooltipVisible,
     dismissTooltip,
     surveyTargetCount,
+    surveyExclusionNotices,
     estimatedMinutes,
     isSurveyModalOpen,
     openSurveyModal,
@@ -205,7 +221,10 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
                     }}
                     onChange={() =>
                       toggleSelectAll(
-                        stores.map((store) => store.id),
+                        stores.map((store) => ({
+                          id: store.id,
+                          exclusionReason: store.exclusionReason,
+                        })),
                         !hasSelection
                       )
                     }
@@ -265,6 +284,8 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
             {stores.map((store) => {
               /* 목업 행은 서버에 없는 가게라 수정할 대상이 없다. */
               const { editTarget } = store;
+              /* 빠지는 가게만 표시가 붙는다. 문구는 utils/exclusionLabel 한 곳에서 정한다. */
+              const exclusionTitle = exclusionReasonTitle(store.exclusionReason);
 
               return (
                 <TableRow
@@ -274,8 +295,16 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
                   status={store.status}
                   address={store.address}
                   lastCheckedAt={store.lastChecked}
+                  exclusion={
+                    exclusionTitle ? { title: exclusionTitle } : undefined
+                  }
                   checked={isSelected(store.id)}
-                  onCheckedChange={(checked) => toggleSelect(store.id, checked)}
+                  onCheckedChange={(checked) =>
+                    toggleSelect(
+                      { id: store.id, exclusionReason: store.exclusionReason },
+                      checked
+                    )
+                  }
                   onEdit={
                     editTarget ? () => storeEdit.open(editTarget) : undefined
                   }
@@ -327,6 +356,7 @@ function MockupDataPage({ className, ...props }: MockupDataPageProps) {
       <AgentSurveyModal
         open={isSurveyModalOpen}
         storeCount={surveyTargetCount}
+        exclusionNotices={surveyExclusionNotices}
         estimatedMinutes={estimatedMinutes}
         onStart={startSurvey}
         onCancel={closeSurveyModal}

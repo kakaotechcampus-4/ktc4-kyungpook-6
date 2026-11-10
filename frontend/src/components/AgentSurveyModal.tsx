@@ -24,6 +24,13 @@ type AgentSurveyModalProps = {
   open: boolean;
   /** 조사 대상 가게 수. "작업 정보"의 "가게 수"에 들어간다. */
   storeCount: number;
+  /**
+   * 고른 가게 중 조사에서 빠지는 곳을 알리는 줄. "가게 수" 아래에 사유마다 한 줄씩 그린다.
+   *
+   * **비어 있으면 아무것도 그리지 않는다** — 빠지는 가게가 없으면 알려 줄 것이 없다.
+   * 문구는 화면이 정하고(utils/exclusionLabel), 어느 가게가 빠지는지는 백엔드가 판정한다.
+   */
+  exclusionNotices?: readonly string[];
   /** 예상 소요 시간(분). */
   estimatedMinutes: number;
   /** "조사 시작하기" 클릭. */
@@ -47,6 +54,7 @@ type AgentSurveyModalProps = {
 function AgentSurveyModal({
   open,
   storeCount,
+  exclusionNotices = [],
   estimatedMinutes,
   onStart,
   onCancel,
@@ -134,9 +142,26 @@ function AgentSurveyModal({
         <div className="flex flex-col items-start gap-1.5">
           <p className={SECTION_LABEL}>작업 정보</p>
           <dl className="flex w-96 flex-col items-start gap-1.5 rounded-[9px] bg-[#f1f5f9] px-4 py-3 font-sans text-base leading-6">
-            <div className="flex w-full items-start justify-between overflow-clip">
+            {/*
+              가게 수와 제외 예고를 한 묶음으로 둔다. 담당자가 60곳을 골라 시작했는데 56곳만 조사된 일이
+              있었다 — 제외는 설계된 동작인데 화면이 미리 설명하지 않아서, 숫자가 줄어든 이유를 알 수 없었다.
+              줄은 dd 로 둬서 "가게 수" 에 딸린 설명임을 마크업으로도 남긴다(dl > div 안의 dt·dd 구조 유지).
+            */}
+            <div className="flex w-full flex-wrap items-start justify-between gap-y-1 overflow-clip">
               <dt className="font-normal">가게 수</dt>
               <dd className="font-medium">{storeCount}개</dd>
+              {exclusionNotices.map((notice) => (
+                <dd
+                  key={notice}
+                  className="flex w-full items-start gap-1 font-sans text-xs font-normal leading-4 text-[#b45309]"
+                >
+                  <Icon
+                    icon="lucide:alert-circle"
+                    className="mt-px size-3.5 shrink-0"
+                  />
+                  <span className="break-keep">{notice}</span>
+                </dd>
+              ))}
             </div>
             <div className="flex w-full items-start justify-between overflow-clip">
               <dt className="font-normal">예상 소요 시간</dt>

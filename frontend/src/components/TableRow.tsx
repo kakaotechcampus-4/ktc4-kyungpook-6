@@ -58,6 +58,15 @@ const STATUS_STYLE = {
 const CELL_TEXT =
   "w-full truncate font-sans text-sm font-normal leading-5 text-[#1e293b]";
 
+/**
+ * 조사에서 빠지는 가게에 붙는 표시. 문구는 화면이 한 곳에서 정하고(utils/exclusionLabel),
+ * 어느 가게가 왜 빠지는지는 백엔드가 판정해 내려준다 — 행이 다시 판정하지 않는다.
+ */
+export type ExclusionMark = {
+  /** 스크린리더가 읽고 마우스를 올리면 보이는 한 줄. 예: '국세청 대조 기록 없음 — …' */
+  title: string;
+};
+
 type TableRowProps = {
   /** 상호명 */
   name?: string;
@@ -66,6 +75,8 @@ type TableRowProps = {
   /** 마지막 확인일 (예: "3주 전") */
   lastCheckedAt?: string;
   status?: BusinessStatus;
+  /** 지금 조사를 시작하면 이 가게가 빠진다는 표시. 빠지지 않으면 넘기지 않는다. */
+  exclusion?: ExclusionMark;
   checked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
   onEdit?: () => void;
@@ -80,6 +91,7 @@ function TableRow({
   address,
   lastCheckedAt,
   status,
+  exclusion,
   checked = false,
   onCheckedChange,
   onEdit,
@@ -136,9 +148,36 @@ function TableRow({
         </span>
       </label>
 
-      {/* 상호명 — 남는 공간을 모두 차지한다. Figma flex-[1_0_0] + min-w-px */}
-      <div className="flex h-5 min-w-px flex-1 flex-col justify-center overflow-clip">
-        {renderCellText(name)}
+      {/*
+        상호명 — 남는 공간을 모두 차지한다. Figma flex-[1_0_0] + min-w-px
+
+        조사에서 빠지는 가게는 이름 옆에 경고 아이콘을 둔다. 열을 새로 만들지 않는 이유는 테이블의
+        나머지 열 폭이 고정값이어서(256·128·24) 열을 더하면 1152px 레이아웃이 어긋나기 때문이다.
+        이름 칸이 남는 폭을 다 쓰는데 그 폭이 136px 남짓이라, 사유는 글자로 적지 않고 아이콘의
+        제목으로 읽게 한다 — 목록의 "미확인" 뱃지가 쓰는 앰버·경고 아이콘과 같은 말투다.
+
+        가게를 숨기거나 체크박스를 막지는 않는다. 빠지는 가게도 번호를 고치거나 점주 연결을
+        봐야 할 수 있어서, 보이게 두고 왜 빠지는지만 알려준다.
+      */}
+      <div className="flex h-5 min-w-px flex-1 items-center gap-1 overflow-clip">
+        <span className="min-w-0 flex-1">{renderCellText(name)}</span>
+        {/*
+          title 은 감싼 span 에 둔다 — SVG 요소의 title 속성으로는 브라우저가 툴팁을 띄우지 않는다
+          (SVG 는 title 자식 요소를 쓴다). 영업 상태 뱃지도 같은 이유로 바깥 칸에 title 을 둔다.
+        */}
+        {!isLoading && exclusion ? (
+          <span
+            role="img"
+            aria-label={exclusion.title}
+            title={exclusion.title}
+            className="flex shrink-0 items-center"
+          >
+            <Icon
+              icon="lucide:alert-circle"
+              className="size-4 shrink-0 text-[#b45309]"
+            />
+          </span>
+        ) : null}
       </div>
 
       {/* 전화번호 */}

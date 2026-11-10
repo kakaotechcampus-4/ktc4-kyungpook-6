@@ -6,6 +6,23 @@ import { getRequest, patchRequest, postRequest } from "./api";
  */
 export type StoreStatus = "OPEN" | "SUSPENDED" | "CLOSED" | "UNKNOWN";
 
+/**
+ * 백엔드 InvestigationExclusionReason enum — 그 가게가 조사에서 빠지는 이유.
+ *
+ * 백엔드가 가게마다 "빠지는지·왜" 를 판정해 내려준다. 화면은 문구만 정한다
+ * (utils/exclusionLabel). lastCheckedAt 이 비었는지 같은 값으로 **프론트가 다시 판정하지 않는다** —
+ * 그러면 목록이 미리 알려 준 제외와 조사가 실제로 빼는 가게가 어긋난다.
+ *
+ * STORE_NOT_FOUND 는 목록 응답에는 오지 않는다(조사 생성 결과에만 쓰인다). 그래도 타입에 두는 이유는
+ * 백엔드 enum 과 1:1 로 맞춰 문구 표를 Record 로 둘 수 있게 하기 위해서다.
+ */
+export type InvestigationExclusionReason =
+  | "STORE_NOT_FOUND"
+  | "DATA_PROBLEM"
+  | "NO_NTS_CHECK"
+  | "ALREADY_CLOSED"
+  | "ALREADY_SUSPENDED";
+
 export type StoreResponse = {
   storeId: number;
   name: string;
@@ -17,6 +34,10 @@ export type StoreResponse = {
   phone: string | null;
   bizNo: string | null;
   lastCheckedAt: string | null;
+  /** 지금 조사를 시작하면 이 가게가 조사에서 빠지는지. 서버가 판정한 값이다. */
+  investigationExcluded: boolean;
+  /** 빠지는 이유. 빠지지 않으면 null. */
+  investigationExclusionReason: InvestigationExclusionReason | null;
 };
 
 export type PageResponse<T> = {
