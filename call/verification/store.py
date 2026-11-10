@@ -3,7 +3,7 @@ import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from .models import CallRequest
 
@@ -14,8 +14,9 @@ class QueueFull(Exception):
     pass
 
 class Store:
-    def __init__(self, path: Path, capacity=1000):
+    def __init__(self, path: Path, capacity=1000, max_pending_age_seconds=900):
         self.path, self.capacity = path, capacity
+        self.max_pending_age_seconds = max_pending_age_seconds
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')
@@ -23,7 +24,13 @@ class Store:
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL,
                 request TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING',
                 claimed INTEGER NOT NULL DEFAULT 0, answers TEXT NOT NULL DEFAULT '[]',
-                created TEXT NOT NULL, started TEXT, connected TEXT, ended TEXT, reason TEXT)''')
+                created TEXT NOT NULL, started TEXT, connected TEXT, ended TEXT, reason TEXT,
+                outcome_recorded INTEGER NOT NULL DEFAULT 0, outcome_reason TEXT)''')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(calls)')}
+            if 'outcome_recorded' not in columns:
+                db.execute('ALTER TABLE calls ADD COLUMN outcome_recorded INTEGER NOT NULL DEFAULT 0')
+            if 'outcome_reason' not in columns:
+                db.execute('ALTER TABLE calls ADD COLUMN outcome_reason TEXT')
             db.execute('CREATE INDEX IF NOT EXISTS pending ON calls(status,claimed,seq)')
 
     @contextmanager
@@ -50,11 +57,19 @@ class Store:
     def recover(self):
         # Called only after exclusive worker lock. Never redial a possibly placed call.
         with self.connect() as db:
-            db.execute("UPDATE calls SET status='FAILED', reason='SERVER_RESTARTED', ended=? WHERE claimed=1 AND status IN ('PENDING','IN_PROGRESS')",(now(),))
+            db.execute('''UPDATE calls SET
+                status=CASE WHEN outcome_recorded=1 AND outcome_reason IS NULL
+                            THEN 'COMPLETED' ELSE 'FAILED' END,
+                reason=CASE WHEN outcome_recorded=1 THEN outcome_reason ELSE 'SERVER_RESTARTED' END,
+                ended=? WHERE claimed=1 AND status IN ('PENDING','IN_PROGRESS')''',(now(),))
 
     def claim(self):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            cutoff = (datetime.now(timezone.utc) -
+                      timedelta(seconds=self.max_pending_age_seconds)).isoformat()
+            db.execute("""UPDATE calls SET status='FAILED', reason='QUEUE_EXPIRED', ended=?
+                       WHERE status='PENDING' AND claimed=0 AND created < ?""",(now(),cutoff))
             row = db.execute("SELECT * FROM calls WHERE status='PENDING' AND claimed=0 ORDER BY seq LIMIT 1").fetchone()
             if row is None:
                 return None
@@ -72,6 +87,12 @@ class Store:
     def save_answers(self, call_id, answers):
         with self.connect() as db:
             db.execute('UPDATE calls SET answers=? WHERE id=?',(json.dumps(answers,ensure_ascii=False),call_id))
+
+    def record_outcome(self, call_id, reason=None):
+        # Commit the terminal intent before finish(); recovery can then preserve success.
+        with self.connect() as db:
+            db.execute("""UPDATE calls SET outcome_recorded=1, outcome_reason=?
+                       WHERE id=? AND status IN ('PENDING','IN_PROGRESS')""",(reason,call_id))
 
     def finish(self, call_id, reason=None):
         with self.connect() as db:

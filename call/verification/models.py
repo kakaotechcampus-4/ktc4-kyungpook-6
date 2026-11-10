@@ -83,8 +83,20 @@ class CallResult(Model):
 
 class Interpretation(Model):
     identity: Literal['YES', 'NO', 'UNKNOWN'] = 'UNKNOWN'
-    stop: StrictBool = False
+    control: Literal['STOP', 'WAIT', 'CONTINUE'] = 'CONTINUE'
     kind: Literal['YES', 'NO', 'CURRENT', 'EXPECTED', 'VALUE', 'UNCLEAR'] = 'UNCLEAR'
     value: Value | None = None
     evidence: str = ''
-    knowledgeReply: Annotated[str, Field(max_length=300)] = ''
+
+class ValueExtraction(Model):
+    value: Value | None
+    evidence: Annotated[str, Field(max_length=2000)]
+
+class CustomReply(Model):
+    reply: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+
+    @model_validator(mode='after')
+    def valid_reply(self):
+        if not self.reply.strip() or '\n' in self.reply:
+            raise ValueError('CUSTOM 답변은 한 줄의 문장이 필요합니다.')
+        return self

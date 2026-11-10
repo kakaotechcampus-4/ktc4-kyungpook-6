@@ -15,7 +15,7 @@ def create_app(settings=None, runner_factory=None):
     async def lifespan(app):
         s = settings or Settings.from_env()
         s.data_dir.mkdir(parents=True,exist_ok=True)
-        store = Store(s.data_dir/'calls.sqlite3',s.queue_capacity)
+        store = Store(s.data_dir/'calls.sqlite3',s.queue_capacity,s.pending_max_age_seconds)
         providers = Providers(s)
         runner = runner_factory(s,store,providers) if runner_factory else CallRunner(s,store,providers)
         worker = Worker(store,runner,s.modem_lock_file)
@@ -37,13 +37,15 @@ def create_app(settings=None, runner_factory=None):
     @app.get('/healthz')
     def health(response: Response):
         alive = app.state.worker.thread.is_alive()
-        if not alive:
+        blocked = app.state.worker.save_blocked.is_set()
+        if not alive or blocked:
             response.status_code = 503
-        return {'status':'ok' if alive else 'worker_unavailable'}
+        return {'status':'worker_unavailable' if not alive else
+                'result_storage_unavailable' if blocked else 'ok'}
 
     @app.post('/v1/verification-call',response_model=Created,status_code=202,dependencies=[Depends(authorize)])
     def create(request: CallRequest):
-        if not app.state.worker.thread.is_alive():
+        if not app.state.worker.thread.is_alive() or app.state.worker.save_blocked.is_set():
             raise HTTPException(503,'통화 worker를 사용할 수 없습니다.')
         try:
             call_id = app.state.store.enqueue(request)

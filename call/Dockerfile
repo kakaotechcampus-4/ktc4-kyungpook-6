@@ -6,4 +6,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY verification ./verification
 COPY agent.json .
+COPY cache-tts.sh .
+COPY docker-entrypoint.sh .
+RUN chmod +x /app/cache-tts.sh /app/docker-entrypoint.sh
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["sh", "-c", "exec uvicorn verification.api:app --host 0.0.0.0 --port \"${BACKEND_PORT:-8000}\" --workers 1 --timeout-graceful-shutdown 180"]
