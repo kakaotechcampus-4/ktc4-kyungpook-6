@@ -540,6 +540,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(p.classify_utterance('왜 전화하셨나요?','상호명이 맞으세요?',{},
                                               overlapping=True)['verdict'],'INTERRUPT')
 
+    def test_jev_custom_uses_answer_threshold_without_lowering_safety_threshold(self):
+        for confidence,verdict in ((.4,'PROCESS'),(.39,'IGNORE')):
+            body=self.jev_answers(answer='CUSTOM',irrelevant=.95)
+            body['answers']['answer']['confidence']=confidence
+            p=self.provider(lambda req:httpx.Response(200,json=body))
+            self.assertEqual(p.classify_utterance('왜 전화하셨나요?','상호명이 맞으세요?',{})
+                             ['verdict'],verdict)
+
     def test_custom_llm_uses_full_history_and_validates_reply(self):
         d=Dialogue(request(),ROOT/'agent.json')
         d.history=[{'role':'user','content':f'대화 {i}'} for i in range(12)]

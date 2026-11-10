@@ -400,7 +400,7 @@ class RuntimeTests(unittest.TestCase):
     def test_low_confidence_answer_uses_retry_not_repeat_or_llm(self):
         console=io.StringIO()
         with redirect_stdout(console):
-            result=self.run_call([{'play':1,'text':'네 관계자입니다','answer_confidence':.4},
+            result=self.run_call([{'play':1,'text':'네 관계자입니다','answer_confidence':.39},
                                   {'play':2,'text':'제가 관계자입니다'},
                                   {'play':3,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')
@@ -411,11 +411,18 @@ class RuntimeTests(unittest.TestCase):
                       .template_variants('identityRetry'))
         self.assertFalse(spoken[1].startswith('네, '+spoken[0]))
 
+    def test_answer_threshold_accepts_identity_and_field_at_point_four(self):
+        result=self.run_call([{'play':1,'text':'네 맞습니다','answer_confidence':.4,
+                               'after_playback':True},
+                              {'play':2,'text':'네 맞아요','answer_confidence':.4}])
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(result['answers'][0]['value'],'새봄식당')
+
     def test_low_confidence_field_answer_uses_retry_not_llm(self):
         console=io.StringIO()
         with redirect_stdout(console):
             result=self.run_call([{'play':1,'text':'네 관계자입니다'},
-                                  {'play':2,'text':'네 맞습니다','answer_confidence':.4},
+                                  {'play':2,'text':'네 맞습니다','answer_confidence':.39},
                                   {'play':3,'text':'네 맞아요'}])
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(self.providers.inputs,[])
@@ -430,7 +437,7 @@ class RuntimeTests(unittest.TestCase):
         console=io.StringIO()
         with redirect_stdout(console):
             result=self.run_call([{'play':1,'text':'다시 말씀해 주세요','control':'CONTINUE',
-                                   'answer':'CUSTOM','answer_confidence':.44},
+                                   'answer':'CUSTOM','answer_confidence':.39},
                                   {'play':2,'text':'제가 관계자입니다'},
                                   {'play':3,'text':'네 맞습니다'}])
         self.assertEqual(result['status'],'COMPLETED')

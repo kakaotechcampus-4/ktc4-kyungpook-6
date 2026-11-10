@@ -43,6 +43,7 @@ class Settings(BaseModel):
     # Each failure re-asks the question, so a transient Jev error costs a turn, not the call.
     jev_max_failures: int = Field(default=3, ge=1, le=5)
     jev_threshold: float = Field(default=0.7, ge=0.5, le=1)
+    jev_answer_threshold: float = Field(default=0.4, ge=0, le=1)
     jev_stop_threshold: float = Field(default=0.9, ge=0.5, le=1)
     jev_readback_yes_threshold: float = Field(default=0.9, ge=0.5, le=1)
 

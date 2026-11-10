@@ -296,7 +296,7 @@ class Session:
             control_threshold = (self.s.jev_stop_threshold if result['control'] == 'STOP'
                                  else self.s.jev_threshold)
             control_confident = result['control_confidence'] >= control_threshold
-            answer_confident = result['answer_confidence'] >= self.s.jev_threshold
+            answer_confident = result['answer_confidence'] >= self.s.jev_answer_threshold
             if (self.dialogue.stage == 'READBACK' and result['answer'] == 'YES' and
                     result['answer_confidence'] < self.s.jev_readback_yes_threshold):
                 answer_confident = False
