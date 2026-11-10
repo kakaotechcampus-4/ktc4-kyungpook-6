@@ -155,7 +155,7 @@ type AgentSurveyResultCardProps = {
   verifiedLabel?: string;
   /**
    * Task.classification. 두 번째 섹션 라벨과 주 버튼 라벨이 이 값으로 정해진다.
-   * priority = 수정 사항 / 즉시 수정 반영하기, additional = 추가 확인 사항 / 메시지 보내기,
+   * priority = 수정 사항 / 즉시 수정 반영하기, additional = 추가 확인 사항 / 주 버튼 없음,
    * unchanged = 둘 다 없음(임시)
    */
   variant?: TaskClassification;
