@@ -41,8 +41,11 @@ export type ChildStoreMenu = {
   onSale: boolean;
 };
 
-/** 이 거리(m) 안의 가게만 목록·지도에 띄운다. 주변 가게 API 의 반경으로 보낸다(서버 기본값과 같다). */
-export const NEARBY_RADIUS_METERS = 2000;
+/**
+ * 주변 가게 API 에 보내는 반경(m). 서버 상한(100km)과 같다 — 대구 전역이라 사실상 가게 전부를 받는다.
+ * 2km 였는데, 가맹점이 흩어져 있어 내 위치 근처가 비어 보여서 풀었다(2026-11-11). 목록은 여전히 가까운 순이다.
+ */
+export const NEARBY_RADIUS_METERS = 100_000;
 
 /** 백엔드 NearbyStoreResponse. 가게·메뉴 사진은 담지 않는다. */
 type NearbyStoreResponse = {

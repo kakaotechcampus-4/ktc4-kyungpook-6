@@ -164,7 +164,7 @@ class NearbyStoreServiceTest extends PostgresContainerTest {
         }
         List<Long> nearest = new ArrayList<>();
         for (int i = 0; i < NearbyStoreService.MAX_RESULTS; i++) {
-            nearest.add(store("가까운가게" + i, north(100 + i * 5), LNG, StoreStatus.OPEN).getStoreId());
+            nearest.add(store("가까운가게" + i, north(100 + i), LNG, StoreStatus.OPEN).getStoreId());
         }
 
         assertThat(find(2000, null)).extracting(NearbyStoreResponse::storeId).containsExactlyElementsOf(nearest);

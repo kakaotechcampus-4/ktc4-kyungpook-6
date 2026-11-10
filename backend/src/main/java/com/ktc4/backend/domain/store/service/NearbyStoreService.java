@@ -39,7 +39,8 @@ import java.util.stream.Collectors;
 public class NearbyStoreService {
 
     /** 한 번에 돌려주는 가게 수 상한 — 가까운 순으로 자른다. */
-    static final int MAX_RESULTS = 100;
+    // 아동 앱이 반경을 100km 로 보내 가게를 전부 받는다 — 운영의 가게 수(2026-11 기준 61곳)가 여기 들어와야 한다.
+    static final int MAX_RESULTS = 500;
     // DB 에서 읽는 가게 수 상한. DB 는 평면 근사로, 여기서는 하버사인(반올림한 m)으로 정렬해 두 순서가 경계에서 어긋날 수
     // 있다 — 결과 수의 두 배를 읽어 그 몫을 둔다. 사각형 모서리(반경 밖)도 가까운 순으로 뒤에 붙어 이 안에서 걸러진다.
     static final int CANDIDATE_LIMIT = MAX_RESULTS * 2;
