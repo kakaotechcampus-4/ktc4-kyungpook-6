@@ -1,40 +1,42 @@
 # store-info-agent
 
-참여가게 정보가 최신 상태인지 공개정보 API와 대조하여
-담당자가 확인할 대상을 선별해 주는 에이전트.
+가게 정보가 바뀌었는지 조사해 수정안을 돌려주는 AI 서버. 사업자등록증 읽기도 맡는다.
+백엔드가 호출하며, 국세청 대조와 대상 선별은 백엔드가 한다.
 
 ## 개발 환경
 1. `uv sync` 로 의존성 설치
 2. `.env.example` 참고해 `.env` 생성 후 값 채우기
+3. 서버 실행 (`ai/` 에서)
+
+```bash
+uv run uvicorn src.server.main:app --reload --port 8000
+```
 
 ## 테스트
 
 ```bash
-uv run pytest tests/          # ai/ 에서 실행
+./scripts/test.sh             # ai/ 에서 실행. uv run pytest tests/ 와 같고, CI 도 이 스크립트를 쓴다
 ```
 
-`eval/`은 CI에서 돌리지 않는다 — 개인 GCP 계정에 과금된다.
+`eval/`은 CI에서 돌리지 않는다 — Vertex나 네이버 같은 외부 API를 실제로 불러 비용이 들거나 로컬에 백엔드를 띄워 둬야 하는 스크립트라서다.
 
 ## 폴더 구조
-- `src/` — 에이전트 로직. 실제 런타임에 쓰이는 코드만 둔다 (검증/비교용 스크립트는 X)
+- `src/` — 서비스 코드. 아직 운영에 못 올린 기능도 여기 둔다 (측정·실험 스크립트는 `eval/`)
 - `tests/` — pytest 단위 테스트. "코드가 의도대로 동작하는가"를 pass/fail로 검증
-- `eval/` — AI 모델 비교용 벤치마크 스크립트. pytest 대상 아님, 사람이 직접 실행해서
-  모델별 정확도를 리포트로 확인하는 용도 (`uv run python -m eval.<script>`)
-  - `eval/fixtures/` — 벤치마크용 케이스 데이터 (예: 상호명/주소/기대값)
+- `eval/` — 벤치마크·실험·로컬 검증용 스크립트. pytest 대상 아님, 사람이 직접 실행해서
+  모델별 정확도를 재거나 연동 흐름을 돌려 보는 용도 (`uv run python -m eval.<script>`)
+  - `eval/fixtures/` — 벤치마크용 케이스 데이터. 실제 가게 정보라 커밋하지 않는다(각자 받아 둔다)
 
-새 기능 추가 시에도 이 구분을 따른다: 프로덕션 로직은 `src/`, 정답 검증은 `tests/`,
-모델·구현 방식 비교 실험은 `eval/`.
-
-**"프로덕션에 바로 못 올린다"는 이유로 `eval/`에 두지 않는다.** 그런 제약은 폴더가 아니라
-**각 모듈 독스트링**에 적는다 — 개인 GCP 계정에 묶인다든가, 백엔드 구현으로 갈아 끼울
-임시 코드라든가. 파일이 뭘 하는지도 마찬가지다. 여기에 옮겨 적지 않는다.
+새 기능 추가 시에도 이 구분을 따른다: 서비스 코드는 `src/`, 정답 검증은 `tests/`,
+측정·실험·로컬 검증은 `eval/`.
 
 `src/` 아래는 기능 단위로 묶는다.
 
-- `src/biz_number/` — 사업자등록번호 (PROMPT-49)
+- `src/biz_number/` — 비어 있는 사업자등록번호를 웹검색으로 찾는다
 - `src/backend_client/` — 백엔드를 **호출하는** 쪽 (httpx)
-- `src/investigation/` — 조사 요청·결과 계약과 구현이 꽂히는 자리 (PROMPT-67)
-- `src/server/` — 백엔드가 AI를 **호출하는** 쪽 (FastAPI). 실행: `uv run uvicorn src.server.main:app --reload --port 8000`
+- `src/investigation/` — 2차 조사. 요청·응답 형식, 지도 대조·웹검색·에이전트, 규칙 판정
+- `src/biz_cert/` — 사업자등록증을 읽어 점주 가입 칸에 채울 값을 돌려준다
+- `src/server/` — 백엔드가 AI를 **호출하는** 쪽 (FastAPI)
 
 ## 배경과 수치
 
