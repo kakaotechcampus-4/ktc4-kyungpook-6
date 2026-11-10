@@ -465,6 +465,23 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.providers.inputs,[])
         self.assertEqual(self.providers.custom_inputs,[])
 
+    def test_uncertain_wait_cannot_confirm_answer_at_lower_threshold(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'네 맞습니다','control':'WAIT',
+                                   'control_confidence':.6,'answer_confidence':.4,
+                                   'after_playback':True},
+                                  {'play':2,'text':'제가 관계자입니다'},
+                                  {'play':3,'text':'네 맞아요'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        self.assertIn(spoken[1],Dialogue(request(),self.s.persona_file)
+                      .template_variants('identityRetry'))
+        log_file=next((self.folder/'calls'/self.cid).glob('call-*.jsonl'))
+        events=[json.loads(line) for line in log_file.read_text().splitlines()]
+        self.assertFalse(any(event['stage']=='turn.wait' for event in events))
+
     def test_repeat_control_replays_greeting_without_llm_or_identity_retry(self):
         console=io.StringIO()
         with redirect_stdout(console):

@@ -315,6 +315,9 @@ class Session:
             elif control_confident and result['control'] == 'WAIT':
                 self.begin_wait(combined)
                 continue
+            elif result['control'] == 'WAIT':
+                # An uncertain pause request must not confirm the active question.
+                decision = Interpretation()
             elif control_confident and result['control'] == 'REPEAT':
                 decision = Interpretation()
                 repeat_requested = True
