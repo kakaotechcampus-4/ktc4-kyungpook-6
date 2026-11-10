@@ -16,6 +16,9 @@ services:
       PUBLIC_DOMAIN_PREVIOUS: ${PUBLIC_DOMAIN_PREVIOUS:-localhost}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # 점주 앱·아동 앱의 웹판. 저장소 밖에 두어 배포(git reset --hard)에 날아가지 않게 한다.
+      # 폴더가 없으면 도커가 빈 폴더로 만들고 /app/* 만 404 가 된다 — 나머지는 그대로 돈다.
+      - ${APP_WEB_DIR:-/home/ubuntu/app-web}:/srv/app:ro
       - caddy-data:/data
       - caddy-config:/config
     networks:

@@ -26,9 +26,12 @@ describe("getChildStoreOpenStatus", () => {
     expect(getChildStoreOpenStatus(breakTime, at(MON, "12:00"))).toBe("OPEN");
   });
 
-  it("오늘 아직 열 시간이 남았으면 영업 전이다 — 브레이크타임 포함", () => {
+  it("오늘 아직 한 번도 안 열었으면 영업 전이다", () => {
     expect(getChildStoreOpenStatus(breakTime, at(MON, "09:00"))).toBe("BEFORE_OPEN");
-    expect(getChildStoreOpenStatus(breakTime, at(MON, "15:00"))).toBe("BEFORE_OPEN");
+  });
+
+  it("브레이크타임(열었다가 다시 열 시간이 남음)이면 쉬는중이다", () => {
+    expect(getChildStoreOpenStatus(breakTime, at(MON, "15:00"))).toBe("BREAK");
   });
 
   it("오늘 영업이 다 끝났으면 영업종료다", () => {

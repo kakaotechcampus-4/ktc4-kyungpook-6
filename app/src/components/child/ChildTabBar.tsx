@@ -13,7 +13,7 @@ import meIcon from "../../assets/child-tab-me-icon.svg";
 const TABS: { label: string; icon: string; activeIcon?: string; path: string | null }[] = [
   { label: "홈", icon: homeIcon, activeIcon: homeActiveIcon, path: "/child/home" },
   { label: "가게 목록", icon: storesIcon, activeIcon: storesActiveIcon, path: "/child/stores" },
-  { label: "내 QR", icon: qrIcon, path: null },
+  { label: "내 QR", icon: qrIcon, path: "/child/qr" },
   { label: "내 정보", icon: meIcon, path: null },
 ];
 

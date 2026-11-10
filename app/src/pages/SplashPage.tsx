@@ -1,8 +1,9 @@
 import SplashBrand from "../components/splash/SplashBrand";
 import { useSplashRedirect } from "../hooks/splash";
+import { SPLASH_NEXT_PATH } from "../appRole";
 
 function SplashPage() {
-  useSplashRedirect("/role-select");
+  useSplashRedirect(SPLASH_NEXT_PATH);
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center bg-[#e3b23c] px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">

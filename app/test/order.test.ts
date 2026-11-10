@@ -61,7 +61,7 @@ describe("applyMockAction", () => {
     });
   });
 
-  it("조리 완료는 전달 완료로 바꾸고 완료 시각을 채운다", () => {
+  it("조리 완료는 DONE 으로 바꾸고 완료 시각을 채운다", () => {
     expect(applyMockAction(order(1, "COOKING"), "complete", at)).toMatchObject({ status: "DONE", completedAt: at });
   });
 

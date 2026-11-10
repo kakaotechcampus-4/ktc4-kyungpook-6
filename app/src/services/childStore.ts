@@ -1,11 +1,8 @@
 import defaultStorePhoto from "../assets/child-store-thumb.jpg";
-import type { BusinessHour } from "./store";
+import { getRequest } from "./api";
+import type { BusinessHour, CompanionPolicy, OpenMode } from "./store";
 
-/**
- * 점주가 가게 정보에서 고르는 동반 인원. 아이 본인만(NONE)이면 배지를 띄우지 않는다.
- * TODO(점주 앱에 동반 인원 선택이 생기면): 그쪽 값과 이름을 맞춘다.
- */
-export type CompanionPolicy = "NONE" | "ONE" | "TWO";
+export type { CompanionPolicy };
 
 /** 위치를 받지 못했을 때 지도의 기준점(경북대 근처). 목업 가게 거리도 이 점에서 잰 값이다. */
 export const DEFAULT_CHILD_LOCATION = { lat: 35.8906, lng: 128.612 };
@@ -44,6 +41,66 @@ export type ChildStoreMenu = {
   onSale: boolean;
 };
 
+/** 이 거리(m) 안의 가게만 목록·지도에 띄운다. 주변 가게 API 의 반경으로 보낸다(서버 기본값과 같다). */
+export const NEARBY_RADIUS_METERS = 2000;
+
+/** 백엔드 NearbyStoreResponse. 가게·메뉴 사진은 담지 않는다. */
+type NearbyStoreResponse = {
+  storeId: number;
+  name: string;
+  addressRoad: string;
+  lat: number;
+  lng: number;
+  distanceMeters: number;
+  phone: string | null;
+  openMode: OpenMode;
+  manualOpen: boolean;
+  businessHours: BusinessHour[];
+  menus: ChildStoreMenu[];
+  companion: CompanionPolicy;
+  takeoutAvailable: boolean;
+  dineInAvailable: boolean;
+  ownerNote: string | null;
+};
+
+/** 목록에 보이는 짧은 주소. 맨 앞의 시·도("대구광역시")를 뗀다. 시·도로 시작하지 않으면 그대로. */
+export const toShortAddress = (addressRoad: string) => {
+  const [first, ...rest] = addressRoad.trim().split(/\s+/);
+  return rest.length > 0 && /(시|도)$/.test(first) ? rest.join(" ") : addressRoad.trim();
+};
+
+const toChildStore = (store: NearbyStoreResponse): ChildStore => ({
+  storeId: store.storeId,
+  name: store.name,
+  addressShort: toShortAddress(store.addressRoad),
+  distanceMeters: store.distanceMeters,
+  lat: store.lat,
+  lng: store.lng,
+  // 사진은 API 에 없어 모든 가게가 기본 사진이다.
+  photoUrl: defaultStorePhoto,
+  takeoutAvailable: store.takeoutAvailable,
+  dineInAvailable: store.dineInAvailable,
+  companion: store.companion,
+  openMode: store.openMode,
+  manualOpen: store.manualOpen,
+  businessHours: store.businessHours,
+  phone: store.phone ?? "",
+  ownerNote: store.ownerNote || null,
+  menus: store.menus,
+});
+
+/**
+ * 주변 가게(GET /api/stores/nearby). 반경 안의 가게를 가까운 순으로, 거리와 함께 준다. 아동 토큰이 필요하다.
+ * 가게 상세 API 는 따로 없어 가게 정보·주문 화면도 이 목록에서 찾는다(hooks/childNearbyStores.ts).
+ * 영업 상태는 서버가 계산하지 않는다. 앱이 openMode·manualOpen·영업시간으로 계산한다(utils/childStoreStatus.ts).
+ */
+export const getNearbyStores = async ({ lat, lng }: { lat: number; lng: number }) => {
+  const stores = await getRequest<NearbyStoreResponse[]>("/api/stores/nearby", {
+    params: { lat, lng, radius: NEARBY_RADIUS_METERS },
+  });
+  return stores.map(toChildStore);
+};
+
 /** 메뉴 이름 목록을 메뉴로 만든다. 이름 앞에 "-" 를 붙이면 오늘 판매하지 않는 메뉴. */
 const menusOf = (storeId: number, ...names: string[]): ChildStoreMenu[] =>
   names.map((name, index) => ({
@@ -59,10 +116,9 @@ const hoursOf = (days: readonly BusinessHour["day"][], ...ranges: [string, strin
   days.flatMap((day) => ranges.map(([open, close]) => ({ day, open, close })));
 
 /*
-  백엔드에 아동용 가게 목록 API 가 아직 없어서 피그마 시안의 가게로 화면을 채운다.
+  VITE_STORE_MOCK=true 로 백엔드 없이 화면을 볼 때 쓰는 가게. 피그마 시안의 가게다.
   영업 상태가 골고루 보이도록 영업시간을 다르게 두었다(24시간, 자정 넘김, 브레이크타임, 주말만, 직접 끔).
   위치(lat·lng)는 경북대 북문(DEFAULT_CHILD_LOCATION) 둘레에 거리와 대략 맞게 두었다.
-  TODO(가게 목록 API 가 생기면): 이 목업을 지우고 API 를 부른다. 거리도 서버가 계산해 준다.
 */
 export const MOCK_CHILD_STORES: ChildStore[] = [
   {
@@ -256,6 +312,3 @@ export const MOCK_CHILD_STORES: ChildStore[] = [
     menus: menusOf(10, "돼지국밥"),
   },
 ];
-
-/** 가게 정보 화면에서 쓰는 가게 하나. 없는 번호면 undefined. */
-export const findMockChildStore = (storeId: number) => MOCK_CHILD_STORES.find((store) => store.storeId === storeId);

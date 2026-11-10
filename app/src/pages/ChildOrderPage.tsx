@@ -14,6 +14,7 @@ const RECEIVE_OPTIONS: { type: OrderReceiveType; label: string }[] = [
 function ChildOrderPage() {
   const {
     store,
+    isLoading,
     isOpen,
     selectedMenuId,
     selectMenu,
@@ -22,8 +23,10 @@ function ChildOrderPage() {
     isReceiveTypeAvailable,
     canSubmit,
     submit,
+    errorMessage,
   } = useChildOrder();
 
+  if (isLoading) return <main className="min-h-screen bg-white" />;
   if (!store) return <Navigate to="/child/stores" replace />;
   // 주소로 바로 들어왔는데 영업중이 아니면 가게 정보로 돌려보낸다. 주문하기 버튼이 꺼져 있는 곳이다.
   if (!isOpen) return <Navigate to={`/child/stores/${store.storeId}`} replace />;
@@ -79,6 +82,11 @@ function ChildOrderPage() {
       </div>
 
       <div className="px-5 pt-3 pb-[calc(30px+env(safe-area-inset-bottom))]">
+        {errorMessage && (
+          <p role="alert" className="pb-3 text-center text-[13px] leading-[normal] text-[#e5484d]">
+            {errorMessage}
+          </p>
+        )}
         <PrimaryButton disabled={!canSubmit} onClick={submit}>
           주문하기
         </PrimaryButton>
