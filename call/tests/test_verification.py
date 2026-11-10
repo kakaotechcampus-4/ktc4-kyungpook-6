@@ -594,6 +594,45 @@ class ProviderTests(unittest.TestCase):
         self.assertNotEqual(a,c); self.assertEqual(len(seen),2)
         self.assertEqual(seen[1].url.path,'/v1/text-to-speech/another-voice')
 
+    def test_tts_quota_exhaustion_uses_local_voice_and_caches_it(self):
+        seen=[]
+        def handler(req):
+            seen.append(req)
+            return httpx.Response(402,json={'detail':{'code':'insufficient_credits'}})
+        p=self.provider(handler)
+        generated=[]
+        def local_audio(command,**kwargs):
+            generated.append(command)
+            Path(command[command.index('-w')+1]).write_bytes(b'RIFF-local-audio')
+        with patch('verification.providers.subprocess.run',side_effect=local_audio):
+            first=p.synthesize('안녕하세요. <break time="0.2s" /> 다음입니다.',self.folder)
+            second=p.synthesize('두 번째 문장.',self.folder)
+            again=p.synthesize('안녕하세요. <break time="0.2s" /> 다음입니다.',self.folder)
+        self.assertEqual(first,again)
+        self.assertEqual(first.suffix,'.wav')
+        self.assertEqual(len(seen),1)
+        self.assertEqual(len(generated),2)
+        self.assertEqual(generated[0][-1],'안녕하세요.   다음입니다.')
+        self.assertEqual(generated[0][generated[0].index('-v')+1],'ko')
+        self.assertNotEqual(first,second)
+        self.assertTrue(p.elevenlabs_exhausted)
+
+    def test_tts_only_falls_back_for_quota_errors(self):
+        for status,detail in ((401,{'status':'quota_exceeded'}),
+                              (400,{'code':'insufficient_credits'})):
+            p=self.provider(lambda req:httpx.Response(status,json={'detail':detail}))
+            with patch.object(p,'synthesize_local',return_value=self.folder/'local.wav') as local:
+                self.assertEqual(p.synthesize('안녕하세요.',self.folder),self.folder/'local.wav')
+                local.assert_called_once()
+        for status,detail in ((401,{'status':'invalid_api_key'}),
+                              (429,{'code':'rate_limit_exceeded'}),
+                              (500,{'code':'internal_error'})):
+            p=self.provider(lambda req:httpx.Response(status,json={'detail':detail}))
+            with patch.object(p,'synthesize_local') as local:
+                with self.assertRaises(httpx.HTTPStatusError):
+                    p.synthesize('안녕하세요.',self.folder)
+                local.assert_not_called()
+
     def test_tts_pause_rule_skips_decimals_and_existing_breaks(self):
         tag='<break time="0.2s" />'
         self.assertEqual(with_tts_pauses('0.98입니다.다음은? 네! 끝.'),

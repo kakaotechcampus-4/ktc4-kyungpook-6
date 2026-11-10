@@ -15,11 +15,11 @@ from pydantic import SecretStr
 from .config import Settings
 from .dialogue import static_template_texts, validate_policy
 from .hardware.audio import PhoneAudio
-from .providers import Providers, tts_cache_path
+from .providers import Providers, local_tts_cache_path, tts_cache_path
 
 
-# Shared cache entries are content addressed: <sha256>.mp3 and its <sha256>.8k.wav.
-CACHE_FILE = re.compile(r'^(?P<digest>[0-9a-f]{64})\.(?:mp3|8k\.wav)$')
+# Shared cache entries are content addressed: ElevenLabs MP3 or local WAV and 8k WAV.
+CACHE_FILE = re.compile(r'^(?P<digest>[0-9a-f]{64})\.(?:mp3|wav|8k\.wav)$')
 
 
 @dataclass
@@ -76,27 +76,36 @@ def build_cache(policy: dict, folder: Path, provider: Providers, audio: PhoneAud
     keep = set()
     for index, text in enumerate(texts, 1):
         mp3 = tts_cache_path(text, folder, settings.elevenlabs_voice_id, settings.tts_model)
-        keep.add(mp3.stem)
-        wav = mp3.with_suffix('.8k.wav')
-        mp3_ready = mp3.is_file() and mp3.stat().st_size > 0
-        wav_ready = wav.is_file() and wav.stat().st_size > 0
-        if not force and mp3_ready and wav_ready:
+        local = local_tts_cache_path(text, folder,
+                                     getattr(settings, 'local_tts_voice', 'ko'),
+                                     getattr(settings, 'local_tts_speed', 160))
+        keep.update((mp3.stem, local.stem))
+        primary_ready = (mp3.is_file() and mp3.stat().st_size > 0 and
+                         mp3.with_suffix('.8k.wav').is_file() and
+                         mp3.with_suffix('.8k.wav').stat().st_size > 0)
+        local_ready = (local.is_file() and local.stat().st_size > 0 and
+                       local.with_suffix('.8k.wav').is_file() and
+                       local.with_suffix('.8k.wav').stat().st_size > 0)
+        if not force and (primary_ready or provider.elevenlabs_exhausted and local_ready):
             counts.skipped += 1
             continue
         if force:
             # Keep the previous pair intact if synthesis or conversion fails.
             with tempfile.TemporaryDirectory(prefix='.tts-rebuild-', dir=folder) as temporary:
                 staging = Path(temporary)
-                new_mp3 = provider.synthesize(text, staging)
-                new_wav = audio.prepare_playback(new_mp3, staging)
-                os.replace(new_mp3, mp3)
-                os.replace(new_wav, wav)
+                source = provider.synthesize(text, staging)
+                new_wav = audio.prepare_playback(source, staging)
+                os.replace(source, folder / source.name)
+                os.replace(new_wav, folder / new_wav.name)
             counts.synthesized += 1
             counts.converted += 1
         else:
+            previous = {path.name for path in (mp3, local) if path.is_file() and path.stat().st_size}
             source = provider.synthesize(text, folder)
+            wav = source.with_suffix('.8k.wav')
+            wav_ready = wav.is_file() and wav.stat().st_size > 0
             audio.prepare_playback(source, folder, force=not wav_ready)
-            counts.synthesized += int(not mp3_ready)
+            counts.synthesized += int(source.name not in previous)
             counts.converted += int(not wav_ready)
         print(f'[{index}/{counts.total}] {text}', flush=True)
     if prune:
@@ -129,6 +138,8 @@ def main(argv=None) -> int:
     data_dir = Path(os.getenv('DATA_DIR', str(defaults['data_dir'].default)))
     settings = SimpleNamespace(
         elevenlabs_api_key=SecretStr(api_key), elevenlabs_voice_id=voice_id,
+        local_tts_voice=os.getenv('LOCAL_TTS_VOICE', defaults['local_tts_voice'].default),
+        local_tts_speed=int(os.getenv('LOCAL_TTS_SPEED', defaults['local_tts_speed'].default)),
         tts_model=os.getenv('TTS_MODEL', defaults['tts_model'].default),
         http_timeout=float(os.getenv('HTTP_TIMEOUT', defaults['http_timeout'].default)),
     )

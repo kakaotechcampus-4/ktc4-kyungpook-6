@@ -110,9 +110,12 @@ class Session:
 
     def prepare(self, text):
         if text not in self.prepared:
-            with self.log.span('tts.prepare', turn=self.turn):
+            with self.log.span('tts.prepare', turn=self.turn) as result:
                 cache = self.shared_cache if text in self.static_texts else self.folder
                 source = self.providers.synthesize(text,cache)
+                result['provider'] = ('local' if source.suffix == '.wav' and
+                                      getattr(self.providers, 'elevenlabs_exhausted', False)
+                                      else 'elevenlabs')
                 self.prepared[text] = self.audio.prepare_playback(source,cache,turn=self.turn)
         return self.prepared[text]
 
