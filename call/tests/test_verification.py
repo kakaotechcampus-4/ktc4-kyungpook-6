@@ -15,11 +15,12 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from verification.api import create_app
 from verification.config import Settings
-from verification.dialogue import Dialogue
+from verification.dialogue import Dialogue, validate_policy
 from verification.models import CallRequest, CustomReply, Interpretation, ValueExtraction
 from verification.providers import Providers, with_tts_pauses
 from verification.store import Store, QueueFull
 from verification.worker import Worker
+from verification.runtime import ResultSaveFailure
 
 ROOT = Path(__file__).resolve().parents[1]
 PAYLOAD = json.loads((ROOT/'examples/request.json').read_text())
@@ -125,8 +126,25 @@ class DialogueTests(unittest.TestCase):
             path.write_text(json.dumps(policy,ensure_ascii=False))
             d=Dialogue(request(),path)
             prepared=d.prewarm_texts()
-            for name in ('identityRetry','expected','current'):
+            for name in ('greeting','identityRetry','expected','current'):
                 self.assertFalse(set(d.template_variants(name)) & set(prepared))
+
+    def test_question_variant_is_stable_during_retry(self):
+        d=self.identified()
+        first=d.active_question
+        retry=d.apply('못 알아들었어요',Interpretation())
+        self.assertIn(first,retry.text)
+        self.assertEqual(d.question(),first)
+        d.apply('아니요',Interpretation(kind='NO'))
+        current=d.active_question
+        self.assertNotEqual(current,first)
+        self.assertEqual(d.question(),current)
+
+    def test_validation_rejects_variable_not_passed_to_template(self):
+        policy=json.loads((ROOT/'agent.json').read_text())
+        policy['templates']['goodbye']='확인했습니다. {value}'
+        with self.assertRaisesRegex(ValueError,'goodbye'):
+            validate_policy(policy)
 
     def test_expected_confirmation_and_goodbye(self):
         d=self.identified()
@@ -152,6 +170,9 @@ class DialogueTests(unittest.TestCase):
         self.assertEqual(d.stage,'VALUE')
         d.apply('다온식당입니다',Interpretation(kind='VALUE',value='다온식당',evidence='다온식당'))
         d.apply('네',Interpretation(kind='YES'))
+        self.assertFalse(d.answers)
+        self.assertIn('다시 한번 말씀',d.last_text)
+        d.apply('네 다온식당 맞습니다',Interpretation(kind='YES'))
         self.assertEqual(d.answers[0]['value'],'다온식당')
 
     def test_missing_or_fabricated_evidence_not_saved(self):
@@ -279,6 +300,42 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(store.get(a)['status'],'FAILED')
         store.enqueue(request())
 
+    def test_recorded_completion_survives_restart_after_finish_failure(self):
+        cid=self.store.enqueue(request())
+        self.store.claim()
+        self.store.started(cid)
+        self.store.save_answers(cid,[{'questionId':'q1','field':'storeName','value':'다온식당'}])
+        self.store.record_outcome(cid)
+        reopened=Store(self.store.path)
+        reopened.recover()
+        self.assertEqual(reopened.get(cid)['status'],'COMPLETED')
+        self.assertIsNone(reopened.get(cid)['failureReason'])
+        self.assertEqual(reopened.get(cid)['answers'][0]['value'],'다온식당')
+
+    def test_existing_calls_table_adds_outcome_columns(self):
+        legacy=self.folder/'legacy.db'
+        with sqlite3.connect(legacy) as db:
+            db.execute('''CREATE TABLE calls (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL,
+                request TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING',
+                claimed INTEGER NOT NULL DEFAULT 0, answers TEXT NOT NULL DEFAULT '[]',
+                created TEXT NOT NULL, started TEXT, connected TEXT, ended TEXT, reason TEXT)''')
+        migrated=Store(legacy)
+        cid=migrated.enqueue(request())
+        migrated.claim()
+        migrated.record_outcome(cid)
+        migrated.recover()
+        self.assertEqual(migrated.get(cid)['status'],'COMPLETED')
+
+    def test_old_pending_request_expires_without_dial(self):
+        stale=self.store.enqueue(request())
+        fresh=self.store.enqueue(request())
+        with self.store.connect() as db:
+            db.execute("UPDATE calls SET created='2020-01-01T00:00:00+00:00' WHERE id=?",(stale,))
+        self.assertEqual(self.store.claim()[0],fresh)
+        self.assertEqual(self.store.get(stale)['failureReason'],'QUEUE_EXPIRED')
+        self.assertEqual(self.store.get(stale)['status'],'FAILED')
+
     def test_concurrent_enqueue_and_claim_once(self):
         with ThreadPoolExecutor(max_workers=8) as pool:
             ids=list(pool.map(lambda _:self.store.enqueue(request()),range(20)))
@@ -333,6 +390,33 @@ class StoreTests(unittest.TestCase):
             self.assertGreaterEqual(attempts['claim'],2)
             self.assertGreaterEqual(attempts['finish'],2)
         finally: w.stop()
+
+    def test_permanent_finish_failure_marks_worker_unhealthy_and_stops_claiming(self):
+        first=self.store.enqueue(request())
+        second=self.store.enqueue(request())
+        seen=[]
+        original_finish=self.store.finish
+        def broken_finish(call_id,reason=None):
+            raise sqlite3.OperationalError('disk full')
+        def runner(call_id,req,stop):
+            seen.append(call_id)
+            self.store.record_outcome(call_id)
+            raise ResultSaveFailure(None)
+        self.store.finish=broken_finish
+        worker=Worker(self.store,runner,self.folder/'modem.lock')
+        worker.start()
+        try:
+            deadline=time.monotonic()+2
+            while not worker.save_blocked.is_set() and time.monotonic()<deadline:
+                time.sleep(.01)
+            self.assertTrue(worker.save_blocked.is_set())
+            self.assertEqual(seen,[first])
+            with self.store.connect() as db:
+                self.assertEqual(db.execute('SELECT claimed FROM calls WHERE id=?',
+                                            (second,)).fetchone()[0],0)
+        finally:
+            self.store.finish=original_finish
+            worker.stop()
 
     def test_second_process_worker_lock_rejected(self):
         a=Worker(self.store,Mock(),self.folder/'modem.lock'); a.start()
@@ -568,6 +652,12 @@ class APITests(unittest.TestCase):
                 self.assertEqual(client.get('/v1/verification-call/not-a-uuid',headers=headers).status_code,422)
                 self.assertEqual(client.post('/v1/verification-call',json={},headers=headers).status_code,422)
                 self.assertEqual(client.get('/healthz').status_code,200)
+                client.app.state.worker.save_blocked.set()
+                self.assertEqual(client.get('/healthz').status_code,503)
+                self.assertEqual(client.get('/healthz').json()['status'],'result_storage_unavailable')
+                self.assertEqual(client.post('/v1/verification-call',json=PAYLOAD,
+                                             headers=headers).status_code,503)
+                client.app.state.worker.save_blocked.clear()
                 self.assertIn('/v1/verification-call',client.get('/openapi.json').json()['paths'])
 
 if __name__=='__main__': unittest.main()

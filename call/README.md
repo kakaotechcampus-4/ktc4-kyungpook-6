@@ -61,7 +61,7 @@ Docker로 실행 중이라면 `docker compose exec verification /app/cache-tts.s
 
 ## HTTP API
 
-모든 통화 API에 `Authorization: Bearer <VERIFICATION_API_KEY>`가 필요합니다. `/healthz`는 인증 없이 worker 생존 여부만 반환합니다.
+모든 통화 API에 `Authorization: Bearer <VERIFICATION_API_KEY>`가 필요합니다. `/healthz`는 인증 없이 worker 생존 및 결과 저장 가능 여부를 반환합니다. 결과 저장이 계속 실패하면 503 `result_storage_unavailable`을 반환하고 새 통화 접수도 503으로 거부합니다.
 
 호출 시스템의 기본 흐름은 다음과 같습니다.
 
@@ -130,7 +130,7 @@ curl --fail-with-body \
 | COMPLETED | 모든 필드를 확인하고 통화를 마침 |
 | FAILED | 연결 실패, 확인 미완료, 응답 거부, 기술적 실패 등 |
 
-주요 `failureReason`: `CONNECTION_FAILED`, `NO_ANSWER_OR_REJECTED`, `WRONG_TARGET`, `IDENTITY_UNCONFIRMED`, `USER_REQUESTED_STOP`, `REMOTE_HANGUP`, `INPUT_TIMEOUT`, `WAIT_TIMEOUT`, `CALL_TIME_LIMIT`, `TURN_LIMIT`, `PROCESSING_ERROR`, `SERVER_RESTARTED`, `SERVER_SHUTDOWN`.
+주요 `failureReason`: `CONNECTION_FAILED`, `NO_ANSWER_OR_REJECTED`, `WRONG_TARGET`, `IDENTITY_UNCONFIRMED`, `USER_REQUESTED_STOP`, `REMOTE_HANGUP`, `INPUT_TIMEOUT`, `WAIT_TIMEOUT`, `QUEUE_EXPIRED`, `CALL_TIME_LIMIT`, `TURN_LIMIT`, `PROCESSING_ERROR`, `SERVER_RESTARTED`, `SERVER_SHUTDOWN`.
 
 통화 도중 종료를 요청하면 인사 후 종료하며 미수집 항목이 있으면 FAILED입니다. 그 전에 확인한 답변은 보존합니다. 모든 답변을 수집한 뒤 마무리 중 종료를 요청하거나 상대방이 먼저 끊으면 COMPLETED입니다. STT/TTS/Jev 등의 기술적 실패는 부분 답변과 함께 FAILED로 남깁니다. 기술적 실패 후 자동 재발신은 하지 않습니다.
 
@@ -158,6 +158,7 @@ STT 입력은 **항상 FFmpeg로 16kHz / mono / PCM16 WAV로 변환**합니다. 
 상태 머신이 질문 진행과 완료 여부를 관리합니다. Jev는 각 발화를 `YES/NO/VALUE/CUSTOM/UNCLEAR`와 `STOP/WAIT/CONTINUE/REPEAT`로 분류합니다. 확신도 기준 이상인 `YES/NO/UNCLEAR`는 상태 머신에 바로 전달합니다. `VALUE`이면 LLM은 발화에 명시된 값과 원문 근거만 추출하고, 상태 머신이 기존 값·예상 값과 비교해 저장 또는 복창 여부를 정합니다. 값이 불명확하거나 Jev의 답변 판정 신뢰도가 낮으면 LLM을 호출하지 않고 `retry` 또는 관계자 확인 단계의 `identityRetry`로 재질문합니다. `REPEAT`는 상대방이 명시적으로 다시 말해 달라고 요청했다고 Jev가 기준 신뢰도 이상으로 판정했을 때만 사용하며, `repeat` 문구로 방금 말한 질문을 다시 읽습니다. `CUSTOM`은 확인 통화와 관련된 별도 질문을 위한 경로입니다. LLM이 전체 대화 이력, 대상 매장 정보, `agent.json`의 지식을 받아 `reply` 문장만 생성하고 상태 머신이 현재 질문을 다시 붙여 발화합니다. 근거가 부족하면 확인할 수 없다고 답합니다. 이 과정에서 질문 단계·후보값·저장된 답변은 바뀌지 않습니다. Jev가 프롬프트 인젝션이나 확인 업무와 무관한 요청으로 판정하면 LLM 호출 없이 `retry` 문구로 재질문합니다. LLM 결과는 Pydantic으로 검증합니다.
 
 - 먼저 대상 매장 관계자인지 확인합니다. 이때의 “네”를 첫 질문의 답으로 저장하지 않습니다. 부정하면 종료하고, 확인 불가가 반복되면 FAILED로 마칩니다.
+- 새 문자열 값을 복창하는 READBACK 단계에서는 단순 “네”만으로 저장하지 않고, 상대방이 값을 다시 말해야 확정합니다. 이때 Jev의 YES 신뢰도 기준은 기본 0.9입니다.
 - VALUE_CONFIRMATION은 예상 값이 현재 사실인지 묻습니다. 예상 값에 “아니요”라고 하면 현재 등록 값을 다시 묻습니다. 문자열에서 예상 값 부정만으로 기존 값이 맞다고 단정하지 않습니다.
 - CHANGE_DETECTION은 각 필드를 순서대로 확인합니다. 변경됐다고 하면 현재 값을 묻습니다.
 - 새 문자열·boolean 값을 들으면 복창하고 확인을 받아 저장합니다. 명시적 CURRENT/EXPECTED 답변은 발화 속 근거 문자열이 있는지 검증합니다. Boolean `false`를 누락이나 문자열로 바꾸지 않습니다.
@@ -174,7 +175,7 @@ STT 입력은 **항상 FFmpeg로 16kHz / mono / PCM16 WAV로 변환**합니다. 
 2. Jev는 음성 인식 오류처럼 무의미한 입력인지 `irrelevant`로 판정하고, 공격·업무 외 요청인지 `unsafe_custom`으로 검사하며, `STOP/WAIT/CONTINUE/REPEAT`와 `YES/NO/VALUE/CUSTOM/UNCLEAR`를 함께 고릅니다. 발화 시작 시각이 TTS 재생 구간과 겹쳤으면 `interrupt`, `backchannel`도 같은 요청에서 판정합니다.
 3. 명백히 무관한 입력은 `turn.ignored`로 기록하고 대화에 반영하지 않습니다. 재생 중인 TTS는 계속 출력합니다. 모호한 판정은 무시하지 않습니다.
 4. 중단 의도가 기준값 이상이면 송신 재생을 중지합니다. **동일 STT 텍스트**를 재사용해 대화를 진행합니다. 단순 추임새면 재생을 유지하고 텍스트를 버퍼에 보관합니다. 예를 들어 “네네” 다음에 “아직 땡땡식당입니다”가 들어오면 다음 의미 분석 입력은 “네네 아직 땡땡식당입니다”입니다. 추임새만으로 값을 확정하지 않습니다.
-5. `STOP`이면 종료 인사 후 통화를 끊습니다. `WAIT`이면 재생을 멈추고 `agent.json`의 `waitAcknowledgement` 안내를 말한 뒤 같은 질문을 유지한 채 상대방의 다음 응답을 기다립니다. 다음 발화가 답변이면 대화를 재개하고, “이제 말씀하세요”처럼 답변이 없는 재개 신호이면 질문을 다시 읽습니다. 최초 `WAIT`부터 최대 60초(`WAIT_TIMEOUT_SECONDS`, 기본 60, 최대 60)가 지나면 종료 인사 후 끊습니다. 반복된 `WAIT`도 기한을 연장하지 않습니다. `REPEAT`이면 명시적인 재청취 요청에 한해 `agent.json`의 `repeat` 문구로 방금 말한 질문을 다시 읽고 질문 상태를 유지합니다. 인식이 불분명하면 `REPEAT`가 아니라 재질문 경로를 사용합니다. `CONTINUE`이면 일반 답변으로 처리합니다. 모호한 끼어들기 판정은 상대에게 발언권을 줍니다. Jev 실패·응답 형식 오류는 준비된 오류 안내 후 FAILED로 종료합니다.
+5. `STOP`이면 종료 인사 후 통화를 끊습니다. `WAIT`이면 재생을 멈추고 `agent.json`의 `waitAcknowledgement` 안내를 말한 뒤 같은 질문을 유지한 채 상대방의 다음 응답을 기다립니다. 다음 발화가 답변이면 대화를 재개하고, “이제 말씀하세요”처럼 답변이 없는 재개 신호이면 질문을 다시 읽습니다. 최초 `WAIT`부터 최대 60초(`WAIT_TIMEOUT_SECONDS`, 기본 60, 최대 60)가 지나면 종료 인사 후 끊습니다. 반복된 `WAIT`도 기한을 연장하지 않습니다. `REPEAT`이면 명시적인 재청취 요청에 한해 `agent.json`의 `repeat` 문구로 방금 말한 질문을 다시 읽고 질문 상태를 유지합니다. 인식이 불분명하면 `REPEAT`가 아니라 재질문 경로를 사용합니다. `CONTINUE`이면 일반 답변으로 처리합니다. 모호한 끼어들기 판정은 상대에게 발언권을 줍니다. Jev 요청이나 응답 형식이 한 번 실패하면 같은 질문을 다시 묻습니다. 연속 두 번 실패하면 준비된 오류 안내 후 FAILED로 종료합니다.
 
 STT가 끝났을 때 TTS가 이미 끝났더라도 실제 녹음 시작 시각을 사용하므로 중간 발화가 일반 응답으로 잘못 분류되는 것을 줄입니다. RMS VAD이며 별도 AEC는 없습니다. 실제 통화 환경의 에코·배경음에 따라 `SPEECH_RMS_THRESHOLD`, `SILENCE_SECONDS`, `JEV_THRESHOLD`를 조정해야 합니다.
 
@@ -182,11 +183,11 @@ STT가 끝났을 때 TTS가 이미 끝났더라도 실제 녹음 시작 시각�
 
 SQLite 자체가 FIFO 큐입니다. 접수는 트랜잭션으로 저장되고 worker 하나가 원자적으로 요청을 가져옵니다. 모뎀 잠금 파일과 DB 잠금 파일로 중복 worker 실행도 차단합니다. 서버는 반드시 `--workers 1`로 실행하고, 같은 모뎀에 컨테이너를 여러 개 띄우지 않습니다. `MODEM_LOCK_FILE`은 같은 모뎀을 사용하는 프로세스 사이에 공통 경로여야 합니다.
 
-발신 전 첫 인사와 첫 질문의 TTS·8kHz 변환을 완료합니다. `agent.json`의 템플릿을 확인해 변수가 없는 문구와 매장 정보만으로 완성되는 문구를 미리 준비하되, 관계자 재확인(`identityRetry`)과 첫 질문에 쓰이는 `expected`·`current` 템플릿은 이 일괄 준비에서 제외합니다. 첫 질문은 변형 중 하나를 무작위로 미리 골라 그 문구만 준비하고, 통화 중에도 같은 문구를 사용합니다. 관계자 재확인 문구는 실제로 필요할 때 합성합니다. `llmWait`의 대기 안내도 모두 준비하고, Jev 판정 후 LLM 값 추출이나 `CUSTOM` 답변 생성이 필요할 때 무작위 문구를 LLM 요청과 동시에 재생합니다. 이 안내는 질문 상태를 바꾸지 않습니다. 준비 실패 시 발신하지 않습니다. 연결 후에는 녹음 스트림이 준비되는 대로 캐시된 첫 인사를 재생합니다.
+발신 전 첫 인사와 첫 질문의 TTS·8kHz 변환을 완료합니다. 인사말 변형도 통화마다 하나만 선택합니다. `agent.json`의 템플릿을 확인해 변수가 없는 문구와 매장 정보만으로 완성되는 문구를 미리 준비하되, 관계자 재확인(`identityRetry`), 인사말의 다른 변형, 첫 질문에 쓰이는 `expected`·`current` 템플릿은 이 일괄 준비에서 제외합니다. 첫 질문은 변형 중 하나를 무작위로 미리 골라 그 문구만 준비하고, 통화 중에도 같은 문구를 사용합니다. 관계자 재확인 문구는 실제로 필요할 때 합성합니다. 각 질문 단계에서는 한 변형을 고정해 되물을 때 재사용합니다. `llmWait`의 대기 안내도 모두 준비하고, Jev 판정 후 LLM 값 추출이나 `CUSTOM` 답변 생성이 필요할 때 무작위 문구를 LLM 요청과 동시에 재생합니다. 이 안내는 질문 상태를 바꾸지 않습니다. 준비 실패 시 발신하지 않습니다. 연결 후에는 녹음 스트림이 준비되는 대로 캐시된 첫 인사를 재생합니다.
 
 빠른 응답을 위해 HTTP 연결 재사용, 600ms VAD, 템플릿 기반 질문과 TTS/변환 결과 캐시를 사용합니다. 변수가 없는 템플릿은 `data/tts-static/`에 MP3와 8kHz WAV를 저장해 다음 통화에서도 재사용합니다. 변수 문구는 통화별 `data/calls/<verificationId>/tts/`에 저장합니다. 공용 캐시의 파일명은 문구·음성 ID·TTS 모델·속도를 반영하므로 이 값이 바뀌면 다시 합성합니다. STT는 발화 단위, TTS는 완성된 음성 단위이며 스트리밍 추론은 아닙니다. 실제 응답 지연은 STT/Jev/LLM/TTS 서비스에 따라 달라지며 실측 성능을 보장하지 않습니다. `turn.response_ready.since_utterance_end_ms` 로그로 측정할 수 있습니다.
 
-프로세스 종료 시 진행 중 통화의 정리와 장치 해제를 기다립니다. 강제 종료 후 재시작하면 이미 worker가 가져갔던 요청은 `SERVER_RESTARTED`로 실패 처리하여 중복 발신을 피합니다. 아직 가져가지 않은 요청만 계속 처리합니다. `QUEUE_CAPACITY`는 진행 중 요청을 포함한 상한입니다.
+프로세스 종료 시 진행 중 통화의 정리와 장치 해제를 기다립니다. 통화 종료 결과는 최종 상태 기록 전에 별도 트랜잭션으로 남겨 재시작 후에도 완료 여부를 복구합니다. 종료 결과 자체를 기록하지 못한 통화는 재시작 시 `SERVER_RESTARTED`로 실패 처리하여 중복 발신을 피합니다. 저장 장애가 계속되면 추가 발신을 멈추고 `/healthz`와 새 통화 접수를 503으로 응답합니다. 아직 가져가지 않은 요청은 `PENDING_MAX_AGE_SECONDS`(기본 900초) 이내일 때만 발신하고, 지난 요청은 `QUEUE_EXPIRED`로 종료합니다. `QUEUE_CAPACITY`는 진행 중 요청을 포함한 상한입니다.
 
 ## 파일 구조와 테스트
 

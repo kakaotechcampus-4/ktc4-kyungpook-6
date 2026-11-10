@@ -489,7 +489,7 @@ class RuntimeTests(unittest.TestCase):
     def test_value_turn_speaks_wait_phrase_while_llm_extracts_value(self):
         result=self.run_call([{'play':1,'text':'네 관계자입니다'},
                               {'play':2,'text':'다온식당이에요'},
-                              {'play':4,'text':'네 맞습니다'}])
+                              {'play':4,'text':'네 다온식당 맞습니다','answer':'YES'}])
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(result['answers'][0]['value'],'다온식당')
         self.assertEqual(self.providers.inputs,['다온식당이에요'])
@@ -604,7 +604,8 @@ class RuntimeTests(unittest.TestCase):
 
     def test_correction_during_final_readback_reopens_last_answer(self):
         result=self.run_call([{'play':1,'text':'네 관계자'},{'play':2,'text':'네 맞아요'},
-                             {'play':3,'text':'아니요 다온식당이에요'},{'play':4,'text':'네 맞아요'}])
+                             {'play':3,'text':'아니요 다온식당이에요'},
+                             {'play':4,'text':'네 다온식당 맞아요','answer':'YES'}])
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(result['answers'][0]['value'],'다온식당')
 
@@ -660,6 +661,21 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(len(providers.classified),2)
             finally: worker.stop()
 
+    def test_completed_call_recovers_after_finish_keeps_failing(self):
+        import sqlite3
+        from verification.runtime import ResultSaveFailure
+        self.store.finish=lambda call_id,reason=None: (_ for _ in ()).throw(
+            sqlite3.OperationalError('disk full'))
+        with redirect_stdout(io.StringIO()), self.assertRaises(ResultSaveFailure):
+            self.run_call([{'play':1,'text':'네 관계자'},
+                           {'play':2,'text':'네 맞습니다'}])
+        reopened=Store(self.store.path)
+        reopened.recover()
+        result=reopened.get(self.cid)
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertIsNone(result['failureReason'])
+        self.assertEqual(result['answers'][0]['value'],'새봄식당')
+
     def test_no_answer_releases_modem(self):
         with self.assertRaisesRegex(CallFailure,'NO_ANSWER_OR_REJECTED'): self.run_call([],answer=False)
         self.assertTrue(self.modem.closed)
@@ -678,9 +694,32 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(self.audio.closed); self.assertTrue(self.modem.closed)
 
     def test_jev_failure_uses_cached_apology_and_cleans_up(self):
-        with self.assertRaises(RuntimeError): self.run_call([{'play':1,'text':'끊어주세요'}],fail_jev=True)
+        with self.assertRaises(RuntimeError): self.run_call([
+            {'play':1,'text':'네 관계자입니다'}, {'play':2,'text':'네 관계자입니다'}],fail_jev=True)
         self.assertTrue(self.modem.closed); self.assertTrue(self.audio.closed)
-        self.assertEqual(len([e for e in self.events if e[0]=='play']),2)
+        self.assertEqual(len([e for e in self.events if e[0]=='play']),3)
+
+    def test_one_jev_failure_reasks_without_ending_call(self):
+        class OnceFailingProviders(FakeProviders):
+            def classify_utterance(self,*args,**kwargs):
+                if not hasattr(self,'failed_once'):
+                    self.failed_once=True
+                    raise RuntimeError('temporary Jev timeout')
+                return super().classify_utterance(*args,**kwargs)
+        result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                              {'play':2,'text':'네 관계자입니다'},
+                              {'play':3,'text':'네 맞습니다'}],provider_class=OnceFailingProviders)
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(len(result['answers']),1)
+        self.assertEqual(self.providers.classified,['네 관계자입니다','네 맞습니다'])
+
+    def test_uncertain_stop_cannot_confirm_field(self):
+        result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                              {'play':2,'text':'끊을까요','control':'STOP','control_confidence':.8,
+                               'answer':'YES'},
+                              {'play':3,'text':'끊어주세요','control':'STOP'}])
+        self.assertEqual(result['failureReason'],'USER_REQUESTED_STOP')
+        self.assertEqual(result['answers'],[])
 
     def test_stale_yes_does_not_confirm_new_field(self):
         result=self.run_call([{'play':1,'text':'네 관계자'},{'play':2,'text':'네', 'started':.001},
