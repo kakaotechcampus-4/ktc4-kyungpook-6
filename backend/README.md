@@ -1,37 +1,40 @@
-# ktc4-backend 실행 가이드
+# backend — API 서버
 
-백엔드 서버(Spring Boot)와 데이터베이스(PostgreSQL)를 내 컴퓨터에서 띄우는 방법입니다.
-
-**아래 명령어를 위에서부터 순서대로 복사해서 터미널에 붙여넣기만 하면 됩니다.**
-각 단계마다 "이게 나오면 성공"을 적어뒀으니 그것만 확인하고 다음으로 넘어가세요.
+가게·조사·인증·QR 체크인 API 서버(Spring Boot + PostgreSQL). 관리자 웹과 앱이 이 서버를 부르고,
+2차 조사는 AI 서버를 불러 맡긴다.
 
 > 맥(macOS) 기준으로 작성했습니다. 윈도우는 맨 아래 [윈도우 사용자](#윈도우-사용자) 참고.
 
 ---
 
-## 1단계. 준비물 설치 (처음 한 번만)
+## 실행
+
+**아래 명령어를 위에서부터 순서대로 복사해서 터미널에 붙여넣기만 하면 됩니다.**
+각 단계마다 "이게 나오면 성공"을 적어뒀으니 그것만 확인하고 다음으로 넘어가세요.
+
+### 1단계. 준비물 설치 (처음 한 번만)
 
 세 가지가 필요합니다. 이미 깔려 있으면 건너뛰어도 됩니다.
 
-### 1-1. JDK 21 (자바)
+#### 1-1. JDK 21 (자바)
 
 ```bash
 brew install --cask temurin@21
 ```
 
-### 1-2. Gradle (빌드 도구)
+#### 1-2. Gradle (빌드 도구)
 
 ```bash
 brew install gradle
 ```
 
-### 1-3. Docker Desktop (데이터베이스를 담는 상자)
+#### 1-3. Docker Desktop (데이터베이스를 담는 상자)
 
 ```bash
 brew install --cask docker
 ```
 
-### 설치 확인
+#### 설치 확인
 
 ```bash
 /usr/libexec/java_home -v 21
@@ -48,7 +51,7 @@ gradle -v
 
 ---
 
-## 2단계. Docker Desktop 켜기
+### 2단계. Docker Desktop 켜기
 
 Docker는 프로그램이 실행돼 있어야 데이터베이스를 띄울 수 있습니다.
 
@@ -62,7 +65,7 @@ open -a Docker
 > 고래 아이콘에 느낌표(!)가 떠 있어도 대부분 정상입니다.
 > "Resource Saver" 는 컨테이너가 없을 때 자동으로 절전하는 기능이라 그냥 두면 됩니다.
 
-### 확인
+#### 확인
 
 ```bash
 docker ps
@@ -78,31 +81,34 @@ CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
 
 ---
 
-## 3단계. 프로젝트 폴더로 이동
+### 3단계. 프로젝트 폴더로 이동
 
 clone 받은 레포 안의 `backend` 폴더로 들어갑니다.
 
 ```bash
-cd ~/Desktop/KaKaoTeamproject/backend
+cd <레포를 받은 경로>/ktc4-kyungpook-6/backend
 ```
 
-> 레포를 다른 곳에 받았다면 그 경로로 바꿔주세요.
 > 지금 어디인지 모르겠으면 `pwd` 를 쳐서 확인할 수 있습니다.
 
 **아래 4~7단계는 전부 이 폴더 안에서 실행합니다.**
 
 ---
 
-## 4단계. 데이터베이스 켜기
+### 4단계. 데이터베이스 켜기
 
 ```bash
-docker compose up -d
+docker compose up -d postgres
 ```
+
+> **끝의 `postgres` 를 빼먹지 마세요.** `docker-compose.yml` 에는 DB 와 함께 백엔드 컨테이너도
+> 들어 있어서, `docker compose up -d` 만 치면 백엔드까지 8080 에 떠 버립니다. 그러면 6단계에서
+> `Port 8080 was already in use` 가 납니다.
 
 처음 실행하면 PostgreSQL 이미지를 내려받느라 **1~3분** 걸립니다. (약 400MB)
 마지막에 `Container ktc4-postgres Started` 가 나오면 됩니다.
 
-### 확인
+#### 확인
 
 ```bash
 docker ps --filter name=ktc4-postgres --format "{{.Names}}  {{.Status}}"
@@ -117,7 +123,7 @@ ktc4-postgres  Up 25 seconds (healthy)
 
 ---
 
-## 5단계. 빌드하기
+### 5단계. 빌드하기
 
 코드가 제대로 컴파일되는지 확인하는 단계입니다.
 
@@ -138,7 +144,7 @@ BUILD SUCCESSFUL in 18s
 
 ---
 
-## 6단계. 서버 실행하기
+### 6단계. 서버 실행하기
 
 ```bash
 JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle bootRun
@@ -149,7 +155,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle bootRun
 
 ---
 
-## 7단계. 제대로 떴는지 확인
+### 7단계. 제대로 떴는지 확인
 
 6단계 로그에서 아래 **4가지를 눈으로 확인**하세요.
 
@@ -165,11 +171,17 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle bootRun
 
 네 줄이 다 보이면 **세팅 완료**입니다. 서버는 `http://localhost:8080` 에서 돌고 있습니다.
 
+API 목록은 Swagger 에서 볼 수 있습니다: `http://localhost:8080/swagger-ui/index.html`
+(작성법은 [`docs/스웨거_API_문서화_가이드.md`](docs/스웨거_API_문서화_가이드.md))
+
+> DB 표는 서버가 뜰 때 Flyway 가 `src/main/resources/db/migration/` 의 SQL 로 만듭니다.
+> 엔티티를 고쳤는데 마이그레이션을 안 쓰면 기동이 멈춥니다(`ddl-auto: validate`).
+
 ---
 
-## 끄는 방법
+### 끄는 방법
 
-### 서버 끄기
+#### 서버 끄기
 
 6단계를 실행한 터미널에서 키보드로 누르세요.
 
@@ -177,7 +189,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle bootRun
 Control + C
 ```
 
-### 데이터베이스 끄기
+#### 데이터베이스 끄기
 
 ```bash
 docker compose down
@@ -192,17 +204,110 @@ docker compose down -v
 
 ---
 
-## 두 번째부터는 이것만
+### 두 번째부터는 이것만
 
 준비물 설치(1단계)는 다시 할 필요 없습니다. Docker Desktop이 켜져 있다면 이 두 줄이면 됩니다.
 
 ```bash
-cd ~/Desktop/KaKaoTeamproject/backend && docker compose up -d
+docker compose up -d postgres
 ```
 
 ```bash
 JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle bootRun
 ```
+
+---
+
+## 테스트
+
+```bash
+./scripts/test.sh                                  # 전체
+./scripts/test.sh --tests '*BusinessServiceTest'   # 특정 테스트만
+```
+
+맥에서는 자바 21 을 알아서 골라 `gradle test` 를 돌립니다. CI 도 같은 스크립트를 씁니다.
+
+**Docker Desktop 이 켜져 있어야 합니다.** DB 를 쓰는 테스트는 Testcontainers 가 테스트용 PostgreSQL 을
+따로 띄웁니다(4단계의 DB 와는 별개).
+
+---
+
+## 환경변수
+
+로그인·관리자 계정·외부 API 를 로컬에서 써 보려면 값을 넣어야 합니다. 넣지 않아도 서버는 뜹니다.
+
+| 변수 | 비워 두면 |
+| --- | --- |
+| `JWT_SECRET` | 재시작할 때마다 로그인이 풀림 |
+| `ADMIN_EMAIL` · `ADMIN_PASSWORD` | 관리자 계정이 만들어지지 않음 |
+| `CARD_HASH_SECRET` | 아동 카드 인증만 503 |
+| `INTERNAL_API_KEY` | AI 서버가 백엔드 조회 API 를 부를 수 없고, 백엔드가 AI 를 부를 때 키를 싣지 않음 |
+| `AI_BASE_URL` | `http://localhost:8000` 의 AI 서버를 찾음 |
+| `NTS_SERVICE_KEY` · `BIZNO_API_KEY` · `KAKAO_REST_API_KEY` | 국세청 대조 · 비즈노 조회 · 좌표 채우기가 동작하지 않음 |
+
+각 값의 설명은 [`.env.example`](.env.example) 에 있습니다. 전체 목록은 `src/main/resources/application.yml` 의
+`${...}` 를 보세요.
+
+> **`gradle bootRun` 은 `.env` 파일을 읽지 않습니다.** `.env` 는 `docker compose` 만 읽습니다.
+> 직접 띄울 때는 터미널에서 넘겨 주세요.
+>
+> ```bash
+> JWT_SECRET=... ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=... \
+>   JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle bootRun
+> ```
+
+---
+
+## 폴더 구조
+
+```
+backend/
+├── build.gradle                    라이브러리 목록·빌드 설정
+├── settings.gradle                 프로젝트 이름
+├── docker-compose.yml              로컬 PostgreSQL (+ 백엔드 컨테이너)
+├── Dockerfile                      백엔드 이미지 빌드
+├── .env.example                    docker compose 용 환경변수 예시
+├── scripts/test.sh                 테스트 실행 (CI 도 사용)
+├── docs/                           백엔드 가이드 (아래 목록)
+└── src/
+    ├── main/
+    │   ├── java/com/ktc4/backend/
+    │   │   ├── BackendApplication.java  서버 실행 진입점
+    │   │   ├── domain/                  기능별 패키지 (store, job, task, member, checkin …)
+    │   │   └── global/                  공통 설정·보안·에러 처리
+    │   └── resources/
+    │       ├── application.yml          설정 (환경변수로 덮어씀)
+    │       └── db/migration/            Flyway 마이그레이션 SQL
+    └── test/                            단위·통합 테스트
+```
+
+패키지를 나누는 규칙은 [`docs/백엔드_아키텍처_가이드.md`](docs/백엔드_아키텍처_가이드.md) 를 보세요.
+
+## 문서
+
+| 문서 | 내용 |
+| --- | --- |
+| [`백엔드_코딩_컨벤션_가이드.md`](docs/백엔드_코딩_컨벤션_가이드.md) | 네이밍, Lombok, 예외 처리, 로깅 |
+| [`백엔드_아키텍처_가이드.md`](docs/백엔드_아키텍처_가이드.md) | 도메인 패키지 구조 |
+| [`Javadoc_가이드.md`](docs/Javadoc_가이드.md) | Javadoc 작성 대상과 형식 |
+| [`스웨거_API_문서화_가이드.md`](docs/스웨거_API_문서화_가이드.md) | Swagger 사용법 |
+| [`데이터_정규화_가이드.md`](docs/데이터_정규화_가이드.md) | 사업자등록번호·가게 이름·주소 정규화 |
+
+에러 응답 형식은 팀 공통 문서 [`../docs/에러_처리_가이드.md`](../docs/에러_처리_가이드.md) 에 있습니다.
+
+---
+
+## 기술 스택
+
+| 항목 | 버전 |
+| --- | --- |
+| Java | 21 |
+| Spring Boot | 3.4.2 |
+| Gradle | 9.7.1 (8.4 이상이면 동작) |
+| PostgreSQL | 16 |
+
+**주요 의존성** — Spring Web, Spring Data JPA, Validation, Spring Security + JJWT, springdoc(Swagger),
+Flyway, Lombok, PostgreSQL Driver. 테스트는 Spring Boot Test, Spring Security Test, Testcontainers
 
 ---
 
@@ -234,37 +339,9 @@ DBeaver, IntelliJ Database, TablePlus 같은 도구로 붙을 수 있습니다.
 | `Unsupported class file major version` | 자바 버전 문제입니다 → 명령어 앞에 `JAVA_HOME=$(/usr/libexec/java_home -v 21)` 를 붙였는지 확인 |
 | `Unable to find any JVM` | JDK 21이 없습니다 → 1-1 다시 |
 | `command not found: gradle` | Gradle이 없습니다 → 1-2 다시 |
-| `Port 8080 was already in use` | 서버가 이미 떠 있습니다 → 기존 터미널에서 `Control + C` |
+| `Port 8080 was already in use` | 서버가 이미 떠 있습니다 → 기존 터미널에서 `Control + C`. 백엔드 컨테이너가 떠 있으면 `docker compose stop backend` |
 
 그래도 안 되면 **에러 메시지 전체를 복사해서** 팀 채널에 올려주세요.
-
----
-
-## 기술 스택
-
-| 항목 | 버전 |
-| --- | --- |
-| Java | 21 |
-| Spring Boot | 3.4.2 |
-| Gradle | 9.7.1 (8.4 이상이면 동작) |
-| PostgreSQL | 16 |
-
-**주요 의존성** — Spring Web, Spring Data JPA, Validation, Lombok, PostgreSQL Driver
-
-## 폴더 구조
-
-```
-backend/
-├── build.gradle                    라이브러리 목록·빌드 설정
-├── settings.gradle                 프로젝트 이름
-├── docker-compose.yml              로컬 PostgreSQL 설정
-├── README.md                       이 문서
-└── src/main/
-    ├── java/com/ktc4/backend/
-    │   └── BackendApplication.java  서버 실행 진입점
-    └── resources/
-        └── application.yml          DB 접속 정보·JPA 설정
-```
 
 ---
 
@@ -284,3 +361,6 @@ backend/
 $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21"
 gradle build
 ```
+
+3. **테스트** — `scripts/test.sh` 는 bash 스크립트입니다. Git Bash 에서 돌리거나, PowerShell 에서는
+   위처럼 `JAVA_HOME` 을 맞춘 뒤 `gradle test` 를 직접 치세요.

@@ -43,15 +43,10 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
     isPending,
     isError,
     noJobYet,
-    progressLabel,
     processingTaskId,
     actionErrorMessage,
     applyChanges,
     requestOneCall,
-    callTargetCount,
-    requestAllCalls,
-    isRequestingAllCalls,
-    bulkCallSummary,
   } = useAnalysisResultPage();
   const storeEdit = useStoreEditModal();
 
@@ -68,9 +63,9 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
       <Sidebar />
 
       {/* Frame 41. Figma 112:5015 */}
-      <main className="flex min-w-px flex-1 flex-col items-start overflow-auto bg-white">
+      <main className="flex min-w-px flex-1 flex-col items-start overflow-auto bg-[#f8fafc]">
         {/* 브레드크럼. Figma 112:5016 */}
-        <div className="flex w-full shrink-0 flex-col items-start gap-1.5 border-b border-solid border-[#e2e8f0] px-4 py-3.5">
+        <div className="flex w-full shrink-0 flex-col items-start gap-1.5 border-b border-solid border-[#e2e8f0] bg-white px-4 py-3.5">
           <nav
             aria-label="현재 위치"
             className="flex shrink-0 items-center gap-1"
@@ -96,12 +91,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
           </nav>
         </div>
 
-        {(noJobYet ||
-          isError ||
-          progressLabel ||
-          callTargetCount > 0 ||
-          bulkCallSummary ||
-          actionErrorMessage) && (
+        {(noJobYet || isError || actionErrorMessage) && (
           <div className="flex w-full shrink-0 flex-wrap items-center gap-2 px-3.5 pt-3.5">
             {/*
               화면 위 알림은 모두 이 한 줄에 같은 칩으로 모은다. 예전에는 알림마다 문단을 하나씩 쌓아
@@ -119,41 +109,6 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                 tone="warning"
                 icon="material-symbols:warning-outline-rounded"
                 label="조사 결과를 불러오지 못해 목업 데이터를 표시합니다."
-              />
-            )}
-            {progressLabel && (
-              <StatusChip
-                tone="progress"
-                icon="material-symbols:progress-activity"
-                label={progressLabel}
-              />
-            )}
-            {/*
-              전화 대상이 하나도 없으면 내린다 — 눌러도 "0곳에 넣었습니다" 만 나오는 버튼이다.
-              대기열은 전화 API 가 갖고 있어서 한 번 누르면 차례대로 걸린다. 화면이 한 통씩
-              기다리며 다음을 넣지 않는다.
-            */}
-            {callTargetCount > 0 && (
-              <button
-                type="button"
-                onClick={requestAllCalls}
-                disabled={isRequestingAllCalls}
-                className="flex h-10 shrink-0 items-center justify-center gap-1 rounded-lg border border-solid border-[#3b82f6] px-3 font-sans text-sm font-semibold leading-5 text-[#3b82f6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6] disabled:opacity-60"
-              >
-                <Icon icon="material-symbols:call" className="size-4 shrink-0" />
-                전화 대상 {callTargetCount}곳에 한 번에 전화 걸기
-              </button>
-            )}
-            {/*
-              한 번에 걸기 결과는 버튼 바로 옆에 둔다 — 누른 자리에서 결과를 읽게 한다.
-              요약만 보이고 대상·건너뛴 수는 칩을 올리거나 누르면 펼친다.
-            */}
-            {bulkCallSummary && (
-              <StatusChip
-                tone="info"
-                icon="material-symbols:check-circle-outline-rounded"
-                label={bulkCallSummary.label}
-                details={bulkCallSummary.details}
               />
             )}
             {/* 반영·확인·전화 요청이 서버에서 거절됐을 때. 펼칠 세부가 없어 글자 칩으로만 둔다. */}
@@ -205,6 +160,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
                         variant={task.classification}
                         storeName={task.storeName}
                         address={task.address}
+                        phone={task.phone}
                         evidences={task.evidences}
                         changes={task.changes}
                         failureReason={task.failureReason}
