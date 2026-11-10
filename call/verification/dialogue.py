@@ -4,7 +4,39 @@ import random
 from string import Formatter
 from dataclasses import dataclass
 from pathlib import Path
-from .models import CallRequest, Confirmation, CustomReply, Interpretation, ValueExtraction
+from .models import CallRequest, Confirmation, CustomReply, Interpretation, Target, ValueExtraction
+
+REQUIRED_TEMPLATES = {'greeting','identityRetry','expected','current','askValue','readback',
+                      'ack','retry','repeat','readbackValueRetry','goodbye','stopped','wrongTarget','timeout','error',
+                      'llmWait','waitAcknowledgement'}
+
+def validate_policy(policy):
+    templates = policy['templates']
+    if not REQUIRED_TEMPLATES <= templates.keys():
+        raise ValueError('agent.json에 필수 대화 템플릿이 없습니다.')
+    target_fields = set(Target.model_fields)
+    allowed_fields = target_fields | {'naturalField','currentValue','expectedValue','value','question'}
+    template_fields = {
+        'expected': {'naturalField','currentValue','expectedValue'},
+        'current': {'naturalField','currentValue'},
+        'askValue': {'naturalField'},
+        'readback': {'naturalField','value'},
+        'ack': {'naturalField','value'},
+        'retry': {'question'},
+        'repeat': {'question'},
+        'readbackValueRetry': {'naturalField'},
+    }
+    for name, value in templates.items():
+        variants = [value] if isinstance(value, str) else value
+        if (not isinstance(variants, list) or not variants or
+                any(not isinstance(text, str) or not text.strip() for text in variants)):
+            raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
+        for text in variants:
+            fields = {field for _, field, _, _ in Formatter().parse(text) if field is not None}
+            permitted = target_fields | template_fields.get(name, set()) if name in REQUIRED_TEMPLATES else allowed_fields
+            if (not fields <= permitted or
+                    (name == 'repeat' and 'question' not in fields)):
+                raise ValueError(f'agent.json 템플릿 변수 오류: {name}')
 
 def static_template_texts(policy):
     """Return every variable-free variant that can be shared between calls."""
@@ -29,24 +61,7 @@ class Dialogue:
     def __init__(self, request: CallRequest, persona_file: Path):
         self.request = request
         self.policy = json.loads(persona_file.read_text(encoding='utf-8'))
-        required = {'greeting','identityRetry','expected','current','askValue','readback',
-                    'ack','retry','repeat','goodbye','stopped','wrongTarget','timeout','error',
-                    'llmWait','waitAcknowledgement'}
-        if not required <= self.policy['templates'].keys():
-            raise ValueError('agent.json에 필수 대화 템플릿이 없습니다.')
-        target_fields = set(self.request.target.model_dump())
-        allowed_fields = target_fields | {'naturalField','currentValue','expectedValue','value','question'}
-        for name, value in self.policy['templates'].items():
-            variants = [value] if isinstance(value, str) else value
-            if (not isinstance(variants, list) or not variants or
-                    any(not isinstance(text, str) or not text.strip() for text in variants)):
-                raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
-            for text in variants:
-                fields = {field for _, field, _, _ in Formatter().parse(text) if field is not None}
-                if (not fields <= allowed_fields or
-                        (name == 'repeat' and 'question' not in fields) or
-                        (name in ('llmWait','waitAcknowledgement') and not fields <= target_fields)):
-                    raise ValueError(f'agent.json 템플릿 변수 오류: {name}')
+        validate_policy(self.policy)
         self.items = []
         for q in request.questions:
             for field in ([q] if isinstance(q, Confirmation) else q.fields):
@@ -62,6 +77,7 @@ class Dialogue:
         self.stop_reason = None
         self.history = []
         self.first_question = None
+        self.question_choices = {}
         self.last_text = self.template('greeting')
         self.active_question = self.last_text
 
@@ -122,7 +138,10 @@ class Dialogue:
 
     def question(self):
         name, values = self.question_spec()
-        self.active_question = self.template(name, **values)
+        key = (self.index, self.stage, tuple(sorted(values.items())))
+        if key not in self.question_choices:
+            self.question_choices[key] = self.template(name, **values)
+        self.active_question = self.question_choices[key]
         return self.active_question
 
     def question_variants(self):
@@ -252,6 +271,12 @@ class Dialogue:
         item = self.item
         kind = decision.kind
         if kind == 'YES' and self.stage in ('EXPECTED','CURRENT','READBACK'):
+            if (self.stage == 'READBACK' and isinstance(self.candidate, str) and
+                    ''.join(self.candidate.split()) not in ''.join(text.split())):
+                # A bare yes cannot verify a name that STT may have misheard on the previous turn.
+                self.active_question = self.template('readbackValueRetry',
+                                                     naturalField=item['naturalField'])
+                return Reply(self.active_question)
             value = self.candidate if self.stage == 'READBACK' else item['expectedValue' if self.stage == 'EXPECTED' else 'currentValue']
             return self._commit(value)
         if kind == 'NO':

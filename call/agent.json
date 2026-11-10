@@ -38,6 +38,7 @@
       "말씀해 주신 {naturalField}이 {value}인 게 맞으실까요?",
       "확인차 다시 여쭤볼게요. {naturalField}이 {value}이라고 하셨는데, 맞을까요?"
     ],
+    "readbackValueRetry": "정확한 확인을 위해 현재 {naturalField}을 다시 한번 말씀해 주시겠어요?",
     "ack": [
       "네, 말씀해 주신 {naturalField}은 {value}으로 확인하겠습니다.",
       "네, 알겠습니다. {naturalField}은 {value}으로 확인해 두겠습니다."

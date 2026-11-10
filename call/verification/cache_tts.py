@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from pydantic import SecretStr
 
 from .config import Settings
-from .dialogue import static_template_texts
+from .dialogue import static_template_texts, validate_policy
 from .hardware.audio import PhoneAudio
 from .providers import Providers, tts_cache_path
 
@@ -84,6 +84,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     load_local_env(Path('.env'))
+    defaults = Settings.model_fields
+    persona_file = Path(os.getenv('PERSONA_FILE', str(defaults['persona_file'].default)))
+    policy = json.loads(persona_file.read_text(encoding='utf-8'))
+    validate_policy(policy)
     api_key = os.getenv('ELEVENLABS_API_KEY', '').strip()
     voice_id = os.getenv('ELEVENLABS_VOICE_ID', '').strip()
     if not api_key or not voice_id:
@@ -91,10 +95,7 @@ def main(argv=None) -> int:
     if shutil.which('ffmpeg') is None:
         parser.error('MP3를 통화용 WAV로 변환하려면 ffmpeg가 필요합니다.')
 
-    defaults = Settings.model_fields
-    persona_file = Path(os.getenv('PERSONA_FILE', str(defaults['persona_file'].default)))
     data_dir = Path(os.getenv('DATA_DIR', str(defaults['data_dir'].default)))
-    policy = json.loads(persona_file.read_text(encoding='utf-8'))
     settings = SimpleNamespace(
         elevenlabs_api_key=SecretStr(api_key), elevenlabs_voice_id=voice_id,
         tts_model=os.getenv('TTS_MODEL', defaults['tts_model'].default),

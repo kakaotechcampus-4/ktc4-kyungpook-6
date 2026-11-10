@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 from pydantic import SecretStr
 
-from verification.cache_tts import build_cache
+from verification.cache_tts import build_cache, main
 from verification.providers import Providers, tts_cache_path
 
 
@@ -82,6 +82,19 @@ class CacheTTSTests(unittest.TestCase):
             self.assertEqual((counts.synthesized, counts.converted, counts.skipped), (0, 1, 0))
             provider.http.post.assert_not_called()
             self.assertEqual(mp3.with_suffix('.8k.wav').read_bytes(), b'wav:existing')
+
+    def test_cli_rejects_bad_agent_variable_before_tts(self):
+        import json
+        import os
+        from unittest.mock import patch
+        policy=json.loads((Path(__file__).resolve().parents[1]/'agent.json').read_text())
+        policy['templates']['goodbye']='감사합니다. {missingField}'
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'agent.json'
+            path.write_text(json.dumps(policy,ensure_ascii=False))
+            with patch.dict(os.environ,{'PERSONA_FILE':str(path)},clear=False):
+                with self.assertRaisesRegex(ValueError,'goodbye'):
+                    main([])
 
 
 if __name__ == '__main__':
