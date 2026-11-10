@@ -6,7 +6,7 @@
 
 에이전트가 조사하고 가게에 직접 전화해 확인한 뒤, 담당자에게는 바뀐 것만 올립니다.
 
-<a href="https://43-202-132-85.nip.io"><img src="./docs/images/readme/btn-admin.png" height="44" alt="관리자 페이지 열기" /></a>&nbsp;<a href="https://github.com/kakaotechcampus-4/ktc4-kyungpook-6/releases/tag/app-1.0.0-demo"><img src="./docs/images/readme/btn-apk.png" height="44" alt="앱 내려받기 (APK)" /></a>&nbsp;<a href="#실제-통화-들어-보기"><img src="./docs/images/readme/btn-call.png" height="44" alt="통화 들어 보기" /></a>
+<a href="https://goodradar.duckdns.org"><img src="./docs/images/readme/btn-admin.png" height="44" alt="관리자 페이지 열기" /></a>&nbsp;<a href="https://github.com/kakaotechcampus-4/ktc4-kyungpook-6/releases/tag/app-1.0.0-demo"><img src="./docs/images/readme/btn-apk.png" height="44" alt="앱 내려받기 (APK)" /></a>&nbsp;<a href="#실제-통화-들어-보기"><img src="./docs/images/readme/btn-call.png" height="44" alt="통화 들어 보기" /></a>
 
 <a href="#트러블슈팅"><img src="./docs/images/readme/btn-trouble.png" height="34" alt="트러블슈팅" /></a>&nbsp;<a href="#기술-멘토링"><img src="./docs/images/readme/btn-mentor.png" height="34" alt="기술 멘토링" /></a>&nbsp;<a href="#로컬에서-시작하기"><img src="./docs/images/readme/btn-local.png" height="34" alt="로컬에서 시작하기" /></a>
 
