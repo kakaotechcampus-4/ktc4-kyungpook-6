@@ -204,7 +204,9 @@ class Providers:
                     or not isinstance(confidence,(float,int)) or not 0 <= confidence <= 1):
                 raise ValueError('Jev choice 응답 형식 오류')
             choices[key] = {'choice':selected,'confidence':confidence}
-        urgent_control = (choices['control']['confidence'] >= s.jev_threshold
+        control_threshold = (s.jev_stop_threshold if choices['control']['choice'] == 'STOP'
+                             else s.jev_threshold)
+        urgent_control = (choices['control']['confidence'] >= control_threshold
                           and choices['control']['choice'] in ('STOP','WAIT','REPEAT'))
         unsafe_custom = scores['unsafe_custom'] >= s.jev_threshold
         custom_question = (choices['answer']['choice'] == 'CUSTOM'

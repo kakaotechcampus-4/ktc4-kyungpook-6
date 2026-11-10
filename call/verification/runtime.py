@@ -102,6 +102,7 @@ class Session:
         self.started = 0.0
         self.wait_started = None
         self.wait_speech_before_deadline = False
+        self.jev_failures = 0
 
     def prepare(self, text):
         if text not in self.prepared:
@@ -254,12 +255,27 @@ class Session:
             speech = self.overlap(utterance)
             spoken_text = speech['text'] if speech else self.dialogue.last_text
             conversation = speech['state'] if speech else self.dialogue.state()
-            with self.log.span('jev',turn=self.turn) as trace:
-                trace['input'] = {'utterance':text, 'assistantSpeech':spoken_text,
-                                  'conversation':conversation,'overlapping':bool(speech)}
-                result = self.providers.classify_utterance(
-                    text,spoken_text,conversation,overlapping=bool(speech))
-                trace['output'] = result
+            try:
+                with self.log.span('jev',turn=self.turn) as trace:
+                    trace['input'] = {'utterance':text, 'assistantSpeech':spoken_text,
+                                      'conversation':conversation,'overlapping':bool(speech)}
+                    result = self.providers.classify_utterance(
+                        text,spoken_text,conversation,overlapping=bool(speech))
+                    trace['output'] = result
+            except Exception as exc:
+                self.jev_failures += 1
+                self.log.emit('jev.retry',turn=self.turn,attempt=self.jev_failures,
+                              error_type=type(exc).__name__)
+                if self.jev_failures >= 2:
+                    raise
+                self.interrupt()
+                repeated = self.dialogue.active_question
+                reply = self.dialogue.template('retry', question=repeated)
+                self.dialogue.repeat(text,reply)
+                handled_turns += 1
+                self.play(reply)
+                continue
+            self.jev_failures = 0
             verdict = result['verdict']
             if verdict == 'IGNORE':
                 self.log.emit('turn.ignored',turn=self.turn,reason='context_irrelevant',text=text)
@@ -273,14 +289,22 @@ class Session:
             # Include acknowledgments exactly once as part of the next user input.
             combined = ' '.join([*self.backchannels,text])
             self.backchannels.clear()
-            control_confident = result['control_confidence'] >= self.s.jev_threshold
+            control_threshold = (self.s.jev_stop_threshold if result['control'] == 'STOP'
+                                 else self.s.jev_threshold)
+            control_confident = result['control_confidence'] >= control_threshold
             answer_confident = result['answer_confidence'] >= self.s.jev_threshold
+            if (self.dialogue.stage == 'READBACK' and result['answer'] == 'YES' and
+                    result['answer_confidence'] < self.s.jev_readback_yes_threshold):
+                answer_confident = False
             unsafe_custom = result['scores'].get('unsafe_custom',0) >= self.s.jev_threshold
             custom_result = None
             custom_retry = False
             repeat_requested = False
             if control_confident and result['control'] == 'STOP':
                 decision = Interpretation(control='STOP')
+            elif result['control'] == 'STOP':
+                # An uncertain hangup request must never confirm the active field.
+                decision = Interpretation()
             elif unsafe_custom:
                 decision = Interpretation()
                 custom_retry = True
