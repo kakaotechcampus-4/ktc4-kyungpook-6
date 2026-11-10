@@ -203,13 +203,33 @@ function isCallablePhone(phone: string | null | undefined): boolean {
 /** 분류별로 나눈 Task 목록. 화면의 네 섹션과 1:1로 대응한다. */
 export type AnalysisTaskGroups = Record<TaskClassification, AnalysisTask[]>;
 
-/** 아직 돌고 있는 조사인가. 이 동안에는 결과를 주기적으로 다시 받아 온다. */
-function isRunning(status: JobResultResponse['status'] | undefined): boolean {
+/**
+ * 아직 돌고 있는 조사인가. 이 동안에는 결과를 주기적으로 다시 받아 온다.
+ *
+ * 우하단 진행 표시(hooks/surveyProgress)도 같은 판단을 써야 한다 — 화면과 표시가
+ * 서로 다른 기준으로 "도는 중" 을 정하면 한쪽만 폴링을 멈춘다.
+ */
+export function isJobRunning(
+  status: JobResultResponse['status'] | undefined,
+): boolean {
   return status === 'PENDING' || status === 'IN_PROGRESS';
 }
 
 /** 조사가 도는 동안 다시 물어보는 간격(ms). AI 는 가게 한 곳에 최대 60초를 쓴다. */
-const POLL_INTERVAL_MS = 3_000;
+export const POLL_INTERVAL_MS = 3_000;
+
+/**
+ * 조사 결과 조회의 쿼리 키. jobId 가 없으면 가장 최근 조사(`/api/jobs/latest`)다.
+ *
+ * 분석 결과 화면과 우하단 진행 표시가 **같은 키**를 써야 한다. 키가 어긋나면 같은 조사를
+ * 두 번 폴링하고, 조사를 시작한 뒤 한쪽 캐시만 갱신돼 표시가 안 뜬다.
+ */
+export const JOB_RESULT_QUERY_PREFIX = ['jobResult'] as const;
+
+export const jobResultQueryKey = (jobId?: string) => [
+  ...JOB_RESULT_QUERY_PREFIX,
+  jobId ?? 'latest',
+];
 
 /**
  * 진행 상황 한 줄. 끝난 조사면 undefined 다.
@@ -226,7 +246,7 @@ export function progressLabelOf(
       ? `조사가 멈췄습니다 — ${result.errorMessage}`
       : '조사가 멈췄습니다.';
   }
-  if (!isRunning(result.status)) return undefined;
+  if (!isJobRunning(result.status)) return undefined;
 
   return `조사 중 · ${result.targetCount}곳 중 ${result.completedCount}곳 끝남`;
 }
@@ -467,7 +487,7 @@ export type UseAnalysisResultPageResult = {
 export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   const { jobId } = useParams<{ jobId?: string }>();
   const queryClient = useQueryClient();
-  const queryKey = ['jobResult', jobId ?? 'latest'];
+  const queryKey = jobResultQueryKey(jobId);
   const [actionErrorMessage, setActionErrorMessage] = useState<
     string | undefined
   >(undefined);
@@ -478,7 +498,7 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     retry: false,
     /* 조사가 도는 동안만 다시 물어본다. 끝나면 false 라 더 부르지 않는다. */
     refetchInterval: (query) =>
-      isRunning(query.state.data?.status) ? POLL_INTERVAL_MS : false,
+      isJobRunning(query.state.data?.status) ? POLL_INTERVAL_MS : false,
   });
 
   /*
