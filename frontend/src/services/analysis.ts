@@ -182,6 +182,14 @@ export type TaskResponse = {
   call: CallResponse | null;
 };
 
+/** 아직 조사 결과 Task 가 만들어지지 않은 대상 가게. */
+export type PendingStoreResponse = {
+  storeId: number;
+  storeName: string;
+  storeAddress: string;
+  storePhone: string | null;
+};
+
 /** 조사 1회(Job)의 결과. 분석 결과 화면이 통째로 받는 응답. */
 export type JobResultResponse = {
   jobId: number;
@@ -196,6 +204,8 @@ export type JobResultResponse = {
   /** 조사를 멈춘 이유. FAILED 일 때만. */
   errorMessage: string | null;
   tasks: TaskResponse[];
+  /** 조사 중인 Job 에서 아직 처리되지 않은 가게. 이전 API 응답에는 없을 수 있다. */
+  pendingStores?: PendingStoreResponse[];
 };
 
 /** 조사에서 빠진 가게와 이유. */

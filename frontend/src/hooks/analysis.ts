@@ -11,6 +11,7 @@ import type {
   CallFailureKindResponse,
   CallResponse,
   JobResultResponse,
+  PendingStoreResponse,
   TaskClassificationResponse,
   TaskResponse,
   VerificationResponse,
@@ -155,9 +156,9 @@ export function toCallStatusLabel(
   const answers = answerDetails(call);
 
   return {
+    callId: call.callId,
     tone: 'done',
     phase: 'done',
-    transcript: transcriptOf(call),
     label: '전화 확인 완료',
     details: [
       ...(answers.length > 0 ? answers : [{ label: '들은 답', value: '없음' }]),
@@ -540,9 +541,14 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     queryKey,
     queryFn: () => getJobResult(jobId),
     retry: false,
-    /* 조사가 도는 동안만 다시 물어본다. 끝나면 false 라 더 부르지 않는다. */
+    /* 조사가 끝나도 확인 전화가 진행 중이면 상태 갱신을 계속 받는다. */
     refetchInterval: (query) =>
-      isJobRunning(query.state.data?.status) ? POLL_INTERVAL_MS : false,
+      isJobRunning(query.state.data?.status) ||
+      query.state.data?.tasks.some(({ call }) =>
+        call?.status === 'PENDING' || call?.status === 'IN_PROGRESS',
+      )
+        ? POLL_INTERVAL_MS
+        : false,
   });
 
   /*
@@ -581,6 +587,7 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   const isError = isQueryError && !noJobYet;
   const result = isError ? FALLBACK_RESULT : data;
   const groups = groupByClassification(result?.tasks.map(toAnalysisTask) ?? []);
+  const pendingStores = result?.pendingStores ?? [];
 
   const applyChanges = (taskId: number) => {
     const task = Object.values(groups)
@@ -593,6 +600,7 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     /* 브레드크럼 표기. Figma 112:5450 "2026. 08. 20. 18:00" */
     finishedAtLabel: formatDateTime(result?.finishedAt),
     groups,
+    pendingStores,
     isPending,
     isError,
     noJobYet,

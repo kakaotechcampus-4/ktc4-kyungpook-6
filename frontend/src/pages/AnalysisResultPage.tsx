@@ -5,6 +5,7 @@ import Skeleton from '../components/ui/Skeleton';
 import AgentSurveyResultCard from '../components/AgentSurveyResultCard';
 import StatusChip from '../components/ui/StatusChip';
 import AnalysisResultSection from '../components/analysis/AnalysisResultSection';
+import PendingSurveyStoreCard from '../components/analysis/PendingSurveyStoreCard';
 import StoreEditModal from '../components/store/StoreEditModal';
 import type { TaskClassification } from '../components/AgentSurveyResultCard';
 import { useAnalysisResultPage } from '../hooks/analysis';
@@ -40,6 +41,7 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
   const {
     finishedAtLabel,
     groups,
+    pendingStores,
     isPending,
     isError,
     noJobYet,
@@ -189,6 +191,13 @@ function AnalysisResultPage({ className, ...props }: AnalysisResultPageProps) {
               </AnalysisResultSection>
             );
           })}
+          {!isPending && pendingStores.length > 0 ? (
+            <AnalysisResultSection title="조사 전인 가게" count={pendingStores.length}>
+              {pendingStores.map((store) => (
+                <PendingSurveyStoreCard key={store.storeId} {...store} />
+              ))}
+            </AnalysisResultSection>
+          ) : null}
         </div>
       </main>
 
