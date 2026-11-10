@@ -2,9 +2,10 @@ import asyncio
 import hmac
 from contextlib import asynccontextmanager
 from uuid import UUID
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from .call_logs import read_call_logs
 from .config import Settings
-from .models import CallRequest, CallResult, Created
+from .models import CallLogs, CallRequest, CallResult, Created
 from .providers import Providers
 from .runtime import CallRunner
 from .store import Store, QueueFull
@@ -60,6 +61,18 @@ def create_app(settings=None, runner_factory=None):
         if result is None:
             raise HTTPException(404,'해당 통화가 없습니다.')
         return result
+
+    @app.get('/v1/verification-call/{verification_id}/logs',response_model=CallLogs,
+             dependencies=[Depends(authorize)])
+    def get_logs(verification_id: UUID, after: int = Query(default=0, ge=0)):
+        call_id = str(verification_id)
+        result = app.state.store.get(call_id)
+        if result is None:
+            raise HTTPException(404,'해당 통화가 없습니다.')
+        logs, cursor = read_call_logs(app.state.settings.data_dir/'calls'/call_id,after)
+        return {key:result[key] for key in (
+            'verificationId','status','startedAt','connectedAt','endedAt','failureReason')} | {
+                'logs':logs,'nextCursor':cursor}
 
     return app
 

@@ -73,6 +73,7 @@ uvicorn verification.api:app --host 127.0.0.1 --port "${BACKEND_PORT:-8000}" --w
 
 1. 가게의 전화번호·상호·주소와 확인 질문을 `POST /v1/verification-call`로 제출합니다.
 2. 응답의 `verificationId`를 저장하고 `GET /v1/verification-call/{verificationId}`로 상태를 조회합니다. 결과를 별도로 푸시하는 웹훅은 없습니다.
+   대화와 Jev 판정은 `GET /v1/verification-call/{verificationId}/logs`를 재조회해 확인할 수 있습니다.
 3. 상태가 `COMPLETED` 또는 `FAILED`가 되면 `answers`를 읽습니다. `FAILED`에서도 부분 답변이 있을 수 있으므로 업무 정책에 따라 검토합니다.
 
 ### POST /v1/verification-call
@@ -135,6 +136,35 @@ curl --fail-with-body \
 | IN_PROGRESS | 발신 명령 전송 직전부터 연결 대기·상담·종료 인사·장치 정리까지 |
 | COMPLETED | 모든 필드를 확인하고 통화를 마침 |
 | FAILED | 연결 실패, 확인 미완료, 응답 거부, 기술적 실패 등 |
+
+### GET /v1/verification-call/{verificationId}/logs
+
+통화 중에도 상담사 발화, 상대방의 STT 대화, Jev의 답변·통화 제어 판정을 시간순으로 조회합니다. 통화별 로그가 기록되는 즉시 다음 GET에 반영됩니다. 처음에는 `after` 없이 조회하고, 이후에는 응답의 `nextCursor`를 `after`에 넣어 새 항목만 받으세요. `PENDING`처럼 발신 전이면 `logs`는 빈 배열일 수 있습니다. 인증·UUID 오류 처리는 기존 GET과 같습니다.
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $VERIFICATION_API_KEY" \
+  "http://localhost:${BACKEND_PORT:-8000}/v1/verification-call/11111111-2222-4333-8444-555555555555/logs?after=0"
+```
+
+```json
+{
+  "verificationId":"11111111-2222-4333-8444-555555555555",
+  "status":"IN_PROGRESS",
+  "startedAt":"2026-11-01T00:00:04+00:00",
+  "connectedAt":"2026-11-01T00:00:10+00:00",
+  "endedAt":null,
+  "failureReason":null,
+  "logs":[
+    {"sequence":1,"timestamp":"2026-11-01T00:00:11+00:00","turn":0,"type":"ASSISTANT","text":"관계자분 맞으실까요?"},
+    {"sequence":2,"timestamp":"2026-11-01T00:00:15+00:00","turn":1,"type":"USER","text":"네 맞습니다"},
+    {"sequence":3,"timestamp":"2026-11-01T00:00:16+00:00","turn":1,"type":"JEV","verdict":"PROCESS","answer":"YES","answerConfidence":0.99,"control":"CONTINUE","controlConfidence":1.0}
+  ],
+  "nextCursor":3
+}
+```
+
+`answer`는 `YES`·`NO`·`VALUE`·`CUSTOM`·`UNCLEAR`, `control`은 `STOP`·`WAIT`·`CONTINUE`·`REPEAT`입니다. 신뢰도가 적용 문턱값보다 낮으면 Jev의 선택이 실제 상태 머신에 채택되지 않을 수 있습니다. 원본 Jev 입력과 STT/TTS 내부 진단 정보는 이 API에 포함하지 않습니다.
 
 주요 `failureReason`: `CONNECTION_FAILED`, `NO_ANSWER_OR_REJECTED`, `WRONG_TARGET`, `IDENTITY_UNCONFIRMED`, `USER_REQUESTED_STOP`, `REMOTE_HANGUP`, `INPUT_TIMEOUT`, `WAIT_TIMEOUT`, `QUEUE_EXPIRED`, `CALL_TIME_LIMIT`, `TURN_LIMIT`, `PROCESSING_ERROR`, `SERVER_RESTARTED`, `SERVER_SHUTDOWN`.
 
