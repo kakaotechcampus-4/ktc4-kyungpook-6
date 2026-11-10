@@ -4,9 +4,7 @@
 
 <h1>선한레이더</h1>
 
-<!-- 시연 영상 자리: mp4 를 GitHub 이슈 입력창에 끌어다 놓고 생긴 https://github.com/user-attachments/assets/... 링크를 아래 img 줄 대신 한 줄로 붙인다 -->
-
-<img src="./docs/images/readme/video-placeholder.png" width="100%" alt="시연 영상 준비 중" />
+https://github.com/user-attachments/assets/70a6ef42-77f5-4f17-9ef7-224cffa5e1c2
 
 <h3>결식아동 지원 가게가 아직 문을 열었는지, 정보가 바뀌지 않았는지</h3>
 
@@ -80,7 +78,7 @@ https://github.com/user-attachments/assets/8fbd5db4-c600-4ec3-8ace-a63005753155
 
 ```json
 {
-    "verificationId": "b6016a24-54bb-4428-b394-5b73f3b55cd3",
+    "verificationId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
     "status": "COMPLETED",
     "answers": [
         {
@@ -153,7 +151,7 @@ https://github.com/user-attachments/assets/e74c1553-b893-4f8a-8eac-ac0a0172970e
 
 ```json
 {
-    "verificationId": "673d4ad1-c4c5-4022-89ec-8b087e956d21",
+    "verificationId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
     "status": "COMPLETED",
     "answers": [
         {
@@ -232,21 +230,9 @@ https://github.com/user-attachments/assets/e74c1553-b893-4f8a-8eac-ac0a0172970e
 | 세 항목을 끝까지 확인 | 79초 | 4번 |
 | 한 항목 답하고 끊음 | 33초 | 2번 |
 
-주고받기 한 번에 20초쯤 걸립니다. 이 간격을 줄여 더 자연스러운 통화로 만드는 것이 다음 고도화 과제입니다.
-
 모델별 비교와 측정 조건은 [2차 조사 문서](./ai/docs/2차_조사.md#측정)에 있습니다.
 
 ### 의도와 달랐던 결과와 바꾼 것
-
-**확인 전화**
-
-| 일어난 일 | 왜 문제였나 | 그래서 |
-| --- | --- | --- |
-| 전화 서버 오류로 벨도 울리지 않고 0.15초 만에 실패 | 화면에는 가게가 안 받은 전화와 똑같이 보여, 멀쩡한 가게를 "연락 안 되는 가게"로 읽음 | 실패를 담당자가 할 일로 나누고, 우리 쪽 문제는 "전화를 걸지 못했습니다"로 따로 표시 |
-| 시연 중 상호명 확인 답이 음성 인식에서 흐리게 들어감 | 확실하지 않은 답을 그대로 저장하면 틀린 값이 수정안에 올라감 | 답이 확실하지 않으면 저장하지 않고 다시 묻는 규칙대로, 한 번 더 물어 확인한 뒤 저장 |
-| "잠깐만요" 뒤 60초 안에 돌아오지 않아 통화 종료 | 처음 보는 사유라 담당자가 할 일이 비어 보임 | "이따 다시 걸기"로 분류해 안내 |
-
-**조사**
 
 | 해 본 것 | 결과 | 그래서 |
 | --- | --- | --- |
