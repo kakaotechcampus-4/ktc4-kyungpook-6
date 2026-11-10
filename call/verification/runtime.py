@@ -129,11 +129,15 @@ class Session:
             trace['input'] = {'state':self.dialogue.state(), 'transcript':text}
             result = operation(self.dialogue,text)
             trace['output'] = result.model_dump(mode='json')
+        last_check = time.monotonic()
         while self.audio.is_playing and not self.audio.is_speaking:
             if self.stop.is_set():
                 raise CallFailure('SERVER_SHUTDOWN')
-            if not self.active():
-                break
+            # 끊겼는지는 1초에 한 번만 본다 — 안이 AT+CLCC 라 매번 serial 로 나간다.
+            if time.monotonic()-last_check >= 1:
+                if not self.active():
+                    break
+                last_check = time.monotonic()
             time.sleep(0.03)
         self.interrupt()
         return result

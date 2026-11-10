@@ -96,7 +96,7 @@ class Dialogue:
         return [text.format(**self.request.target.model_dump())
                 for name in self.policy['templates']
                 for text in self.raw_variants(name)
-                if name not in ('identityRetry','expected','current') and all(
+                if name not in ('greeting','identityRetry','expected','current') and all(
                        field is None or field in target_fields
                        for _, field, _, _ in Formatter().parse(text))]
 

@@ -185,6 +185,7 @@ class RuntimeTests(unittest.TestCase):
         static_texts=set(dialogue.static_templates().values())
         dialogue._start_item()
         first_questions=set(dialogue.question_variants())
+        greetings=set(dialogue.template_variants('greeting'))
         self.run_call([],provider_class=CachingFakeProviders)
         first_id=self.cid
         first_tts={text for stage,text in self.events if stage=='tts'}
@@ -195,7 +196,11 @@ class RuntimeTests(unittest.TestCase):
         second_tts={text for stage,text in self.events if stage=='tts'}
         self.assertEqual(len(first_tts & first_questions),1)
         self.assertEqual(len(second_tts & first_questions),1)
-        self.assertEqual(second_tts-first_questions,(first_tts-static_texts)-first_questions)
+        # 인사말도 통화마다 변형 하나만 고른다 — 질문과 같이 비교에서 뺀다.
+        self.assertEqual(len(first_tts & greetings),1)
+        self.assertEqual(len(second_tts & greetings),1)
+        self.assertEqual(second_tts-first_questions-greetings,
+                         (first_tts-static_texts)-first_questions-greetings)
         self.assertEqual(len(list((self.folder/'tts-static').glob('*.wav'))),len(static_texts))
         for call_id in (first_id,second_id):
             self.assertEqual(len(list((self.folder/'calls'/call_id/'tts').glob('*.wav'))),len(second_tts))
