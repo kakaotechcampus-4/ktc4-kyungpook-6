@@ -99,14 +99,14 @@ function CallPhaseButton({
           */}
           <div className="relative rounded-lg border border-solid border-[#e2e8f0] bg-white px-3.5 py-3 shadow-[0px_1px_2px_rgba(15,23,42,0.06)]">
             {/*
-              요청 시각은 오른쪽 위 구석에 얹는다. 자리를 비켜 주는 것은 **첫 줄만**이다(첫 값의 pr-36) —
-              시각이 세로 한 열을 통째로 차지하면 아래 줄(할 일 등)까지 그 왼쪽에서 꺾였다.
-              세부가 없으면(대기·통화 중) 시각 한 줄만 오른쪽에 남는다.
+              요청 시각은 판 맨 위에 오른쪽 정렬로 한 줄 둔다. 처음에는 오른쪽 위 구석에 절대 배치하고
+              첫 값에 pr-36 으로 자리를 비웠는데, 판 폭이 버튼 폭(≈300px)이라 첫 값에 50px 쯤만 남아
+              `WRONG_TARGET` 같은 한 단어 코드가 시각과 겹쳤다(운영 2026-11-11). 한 줄을 쓰는 대신 겹칠 일이 없다.
             */}
             {footnote ? (
               <p
-                className={`whitespace-nowrap font-sans text-xs leading-4 text-[#94a3b8] ${
-                  details.length > 0 ? 'absolute right-3.5 top-3.5' : 'text-right'
+                className={`whitespace-nowrap text-right font-sans text-xs leading-4 text-[#94a3b8] ${
+                  details.length > 0 ? 'mb-2' : ''
                 }`}
               >
                 {footnote}
@@ -116,14 +116,10 @@ function CallPhaseButton({
             {details.length > 0 ? (
               /* 라벨 열은 가장 긴 라벨에 맞춘다(grid auto). 값이 판 폭을 넘으면 그 칸 안에서 꺾인다. */
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 font-sans text-sm leading-5">
-                {details.map((detail, index) => (
+                {details.map((detail) => (
                   <Fragment key={`${detail.label}-${detail.value}`}>
                     <dt className="whitespace-nowrap text-[#64748b]">{detail.label}</dt>
-                    <dd
-                      className={`flex min-w-0 flex-wrap items-center gap-1 break-keep font-medium text-[#1e293b] ${
-                        index === 0 && footnote ? 'pr-36' : ''
-                      }`}
-                    >
+                    <dd className="flex min-w-0 flex-wrap items-center gap-1 break-keep font-medium text-[#1e293b]">
                       {detail.value}
                       {detail.tag ? (
                         <span className="inline-flex rounded bg-[#dcfce7] px-1 text-xs font-semibold leading-4 text-[#15803d]">
