@@ -33,7 +33,8 @@ def validate_policy(policy):
             raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
         for text in variants:
             fields = {field for _, field, _, _ in Formatter().parse(text) if field is not None}
-            permitted = target_fields | template_fields.get(name, set()) if name in REQUIRED_TEMPLATES else allowed_fields
+            permitted = ((target_fields | template_fields.get(name, set()))
+                         if name in REQUIRED_TEMPLATES else allowed_fields)
             if (not fields <= permitted or
                     (name == 'repeat' and 'question' not in fields)):
                 raise ValueError(f'agent.json 템플릿 변수 오류: {name}')
@@ -147,6 +148,16 @@ class Dialogue:
     def question_variants(self):
         name, values = self.question_spec()
         return self.template_variants(name, **values)
+
+    def preselect_identity_retry(self):
+        """Fix the identity retry wording before dialing so it can be pre-warmed."""
+        original_stage, original_question = self.stage, self.active_question
+        try:
+            self.stage = 'IDENTITY'
+            return self.question()
+        finally:
+            self.stage = original_stage
+            self.active_question = original_question
 
     def preselect_first_question(self):
         if self.first_question is None:

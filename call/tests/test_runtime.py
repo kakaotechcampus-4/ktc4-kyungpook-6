@@ -186,6 +186,7 @@ class RuntimeTests(unittest.TestCase):
         dialogue._start_item()
         first_questions=set(dialogue.question_variants())
         greetings=set(dialogue.template_variants('greeting'))
+        retries=set(dialogue.template_variants('identityRetry'))
         self.run_call([],provider_class=CachingFakeProviders)
         first_id=self.cid
         first_tts={text for stage,text in self.events if stage=='tts'}
@@ -196,11 +197,13 @@ class RuntimeTests(unittest.TestCase):
         second_tts={text for stage,text in self.events if stage=='tts'}
         self.assertEqual(len(first_tts & first_questions),1)
         self.assertEqual(len(second_tts & first_questions),1)
-        # 인사말도 통화마다 변형 하나만 고른다 — 질문과 같이 비교에서 뺀다.
+        # 인사말과 관계자 재확인도 통화마다 변형 하나만 고른다 — 질문과 같이 비교에서 뺀다.
         self.assertEqual(len(first_tts & greetings),1)
         self.assertEqual(len(second_tts & greetings),1)
-        self.assertEqual(second_tts-first_questions-greetings,
-                         (first_tts-static_texts)-first_questions-greetings)
+        self.assertEqual(len(first_tts & retries),1)
+        self.assertEqual(len(second_tts & retries),1)
+        self.assertEqual(second_tts-first_questions-greetings-retries,
+                         (first_tts-static_texts)-first_questions-greetings-retries)
         self.assertEqual(len(list((self.folder/'tts-static').glob('*.wav'))),len(static_texts))
         for call_id in (first_id,second_id):
             self.assertEqual(len(list((self.folder/'calls'/call_id/'tts').glob('*.wav'))),len(second_tts))
@@ -245,7 +248,8 @@ class RuntimeTests(unittest.TestCase):
         prepared={text for stage,text in before_dial if stage=='tts'}
         selected=expected & prepared
         self.assertEqual(len(selected),1)
-        self.assertFalse(retry & prepared)
+        self.assertGreater(len(retry),1)
+        self.assertEqual(len(retry & prepared),1)
         spoken=[json.loads(line)['text'] for line in console.getvalue().splitlines()
                 if json.loads(line)['stage']=='assistant.response']
         self.assertEqual(spoken[1],selected.pop())
@@ -471,7 +475,7 @@ class RuntimeTests(unittest.TestCase):
                       .template_variants('expected',naturalField='상호명',
                                          currentValue='땡땡식당',expectedValue='새봄식당'))
         retry=set(Dialogue(request(),self.s.persona_file).template_variants('identityRetry'))
-        self.assertFalse(retry & {text for stage,text in self.events if stage=='tts'})
+        self.assertFalse(retry & set(spoken))
 
     def test_repeat_control_replays_active_question_without_changing_answer(self):
         console=io.StringIO()
@@ -694,6 +698,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(self.audio.closed); self.assertTrue(self.modem.closed)
 
     def test_jev_failure_uses_cached_apology_and_cleans_up(self):
+        self.s.jev_max_failures=2
         with self.assertRaises(RuntimeError): self.run_call([
             {'play':1,'text':'네 관계자입니다'}, {'play':2,'text':'네 관계자입니다'}],fail_jev=True)
         self.assertTrue(self.modem.closed); self.assertTrue(self.audio.closed)
@@ -712,6 +717,43 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result['status'],'COMPLETED')
         self.assertEqual(len(result['answers']),1)
         self.assertEqual(self.providers.classified,['네 관계자입니다','네 맞습니다'])
+
+    def test_jev_failures_follow_configured_limit(self):
+        class TwiceFailingProviders(FakeProviders):
+            def classify_utterance(self,*args,**kwargs):
+                self.failures=getattr(self,'failures',0)+1
+                if self.failures<=2:
+                    raise RuntimeError('temporary Jev timeout')
+                return super().classify_utterance(*args,**kwargs)
+        self.s.jev_max_failures=3
+        result=self.run_call([{'play':1,'text':'네 관계자입니다'},
+                              {'play':2,'text':'네 관계자입니다'},
+                              {'play':3,'text':'네 관계자입니다'},
+                              {'play':4,'text':'네 맞습니다'}],provider_class=TwiceFailingProviders)
+        self.assertEqual(result['status'],'COMPLETED')
+        self.assertEqual(len(result['answers']),1)
+        self.assertEqual(self.providers.classified,['네 관계자입니다','네 맞습니다'])
+        # 인사 + 재질문 2회 + 첫 질문 + 마무리.
+        self.assertEqual(self.audio.plays,5)
+
+    def test_identity_retry_is_prepared_before_dial_and_reused(self):
+        console=io.StringIO()
+        with redirect_stdout(console):
+            result=self.run_call([{'play':1,'text':'음'},
+                                  {'play':2,'text':'네 관계자입니다'},
+                                  {'play':3,'text':'네 맞습니다'}])
+        self.assertEqual(result['status'],'COMPLETED')
+        variants=set(Dialogue(request(),self.s.persona_file).template_variants('identityRetry'))
+        self.assertGreater(len(variants),1)
+        dial=next(index for index,event in enumerate(self.events) if event[0]=='dial')
+        before={text for stage,text in self.events[:dial] if stage=='tts'}
+        after={text for stage,text in self.events[dial:] if stage=='tts'}
+        prepared=variants & before
+        self.assertEqual(len(prepared),1)
+        self.assertFalse(variants & after)
+        spoken=[entry['text'] for line in console.getvalue().splitlines()
+                if (entry:=json.loads(line))['stage']=='assistant.response']
+        self.assertEqual(spoken[1],prepared.pop())
 
     def test_uncertain_stop_cannot_confirm_field(self):
         result=self.run_call([{'play':1,'text':'네 관계자입니다'},

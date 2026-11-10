@@ -129,6 +129,18 @@ class DialogueTests(unittest.TestCase):
             for name in ('greeting','identityRetry','expected','current'):
                 self.assertFalse(set(d.template_variants(name)) & set(prepared))
 
+    def test_preselected_identity_retry_is_reused_and_keeps_state(self):
+        d=self.dialogue()
+        greeting=d.last_text
+        selected=d.preselect_identity_retry()
+        self.assertIn(selected,d.template_variants('identityRetry'))
+        self.assertEqual(d.stage,'IDENTITY')
+        self.assertEqual(d.active_question,greeting)
+        self.assertEqual(d.identity_retries,0)
+        self.assertEqual(d.apply('음',Interpretation()).text,selected)
+        self.assertEqual(d.apply('여보세요',Interpretation()).text,selected)
+        self.assertEqual(d.identity_retries,2)
+
     def test_question_variant_is_stable_during_retry(self):
         d=self.identified()
         first=d.active_question

@@ -39,12 +39,16 @@ class CallRunner:
             shared_cache = s.data_dir / 'tts-static'
             session = Session(s, self.store, self.providers, audio, dialogue, log, cache, call_id, stop,
                               shared_cache=shared_cache)
-            # Prepare renderable templates, leaving identity retries and questions for their own paths.
+            # Prepare renderable templates, leaving the questions for their own paths.
             session.prepare(dialogue.last_text)
             for text in dialogue.prewarm_texts():
                 if stop.is_set():
                     raise CallFailure('SERVER_SHUTDOWN')
                 session.prepare(text)
+            # Choose one identity retry variant now; the whole identity stage reuses it.
+            if stop.is_set():
+                raise CallFailure('SERVER_SHUTDOWN')
+            session.prepare(dialogue.preselect_identity_retry())
             # Choose one first-question variant now and reuse it after identity confirmation.
             if stop.is_set():
                 raise CallFailure('SERVER_SHUTDOWN')
@@ -266,7 +270,7 @@ class Session:
                 self.jev_failures += 1
                 self.log.emit('jev.retry',turn=self.turn,attempt=self.jev_failures,
                               error_type=type(exc).__name__)
-                if self.jev_failures >= 2:
+                if self.jev_failures >= self.s.jev_max_failures:
                     raise
                 self.interrupt()
                 repeated = self.dialogue.active_question

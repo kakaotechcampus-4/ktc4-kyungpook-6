@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 from pydantic import SecretStr
 
-from verification.cache_tts import build_cache, main
+from verification.cache_tts import build_cache, main, prune_cache
 from verification.providers import Providers, tts_cache_path
 
 
@@ -82,6 +82,92 @@ class CacheTTSTests(unittest.TestCase):
             self.assertEqual((counts.synthesized, counts.converted, counts.skipped), (0, 1, 0))
             provider.http.post.assert_not_called()
             self.assertEqual(mp3.with_suffix('.8k.wav').read_bytes(), b'wav:existing')
+
+    def test_stale_entries_are_pruned_unless_kept(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary) / 'tts-static'
+            settings = SimpleNamespace(elevenlabs_voice_id='voice', tts_model='model',
+                                       elevenlabs_api_key=SecretStr('key'), http_timeout=5)
+            client = Mock()
+            client.post.return_value = Mock(content=b'audio')
+            provider = Providers(settings, client=client)
+            audio = FakeAudio()
+            policy = {'templates': {'hello': '안녕하세요.', 'bye': '감사합니다.'}}
+            with redirect_stdout(io.StringIO()):
+                build_cache(policy, folder, provider, audio)
+            stale = tts_cache_path('감사합니다.', folder, 'voice', 'model')
+            kept = tts_cache_path('안녕하세요.', folder, 'voice', 'model')
+            foreign = folder / 'notes.txt'
+            foreign.write_text('캐시 파일이 아니다')
+            leftover = folder / (stale.stem + '.1234.wav')
+            leftover.write_bytes(b'temp')
+
+            # A template dropped from agent.json leaves both of its files behind.
+            del policy['templates']['bye']
+            with redirect_stdout(io.StringIO()):
+                keeping = build_cache(policy, folder, provider, audio, prune=False)
+            self.assertEqual(keeping.removed, 0)
+            self.assertTrue(stale.exists())
+
+            with redirect_stdout(io.StringIO()) as console:
+                pruned = build_cache(policy, folder, provider, audio)
+            self.assertEqual(pruned.removed, 2)
+            self.assertIn(stale.name, console.getvalue())
+            self.assertFalse(stale.exists())
+            self.assertFalse(stale.with_suffix('.8k.wav').exists())
+            self.assertTrue(kept.exists())
+            self.assertTrue(kept.with_suffix('.8k.wav').exists())
+            # Only the two content-addressed names are pruned.
+            self.assertTrue(foreign.exists())
+            self.assertTrue(leftover.exists())
+
+    def test_changed_voice_prunes_the_previous_voice(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary) / 'tts-static'
+            policy = {'templates': {'hello': '안녕하세요.'}}
+            client = Mock()
+            client.post.return_value = Mock(content=b'audio')
+            audio = FakeAudio()
+            for voice in ('voice-old', 'voice-new'):
+                settings = SimpleNamespace(elevenlabs_voice_id=voice, tts_model='model',
+                                           elevenlabs_api_key=SecretStr('key'), http_timeout=5)
+                with redirect_stdout(io.StringIO()):
+                    build_cache(policy, folder, Providers(settings, client=client), audio)
+            self.assertEqual(sorted(path.name for path in folder.iterdir()),
+                             sorted([tts_cache_path('안녕하세요.', folder, 'voice-new', 'model').name,
+                                     tts_cache_path('안녕하세요.', folder, 'voice-new',
+                                                    'model').with_suffix('.8k.wav').name]))
+
+    def test_prune_cache_keeps_everything_it_is_told_to_keep(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            digest = 'a' * 64
+            mp3 = folder / f'{digest}.mp3'
+            mp3.write_bytes(b'audio')
+            (folder / f'{digest}.8k.wav').write_bytes(b'wav')
+            self.assertEqual(prune_cache(folder, {digest}), [])
+            self.assertEqual(len(prune_cache(folder, set())), 2)
+            self.assertFalse(list(folder.iterdir()))
+
+    def test_prune_never_reaches_outside_the_cache_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / 'tts-static'
+            folder.mkdir()
+            outside = root / ('b' * 64 + '.mp3')
+            outside.write_bytes(b'cache folder\'s sibling')
+            nested = folder / 'nested'
+            nested.mkdir()
+            buried = nested / ('c' * 64 + '.mp3')
+            buried.write_bytes(b'subfolders are not walked')
+            # A stale cache name pointing out of the folder: the link goes, its target stays.
+            link = folder / ('d' * 64 + '.mp3')
+            link.symlink_to(outside)
+
+            self.assertEqual([path.name for path in prune_cache(folder, set())], [link.name])
+            self.assertFalse(link.exists())
+            self.assertTrue(outside.is_file())
+            self.assertTrue(buried.is_file())
 
     def test_cli_rejects_bad_agent_variable_before_tts(self):
         import json

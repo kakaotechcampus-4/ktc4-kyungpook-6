@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -17,12 +18,34 @@ from .hardware.audio import PhoneAudio
 from .providers import Providers, tts_cache_path
 
 
+# Shared cache entries are content addressed: <sha256>.mp3 and its <sha256>.8k.wav.
+CACHE_FILE = re.compile(r'^(?P<digest>[0-9a-f]{64})\.(?:mp3|8k\.wav)$')
+
+
 @dataclass
 class CacheCounts:
     total: int = 0
     synthesized: int = 0
     converted: int = 0
     skipped: int = 0
+    removed: int = 0
+
+
+def prune_cache(folder: Path, keep: set[str]) -> list[Path]:
+    """Delete cache entries no longer reachable from agent.json, the voice, the model or the speed.
+
+    The shared cache is keyed by a hash of all of those, so changing any one of them leaves the
+    old pair behind forever. Only the two content-addressed names are touched; anything else in
+    the folder is left alone.
+    """
+    removed = []
+    for path in sorted(folder.iterdir()):
+        match = CACHE_FILE.match(path.name)
+        if not path.is_file() or match is None or match['digest'] in keep:
+            continue
+        path.unlink()
+        removed.append(path)
+    return removed
 
 
 def load_local_env(path: Path) -> None:
@@ -45,13 +68,15 @@ def load_local_env(path: Path) -> None:
 
 
 def build_cache(policy: dict, folder: Path, provider: Providers, audio: PhoneAudio,
-                *, force: bool = False) -> CacheCounts:
+                *, force: bool = False, prune: bool = True) -> CacheCounts:
     texts = list(dict.fromkeys(static_template_texts(policy).values()))
     folder.mkdir(parents=True, exist_ok=True)
     counts = CacheCounts(total=len(texts))
     settings = provider.settings
+    keep = set()
     for index, text in enumerate(texts, 1):
         mp3 = tts_cache_path(text, folder, settings.elevenlabs_voice_id, settings.tts_model)
+        keep.add(mp3.stem)
         wav = mp3.with_suffix('.8k.wav')
         mp3_ready = mp3.is_file() and mp3.stat().st_size > 0
         wav_ready = wav.is_file() and wav.stat().st_size > 0
@@ -74,6 +99,10 @@ def build_cache(policy: dict, folder: Path, provider: Providers, audio: PhoneAud
             counts.synthesized += int(not mp3_ready)
             counts.converted += int(not wav_ready)
         print(f'[{index}/{counts.total}] {text}', flush=True)
+    if prune:
+        for path in prune_cache(folder, keep):
+            print(f'정리: {path.name}', flush=True)
+            counts.removed += 1
     return counts
 
 
@@ -81,6 +110,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='agent.json의 공용 TTS 캐시를 생성합니다.')
     parser.add_argument('-f', '--force', action='store_true',
                         help='기존 MP3와 WAV를 포함해 모든 문구를 다시 생성합니다.')
+    parser.add_argument('--keep-stale', action='store_true',
+                        help='더 이상 쓰이지 않는 캐시 파일을 삭제하지 않고 남겨 둡니다.')
     args = parser.parse_args(argv)
 
     load_local_env(Path('.env'))
@@ -104,11 +135,12 @@ def main(argv=None) -> int:
     provider = Providers(settings)
     try:
         counts = build_cache(policy, data_dir / 'tts-static', provider, PhoneAudio(''),
-                              force=args.force)
+                              force=args.force, prune=not args.keep_stale)
     finally:
         provider.close()
     print(f'완료: 고유 문구 {counts.total}개, 새 TTS 합성 {counts.synthesized}개, '
-          f'WAV 생성 {counts.converted}개, 재사용 {counts.skipped}개.')
+          f'WAV 생성 {counts.converted}개, 재사용 {counts.skipped}개, '
+          f'정리 {counts.removed}개.')
     return 0
 
 
