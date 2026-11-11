@@ -49,6 +49,8 @@ class EP06Modem:
         self._restore_sidetone = None
         self._restore_gps_outport = None
         self._last_call_terminal_response = []
+        self.abort_requested = None
+        self._closing = False
 
     def __enter__(self):
         self.connection = serial.Serial(self.port, 115200, timeout=0.2, write_timeout=2)
@@ -57,6 +59,7 @@ class EP06Modem:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.connection is None:
             return
+        self._closing = True
         try:
             self.at("AT+CHUP")
         finally:
@@ -85,6 +88,7 @@ class EP06Modem:
             last_error = None
             time.sleep(2)
             while time.monotonic() < deadline:
+                self._check_abort()
                 try:
                     candidate = serial.Serial(self.port, 115200, timeout=0.2, write_timeout=2)
                     self.connection = candidate
@@ -103,6 +107,7 @@ class EP06Modem:
 
     def _wait_for_network(self, deadline: float) -> None:
         while time.monotonic() < deadline:
+            self._check_abort()
             response = self.at('AT+CEREG?', timeout=2)
             if 'OK' in response and any(re.match(r'^\+CEREG:\s*\d+\s*,\s*[15](?:\s*,|\s*$)', line)
                                          for line in response):
@@ -242,6 +247,7 @@ class EP06Modem:
 
     def at(self, command, timeout=2.5):
         """AT 명령을 전송하고 최종 응답까지 읽습니다."""
+        self._check_abort()
         label = 'ATD<number>;' if command.startswith('ATD') else command
         with self.log.span('modem.at', command=label) as result:
             lines = self._exchange(command, timeout)
@@ -254,6 +260,7 @@ class EP06Modem:
         lines = []
         end = time.monotonic() + timeout
         while time.monotonic() < end:
+            self._check_abort()
             line = self.connection.readline().decode(errors="replace").strip()
             if not line:
                 continue
@@ -263,6 +270,10 @@ class EP06Modem:
             if line.startswith(('+CME ERROR:', '+CMS ERROR:')):
                 break
         return lines
+
+    def _check_abort(self):
+        if not self._closing and self.abort_requested is not None and self.abort_requested.is_set():
+            raise InterruptedError('SERVER_SHUTDOWN')
 
     def outgoing_voice_status(self):
         """데이터/다른 통화를 제외하고 발신 음성통화 상태만 반환합니다.
@@ -293,6 +304,7 @@ class EP06Modem:
         previous_status = object()
         labels = {0: "통화 연결됨", 1: "보류 중", 2: "발신 중", 3: "상대방 벨 울림"}
         while time.monotonic() < until:
+            self._check_abort()
             status = self.outgoing_voice_status()
             if status != previous_status:
                 self.log.emit('modem.call_status', call_state=labels.get(status, '통화 없음' if status is None else status), code=status)

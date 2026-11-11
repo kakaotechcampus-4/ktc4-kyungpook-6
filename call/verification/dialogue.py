@@ -1,8 +1,56 @@
-"""State machine owns completion and values; the LLM only interprets a turn."""
+"""State machine owns completion, values, and template selection."""
 import json
+import random
+from string import Formatter
 from dataclasses import dataclass
 from pathlib import Path
-from .models import CallRequest, Confirmation, Interpretation
+from .models import CallRequest, Confirmation, CustomReply, Interpretation, Target, ValueExtraction
+
+REQUIRED_TEMPLATES = {'greeting','identityRetry','expected','current','askValue','readback',
+                      'ack','retry','repeat','readbackValueRetry','goodbye','stopped','wrongTarget','timeout','error',
+                      'llmWait','waitAcknowledgement'}
+
+def validate_policy(policy):
+    templates = policy['templates']
+    if not REQUIRED_TEMPLATES <= templates.keys():
+        raise ValueError('agent.json에 필수 대화 템플릿이 없습니다.')
+    target_fields = set(Target.model_fields)
+    allowed_fields = target_fields | {'naturalField','currentValue','expectedValue','value','question'}
+    template_fields = {
+        'expected': {'naturalField','currentValue','expectedValue'},
+        'current': {'naturalField','currentValue'},
+        'askValue': {'naturalField'},
+        'readback': {'naturalField','value'},
+        'ack': {'naturalField','value'},
+        'retry': {'question'},
+        'repeat': {'question'},
+        'readbackValueRetry': {'naturalField'},
+    }
+    for name, value in templates.items():
+        variants = [value] if isinstance(value, str) else value
+        if (not isinstance(variants, list) or not variants or
+                any(not isinstance(text, str) or not text.strip() for text in variants)):
+            raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
+        for text in variants:
+            fields = {field for _, field, _, _ in Formatter().parse(text) if field is not None}
+            permitted = ((target_fields | template_fields.get(name, set()))
+                         if name in REQUIRED_TEMPLATES else allowed_fields)
+            if (not fields <= permitted or
+                    (name == 'repeat' and 'question' not in fields)):
+                raise ValueError(f'agent.json 템플릿 변수 오류: {name}')
+
+def static_template_texts(policy):
+    """Return every variable-free variant that can be shared between calls."""
+    result = {}
+    for name, value in policy['templates'].items():
+        variants = [value] if isinstance(value, str) else value
+        if (not isinstance(variants, list) or not variants or
+                any(not isinstance(item, str) or not item.strip() for item in variants)):
+            raise ValueError(f'agent.json 템플릿 형식 오류: {name}')
+        for index, item in enumerate(variants):
+            if all(field is None for _, field, _, _ in Formatter().parse(item)):
+                result[f'{name}[{index}]'] = item
+    return result
 
 @dataclass
 class Reply:
@@ -14,10 +62,7 @@ class Dialogue:
     def __init__(self, request: CallRequest, persona_file: Path):
         self.request = request
         self.policy = json.loads(persona_file.read_text(encoding='utf-8'))
-        required = {'greeting','identityRetry','expected','current','askValue','readback',
-                    'ack','retry','goodbye','stopped','wrongTarget','timeout','error'}
-        if not required <= self.policy['templates'].keys():
-            raise ValueError('agent.json에 필수 대화 템플릿이 없습니다.')
+        validate_policy(self.policy)
         self.items = []
         for q in request.questions:
             for field in ([q] if isinstance(q, Confirmation) else q.fields):
@@ -29,8 +74,13 @@ class Dialogue:
         self.answers = []
         self.candidate = None
         self.identity_retries = 0
+        self.stopped = False
+        self.stop_reason = None
         self.history = []
+        self.first_question = None
+        self.question_choices = {}
         self.last_text = self.template('greeting')
+        self.active_question = self.last_text
 
     @property
     def complete(self):
@@ -40,8 +90,32 @@ class Dialogue:
     def item(self):
         return self.items[self.index] if not self.complete else None
 
+    def template_variants(self, name, **kwargs):
+        return [text.format(**self.request.target.model_dump(), **kwargs)
+                for text in self.raw_variants(name)]
+
+    def raw_variants(self, name):
+        value = self.policy['templates'][name]
+        return [value] if isinstance(value, str) else value
+
     def template(self, name, **kwargs):
-        return self.policy['templates'][name].format(**self.request.target.model_dump(), **kwargs)
+        return random.choice(self.template_variants(name, **kwargs))
+
+    def is_static_template(self, name):
+        return all(field is None for text in self.raw_variants(name)
+                   for _, field, _, _ in Formatter().parse(text))
+
+    def static_templates(self):
+        return static_template_texts(self.policy)
+
+    def prewarm_texts(self):
+        target_fields = self.request.target.model_dump().keys()
+        return [text.format(**self.request.target.model_dump())
+                for name in self.policy['templates']
+                for text in self.raw_variants(name)
+                if name not in ('greeting','identityRetry','expected','current') and all(
+                       field is None or field in target_fields
+                       for _, field, _, _ in Formatter().parse(text))]
 
     def spoken(self, value):
         if isinstance(value, bool):
@@ -50,18 +124,52 @@ class Dialogue:
             return labels[str(value).lower()]
         return value
 
-    def question(self):
+    def question_spec(self):
         item = self.item
         if self.stage == 'IDENTITY':
-            return self.template('identityRetry')
+            return 'identityRetry', {}
         values = dict(naturalField=item['naturalField'], currentValue=self.spoken(item['currentValue']))
         if self.stage == 'EXPECTED':
-            return self.template('expected', **values, expectedValue=self.spoken(item['expectedValue']))
+            return 'expected', dict(values, expectedValue=self.spoken(item['expectedValue']))
         if self.stage == 'CURRENT':
-            return self.template('current', **values)
+            return 'current', values
         if self.stage == 'READBACK':
-            return self.template('readback', naturalField=item['naturalField'], value=self.spoken(self.candidate))
-        return self.template('askValue', naturalField=item['naturalField'])
+            return 'readback', dict(naturalField=item['naturalField'], value=self.spoken(self.candidate))
+        return 'askValue', {'naturalField':item['naturalField']}
+
+    def question(self):
+        name, values = self.question_spec()
+        key = (self.index, self.stage, tuple(sorted(values.items())))
+        if key not in self.question_choices:
+            self.question_choices[key] = self.template(name, **values)
+        self.active_question = self.question_choices[key]
+        return self.active_question
+
+    def question_variants(self):
+        name, values = self.question_spec()
+        return self.template_variants(name, **values)
+
+    def preselect_identity_retry(self):
+        """Fix the identity retry wording before dialing so it can be pre-warmed."""
+        original_stage, original_question = self.stage, self.active_question
+        try:
+            self.stage = 'IDENTITY'
+            return self.question()
+        finally:
+            self.stage = original_stage
+            self.active_question = original_question
+
+    def preselect_first_question(self):
+        if self.first_question is None:
+            original_stage = self.stage
+            original_question = self.active_question
+            try:
+                self.stage = 'EXPECTED' if self.item['type'] == 'VALUE_CONFIRMATION' else 'CURRENT'
+                self.first_question = self.question()
+            finally:
+                self.stage = original_stage
+                self.active_question = original_question
+        return self.first_question
 
     def state(self):
         return {'stage': self.stage, 'target': self.request.target.model_dump(exclude={'phoneNumber'}),
@@ -71,6 +179,11 @@ class Dialogue:
     def _start_item(self):
         self.stage = 'EXPECTED' if self.item['type'] == 'VALUE_CONFIRMATION' else 'CURRENT'
         self.candidate = None
+        if self.index == 0 and self.first_question is not None:
+            question = self.first_question
+            self.first_question = None
+            self.active_question = question
+            return question
         return self.question()
 
     def _commit(self, value):
@@ -83,14 +196,69 @@ class Dialogue:
         return Reply(ack + ' ' + self._start_item())
 
     def apply(self, text: str, decision: Interpretation) -> Reply:
+        if self.stopped:
+            return Reply(self.template('stopped'), True, self.stop_reason)
         self.history.extend([{'role':'assistant','content':self.last_text}, {'role':'user','content':text}])
         result = self._apply(text, decision)
         self.last_text = result.text
         return result
 
+    def repeat(self, text: str, reply: str) -> None:
+        self.history.extend([{'role':'assistant','content':self.last_text},
+                             {'role':'user','content':text}])
+        self.last_text = reply
+
+    def repeat_request(self, text: str) -> Reply:
+        reply = self.template('repeat', question=self.active_question)
+        self.repeat(text, reply)
+        return Reply(reply)
+
+    def value_decision(self, text: str, extracted: ValueExtraction) -> Interpretation:
+        if self.stage == 'IDENTITY' or extracted.value is None:
+            return Interpretation()
+        item = self.item or self.items[-1]
+        evidence = extracted.evidence.strip()
+        value = extracted.value
+        if (not evidence or evidence not in text or
+                type(value) is not type(item['currentValue']) or
+                (isinstance(value,str) and value not in evidence)):
+            return Interpretation()
+        def same_value(reference):
+            return (type(value) is type(reference) and
+                    (''.join(value.split()) == ''.join(reference.split())
+                     if isinstance(value, str) else value == reference))
+
+        if self.stage == 'READBACK' and same_value(self.candidate):
+            return Interpretation(kind='YES')
+        if self.stage == 'EXPECTED' and same_value(item.get('expectedValue')):
+            return Interpretation(kind='EXPECTED',evidence=evidence)
+        if same_value(item['currentValue']):
+            return Interpretation(kind='CURRENT',evidence=evidence)
+        if same_value(item.get('expectedValue')):
+            return Interpretation(kind='EXPECTED',evidence=evidence)
+        return Interpretation(kind='VALUE',value=value,evidence=evidence)
+
+    def respond_custom(self, text: str, result: CustomReply) -> Reply:
+        return self._custom_reply(text, result.reply.strip())
+
+    def retry_custom(self, text: str) -> Reply:
+        return self._custom_reply(text, None)
+
+    def _custom_reply(self, text: str, answer: str | None) -> Reply:
+        if self.complete or self.stopped:
+            return Reply(self.template('goodbye' if self.complete else 'stopped'), True, self.stop_reason)
+        self.history.extend([{'role':'assistant','content':self.last_text},
+                             {'role':'user','content':text}])
+        question = self.question()
+        self.last_text = ((answer + ' ' + question) if answer is not None
+                          else self.template('retry', question=question))
+        return Reply(self.last_text)
+
     def _apply(self, text, decision):
-        if decision.stop:
-            return Reply(self.template('stopped'), True, None if self.complete else 'USER_REQUESTED_STOP')
+        if decision.control == 'STOP':
+            self.stopped = True
+            self.stop_reason = None if self.complete else 'USER_REQUESTED_STOP'
+            return Reply(self.template('stopped'), True, self.stop_reason)
         if self.complete:
             # A correction during the final readback reopens the last field.
             if decision.kind == 'NO' or (decision.kind in ('CURRENT','EXPECTED','VALUE')
@@ -109,11 +277,17 @@ class Dialogue:
             self.identity_retries += 1
             if self.identity_retries >= 3:
                 return Reply(self.template('wrongTarget'), True, 'IDENTITY_UNCONFIRMED')
-            return Reply((decision.knowledgeReply + ' ' if decision.knowledgeReply else '') + self.question())
+            return Reply(self.question())
 
         item = self.item
         kind = decision.kind
         if kind == 'YES' and self.stage in ('EXPECTED','CURRENT','READBACK'):
+            if (self.stage == 'READBACK' and isinstance(self.candidate, str) and
+                    ''.join(self.candidate.split()) not in ''.join(text.split())):
+                # A bare yes cannot verify a name that STT may have misheard on the previous turn.
+                self.active_question = self.template('readbackValueRetry',
+                                                     naturalField=item['naturalField'])
+                return Reply(self.active_question)
             value = self.candidate if self.stage == 'READBACK' else item['expectedValue' if self.stage == 'EXPECTED' else 'currentValue']
             return self._commit(value)
         if kind == 'NO':
@@ -135,5 +309,4 @@ class Dialogue:
                 self.candidate = value
                 self.stage = 'READBACK'
                 return Reply(self.question())
-        prefix = decision.knowledgeReply.strip()
-        return Reply((prefix + ' ' if prefix else '') + self.template('retry', question=self.question()))
+        return Reply(self.template('retry', question=self.question()))

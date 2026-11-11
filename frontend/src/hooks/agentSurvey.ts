@@ -17,8 +17,22 @@ export function estimateSurveyMinutes(storeCount: number): number {
   return Math.max(1, Math.round(storeCount * ESTIMATED_MINUTES_PER_STORE));
 }
 
+/**
+ * 로봇 버튼(조사 시작)을 띄울지 가린다.
+ *
+ * 선택한 가게가 있어야 띄우고, **조사 진행 표시가 떠 있으면 내린다** — 둘은 화면 우하단
+ * 같은 자리를 쓴다(components/AgentSurveyTrigger 의 FLOAT_ANCHOR). 조사는 한 번에 하나뿐이라
+ * 도는 동안 새 조사를 시작해도 백엔드가 409 로 거절하므로, 버튼을 겹쳐 둘 이유도 없다.
+ */
+export function isSurveyTriggerVisible(
+  selectedCount: number,
+  surveyProgressVisible: boolean,
+): boolean {
+  return selectedCount > 0 && !surveyProgressVisible;
+}
+
 export type UseAgentSurveyTriggerResult = {
-  /** 트리거(로봇 버튼) 노출 여부. 선택된 가게가 하나라도 있으면 true. */
+  /** 트리거(로봇 버튼) 노출 여부. isSurveyTriggerVisible 참고. */
   isTriggerVisible: boolean;
   /** 말풍선 노출 여부. 한 번 닫으면 세션 동안 다시 뜨지 않는다. */
   isTooltipVisible: boolean;
@@ -34,13 +48,18 @@ export type UseAgentSurveyTriggerResult = {
  * 이미 안내를 읽은 사용자에게 같은 말풍선을 반복해서 보여줄 이유가 없기 때문이다.
  *
  * @param selectedCount 선택된 가게 수. 페이지를 넘겨도 유지되는 전체 선택 수를 넘긴다.
+ * @param surveyProgressVisible 조사 진행 표시가 떠 있는가. 떠 있으면 로봇 버튼은 자리를 비킨다.
  */
 export function useAgentSurveyTrigger(
-  selectedCount: number
+  selectedCount: number,
+  surveyProgressVisible = false
 ): UseAgentSurveyTriggerResult {
   const [isTooltipDismissed, setIsTooltipDismissed] = useState(false);
 
-  const isTriggerVisible = selectedCount > 0;
+  const isTriggerVisible = isSurveyTriggerVisible(
+    selectedCount,
+    surveyProgressVisible
+  );
 
   return {
     isTriggerVisible,

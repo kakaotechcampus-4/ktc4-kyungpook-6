@@ -4,6 +4,7 @@ import com.ktc4.backend.domain.investigation.dto.InvestigationPlan;
 import com.ktc4.backend.domain.investigation.dto.InvestigationTarget;
 import com.ktc4.backend.domain.investigation.dto.NtsTarget;
 import com.ktc4.backend.domain.job.dto.CreatedJob;
+import com.ktc4.backend.domain.job.dto.JobTargetStore;
 import com.ktc4.backend.domain.job.entity.Job;
 import com.ktc4.backend.domain.job.enums.JobStatus;
 import com.ktc4.backend.domain.job.repository.JobRepository;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * 조사(Job)를 만들고 상태를 바꾼다.
@@ -81,10 +83,16 @@ public class JobService {
             throw new CustomException(ErrorCode.NO_INVESTIGATION_TARGET);
         }
 
+        List<JobTargetStore> targetStores = Stream.concat(
+                targets.resolvedByNts().stream(), targets.aiTargets().stream())
+                .map(JobTargetStore::from)
+                .toList();
+
         Job job = jobRepository.save(Job.builder()
                 .requestedBy(String.valueOf(requestedBy))
                 .status(JobStatus.PENDING)
                 .targetCount(targetCount)
+                .targetStores(targetStores)
                 .completedCount(0)
                 .build());
         log.info("조사 생성 - jobId={}, 1차 {}곳, AI {}곳, 제외 {}곳",

@@ -1,11 +1,33 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { estimateSurveyMinutes, useAgentSurveyTrigger } from './agentSurvey';
 import type { UseAgentSurveyTriggerResult } from './agentSurvey';
 import { useModal } from './modal';
+import { useSurveyProgressContext } from './surveyProgress';
+import { JOB_RESULT_QUERY_PREFIX } from './analysis';
 import { startJob } from '../services/analysis';
+import type { InvestigationExclusionReason } from '../services/store';
 import { messageOf } from '../utils/apiError';
+import { exclusionNotices } from '../utils/exclusionLabel';
+
+/**
+ * 목록에서 고를 수 있는 가게 한 곳 — 선택이 기억해야 하는 최소 정보.
+ *
+ * 제외 사유를 선택과 함께 들고 있는 이유: 조사 대상 수는 **페이지와 무관하게** 전체 선택 수로 세는데,
+ * 1페이지에서 고른 가게는 3페이지로 넘어가면 화면 데이터에 없다. 고를 때 사유를 같이 적어 두지 않으면
+ * 모달이 "이 중 몇 곳이 빠지는지" 를 셀 수 없다.
+ */
+export type SelectableStore = {
+  id: string;
+  /** 백엔드가 판정한 조사 제외 사유. 빠지지 않으면 null */
+  exclusionReason: InvestigationExclusionReason | null;
+};
+
+/** 고른 가게 id → 그 가게의 조사 제외 사유(빠지지 않으면 null). */
+export type StoreSelection = ReadonlyMap<
+  string,
+  InvestigationExclusionReason | null
+>;
 
 export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   /** 조사 시작 모달 열림 여부. */
@@ -14,7 +36,7 @@ export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   openSurveyModal: () => void;
   /** 취소 또는 ESC로 모달을 닫는다. */
   closeSurveyModal: () => void;
-  /** 모달의 "조사 시작하기". 조사를 만들고 결과 화면으로 보낸다. */
+  /** 모달의 "조사 시작하기". 조사를 만들고 가게 목록에 머문다. */
   startSurvey: () => void;
   /** 조사 시작 요청이 날아가 있는 동안 true. */
   isStartingSurvey: boolean;
@@ -22,29 +44,38 @@ export type UseStoreListPageResult = UseAgentSurveyTriggerResult & {
   surveyErrorMessage: string | undefined;
   /** 조사 대상 가게 수. 모달의 "가게 수". */
   surveyTargetCount: number;
+  /**
+   * 고른 가게 중 조사에서 빠지는 곳을 사유별로 알리는 줄. 모달이 "가게 수" 아래에 그린다.
+   * **빠지는 가게가 없으면 빈 배열**이라 모달은 줄을 아예 그리지 않는다.
+   */
+  surveyExclusionNotices: string[];
   /** 예상 소요 시간(분). 모달의 "예상 소요 시간". */
   estimatedMinutes: number;
   /** 선택된 가게 id 집합 */
   selectedIds: Set<string>;
   isSelected: (id: string) => boolean;
-  toggleSelect: (id: string, checked: boolean) => void;
-  /** 현재 페이지 ids만 선택·해제한다. 다른 페이지 선택은 유지된다. */
-  toggleSelectAll: (ids: string[], checked: boolean) => void;
+  toggleSelect: (store: SelectableStore, checked: boolean) => void;
+  /** 현재 페이지 가게만 선택·해제한다. 다른 페이지 선택은 유지된다. */
+  toggleSelectAll: (stores: readonly SelectableStore[], checked: boolean) => void;
 };
 
 /**
- * 선택 집합에서 ids만 넣거나 뺀 새 집합을 돌려준다. ids 밖의 선택은 그대로 둔다.
+ * 선택에서 넘긴 가게만 넣거나 뺀 새 선택을 돌려준다. 넘기지 않은 가게의 선택은 그대로 둔다.
  *
  * 헤더 체크박스(전체 선택)는 현재 페이지에만 적용된다. 지메일과 같은 동작이다.
  * 다른 페이지에서 고른 가게까지 지우거나 덮어쓰면 안 된다.
+ *
+ * 넣을 때 제외 사유를 함께 적는다 — 다른 페이지로 넘어가도 모달이 "이 중 몇 곳이 빠지는지" 를 셀 수 있게.
  */
 export function applySelection(
-  prev: Set<string>,
-  ids: string[],
+  prev: StoreSelection,
+  stores: readonly SelectableStore[],
   checked: boolean,
-): Set<string> {
-  const next = new Set(prev);
-  ids.forEach((id) => (checked ? next.add(id) : next.delete(id)));
+): Map<string, InvestigationExclusionReason | null> {
+  const next = new Map(prev);
+  stores.forEach((store) =>
+    checked ? next.set(store.id, store.exclusionReason) : next.delete(store.id),
+  );
   return next;
 }
 
@@ -58,32 +89,31 @@ export function applySelection(
  * 선택과 무관하고 모든 화면에서 같은 레이아웃 관심사는 Sidebar가 직접 부른다.
  */
 export function useStoreListPage(): UseStoreListPageResult {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selected, setSelected] = useState<
+    Map<string, InvestigationExclusionReason | null>
+  >(() => new Map());
   const [surveyErrorMessage, setSurveyErrorMessage] = useState<
     string | undefined
   >(undefined);
-  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  /* 조사가 돌고 있으면 우하단 자리는 진행 표시가 쓴다. */
+  const { progress } = useSurveyProgressContext();
 
-  const isSelected = (id: string) => selectedIds.has(id);
+  const isSelected = (id: string) => selected.has(id);
 
-  const toggleSelect = (id: string, checked: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
+  const toggleSelect = (store: SelectableStore, checked: boolean) => {
+    setSelected((prev) => applySelection(prev, [store], checked));
   };
 
-  const toggleSelectAll = (ids: string[], checked: boolean) => {
-    setSelectedIds((prev) => applySelection(prev, ids, checked));
+  const toggleSelectAll = (
+    stores: readonly SelectableStore[],
+    checked: boolean,
+  ) => {
+    setSelected((prev) => applySelection(prev, stores, checked));
   };
 
   /* 트리거 노출은 현재 페이지가 아니라 전체 선택 수로 판단한다. */
-  const agentSurvey = useAgentSurveyTrigger(selectedIds.size);
+  const agentSurvey = useAgentSurveyTrigger(selected.size, Boolean(progress));
   const surveyModal = useModal();
 
   /*
@@ -107,15 +137,29 @@ export function useStoreListPage(): UseStoreListPageResult {
   const startMutation = useMutation({
     mutationFn: (storeIds: number[]) => startJob(storeIds),
     onMutate: () => setSurveyErrorMessage(undefined),
-    onSuccess: ({ jobId }) => {
+    onSuccess: () => {
       surveyModal.close();
-      navigate(`/analysis/${jobId}`);
+      setSelected(new Map());
+      /*
+        우하단 진행 표시가 보는 '가장 최근 조사' 캐시를 바로 갱신한다.
+        조사가 없는 동안에는 폴링을 멈춰 두므로(hooks/surveyProgress), 이걸 하지 않으면
+        조사를 시작해도 표시가 다음 새로고침까지 뜨지 않는다.
+      */
+      queryClient.invalidateQueries({ queryKey: JOB_RESULT_QUERY_PREFIX });
     },
     onError: (error) => setSurveyErrorMessage(messageOf(error)),
   });
 
+  /* 고른 가게의 사유를 세어 모달에 띄울 줄을 만든다. 문구는 utils/exclusionLabel 한 곳에만 있다. */
+  const surveyExclusionNotices = useMemo(
+    () => exclusionNotices([...selected.values()]),
+    [selected],
+  );
+  /** 화면이 `selectedIds.has(id)` 로 현재 페이지 선택 수를 세므로 id 집합도 함께 내려준다. */
+  const selectedIds = useMemo(() => new Set(selected.keys()), [selected]);
+
   const startSurvey = () => {
-    const storeIds = [...selectedIds]
+    const storeIds = [...selected.keys()]
       .map(Number)
       .filter((id) => Number.isInteger(id) && id > 0);
 
@@ -135,8 +179,9 @@ export function useStoreListPage(): UseStoreListPageResult {
     startSurvey,
     isStartingSurvey: startMutation.isPending,
     surveyErrorMessage,
-    surveyTargetCount: selectedIds.size,
-    estimatedMinutes: estimateSurveyMinutes(selectedIds.size),
+    surveyTargetCount: selected.size,
+    surveyExclusionNotices,
+    estimatedMinutes: estimateSurveyMinutes(selected.size),
     selectedIds,
     isSelected,
     toggleSelect,

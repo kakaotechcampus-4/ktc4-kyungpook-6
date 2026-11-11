@@ -49,6 +49,26 @@
 		reverse_proxy backend:8080
 	}
 
+	# 점주 앱·아동 앱의 웹판. 같은 도메인에 두는 이유는 출처가 같아져 CORS 가 필요 없기
+	# 때문이다 — 앱이 /api/... 를 상대 경로로 부른다(app/scripts/build-web.sh).
+	#
+	# handle_path 는 앞부분(/app/child)을 떼고 넘긴다. SPA 라 새로고침해도 index.html 이
+	# 나와야 해서 try_files 를 둔다. 파일이 없으면(아직 안 올렸으면) 404 만 나고 나머지
+	# 서비스는 그대로다.
+	handle_path /app/child/* {
+		root * /srv/app/child
+		try_files {path} /index.html
+		file_server
+	}
+	handle_path /app/owner/* {
+		root * /srv/app/owner
+		try_files {path} /index.html
+		file_server
+	}
+	# 끝의 / 를 빼고 들어와도 열리게 한다.
+	redir /app/child /app/child/ 308
+	redir /app/owner /app/owner/ 308
+
 	# 나머지는 전부 화면. 매처가 없는 handle 은 맨 뒤로 정렬된다.
 	# SPA 라 새로고침해도 index.html 이 나와야 하는데, 그 처리는 프론트 컨테이너의 nginx 가 이미 한다.
 	handle {

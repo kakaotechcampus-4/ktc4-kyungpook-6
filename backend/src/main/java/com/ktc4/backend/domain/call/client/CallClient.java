@@ -44,4 +44,13 @@ public interface CallClient {
      * @throws CallContractError   4xx(없는 id 포함)이거나 응답이 약속과 다름
      */
     CallSnapshot read(String externalId);
+
+    /**
+     * 통화별 공개 로그 JSON을 가공하지 않고 읽는다. {@code after}는 마지막으로 받은 nextCursor다.
+     *
+     * @param externalId 전화 API의 verificationId
+     * @param after 새 로그만 받기 위한 커서 (첫 조회는 0)
+     * @return 전화 API의 성공 응답 JSON 본문
+     */
+    String readLogs(String externalId, int after);
 }

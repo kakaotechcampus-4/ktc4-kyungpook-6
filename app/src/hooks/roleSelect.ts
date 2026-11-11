@@ -1,17 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { LOGIN_PATHS } from "../appRole";
 
-/** 앱을 쓰는 사람. 점주(OWNER)는 백엔드 MemberRole 과 이름을 맞췄다. */
-export type AppUserRole = "OWNER" | "CHILD";
+import type { AppUserRole } from "../appRole";
 
-/*
-  역할을 고른 뒤 넘어갈 화면. 점주는 로그인, 아동은 급식카드 인증.
-  "/" 는 스플래시라 여기로 보내면 역할 선택으로 되돌아온다.
-*/
-const NEXT_PATH: Record<AppUserRole, string> = {
-  OWNER: "/owner/login",
-  CHILD: "/child/login",
-};
+// 역할 타입은 appRole.ts 가 갖고 있다. 여기서 쓰던 코드가 있어 그대로 내보낸다.
+export type { AppUserRole };
 
 export type UseRoleSelectResult = {
   /** 고른 역할. 아직 고르지 않았으면 null. */
@@ -27,7 +21,7 @@ export const useRoleSelect = (): UseRoleSelectResult => {
 
   const goNext = () => {
     if (!selectedRole) return;
-    navigate(NEXT_PATH[selectedRole]);
+    navigate(LOGIN_PATHS[selectedRole]);
   };
 
   return { selectedRole, selectRole: setSelectedRole, goNext };

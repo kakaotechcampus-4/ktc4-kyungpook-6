@@ -72,8 +72,23 @@ public class InvestigationTargetSelector {
                 List.copyOf(aiTargets), List.copyOf(resolvedByNts), List.copyOf(excluded));
     }
 
-    // 번호 문제를 가장 먼저 본다 — 번호가 틀린 가게는 비교 결과가 무엇이든 엉뚱한 사업자의 상태다.
-    private static Optional<InvestigationExclusionReason> exclusionReason(StoreCheckResponse check) {
+    /**
+     * 그 가게가 조사에서 빠지는지, 빠진다면 왜인지.
+     *
+     * <p><b>이 메서드가 제외 규칙의 유일한 출처다.</b> 가게 목록({@code StoreService.getStores})도 조사 생성
+     * ({@link #select})도 같은 이 메서드를 부른다 — 목록이 미리 보여 준 제외 사유와 실제로 조사에서 빠지는
+     * 가게가 어긋나면, 담당자는 60곳을 골랐는데 56곳만 조사된 이유를 끝까지 알 수 없다. 화면이
+     * {@code lastCheckedAt} 이 비었는지 같은 자기 기준으로 다시 판정하면 안 되는 이유도 같다.
+     *
+     * <p>번호 문제를 가장 먼저 본다 — 번호가 틀린 가게는 비교 결과가 무엇이든 엉뚱한 사업자의 상태다.
+     *
+     * <p>{@link InvestigationExclusionReason#STORE_NOT_FOUND} 는 여기서 나오지 않는다. 가게가 있어야
+     * {@link StoreCheckResponse} 가 만들어지므로, 없는 가게 번호는 {@link #select} 가 따로 담는다.
+     *
+     * @param check 가게와 국세청 확인 기록을 합친 자료
+     * @return 빠지는 이유, 조사 대상이면 {@link Optional#empty()}
+     */
+    public static Optional<InvestigationExclusionReason> exclusionReason(StoreCheckResponse check) {
         if (check.dataProblem()) {
             return Optional.of(InvestigationExclusionReason.DATA_PROBLEM);
         }

@@ -2,6 +2,28 @@ import { Icon } from '@iconify/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import tooltipArrow from '../assets/tooltip-arrow.svg';
 
+/**
+ * 우하단 고정 앵커. Figma 1280x832 아트보드 기준 오프셋 16px
+ * (로봇 버튼 우측 끝 1264 / 아래쪽 끝 816).
+ *
+ * 로봇 버튼과 조사 진행 표시(SurveyProgressFloat)가 **같은 자리**를 쓴다.
+ * 둘이 겹치지 않도록, 진행 표시가 떠 있는 동안에는 로봇 버튼을 내린다
+ * (hooks/store.ts 의 isTriggerVisible).
+ */
+export const FLOAT_ANCHOR =
+  'fixed bottom-4 right-4 z-40 flex flex-col items-end';
+
+/**
+ * 56x56 원 + Slate/100 보더 4px + 그림자. Figma 111:2643
+ * 배경색은 상태마다 다르므로 이 문자열에 넣지 않고 쓰는 쪽에서 덧붙인다.
+ */
+export const FLOAT_CIRCLE =
+  'flex size-14 shrink-0 items-center justify-center overflow-clip rounded-full border-4 border-solid border-[#f1f5f9] shadow-[0px_3px_16px_4px_rgba(0,0,0,0.25)]';
+
+/** 포커스 링. Blue/500 */
+export const FLOAT_FOCUS =
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6]';
+
 type AgentSurveyTriggerProps = {
   /** 선택된 가게가 하나도 없으면 false. false면 아무것도 렌더링하지 않는다. */
   visible: boolean;
@@ -17,8 +39,7 @@ type AgentSurveyTriggerProps = {
  * 가게를 하나 이상 선택했을 때 화면 우하단에 뜨는 조사 트리거.
  * 로봇 버튼(Figma 111:2643)과 말풍선(Figma 115:5592)으로 이루어진다.
  *
- * 우하단 고정 오프셋 16px은 Figma의 1280x832 아트보드 기준으로 계산한 값이다.
- * (로봇 버튼 우측 끝 1264 / 아래쪽 끝 816)
+ * 자리(FLOAT_ANCHOR)와 원 모양(FLOAT_CIRCLE)은 조사 진행 표시와 공유한다.
  */
 function AgentSurveyTrigger({
   visible,
@@ -32,12 +53,7 @@ function AgentSurveyTrigger({
 
   return (
     <div
-      className={[
-        'fixed bottom-4 right-4 z-40 flex flex-col items-end',
-        className,
-      ]
-        .filter(Boolean)
-        .join(' ')}
+      className={[FLOAT_ANCHOR, className].filter(Boolean).join(' ')}
       {...props}
     >
       {showTooltip && (
@@ -98,7 +114,7 @@ function AgentSurveyTrigger({
         type="button"
         onClick={onButtonClick}
         aria-label="선택한 가게 조사 시작"
-        className="flex size-14 shrink-0 items-center justify-center overflow-clip rounded-full border-4 border-solid border-[#f1f5f9] bg-[#422006] shadow-[0px_3px_16px_4px_rgba(0,0,0,0.25)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6]"
+        className={`${FLOAT_CIRCLE} bg-[#422006] ${FLOAT_FOCUS}`}
       >
         <Icon
           icon="mingcute:robot-fill"

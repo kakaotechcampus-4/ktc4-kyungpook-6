@@ -2,9 +2,10 @@ import asyncio
 import hmac
 from contextlib import asynccontextmanager
 from uuid import UUID
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from .call_logs import read_call_logs
 from .config import Settings
-from .models import CallRequest, CallResult, Created
+from .models import CallLogs, CallRequest, CallResult, Created
 from .providers import Providers
 from .runtime import CallRunner
 from .store import Store, QueueFull
@@ -15,7 +16,7 @@ def create_app(settings=None, runner_factory=None):
     async def lifespan(app):
         s = settings or Settings.from_env()
         s.data_dir.mkdir(parents=True,exist_ok=True)
-        store = Store(s.data_dir/'calls.sqlite3',s.queue_capacity)
+        store = Store(s.data_dir/'calls.sqlite3',s.queue_capacity,s.pending_max_age_seconds)
         providers = Providers(s)
         runner = runner_factory(s,store,providers) if runner_factory else CallRunner(s,store,providers)
         worker = Worker(store,runner,s.modem_lock_file)
@@ -37,13 +38,15 @@ def create_app(settings=None, runner_factory=None):
     @app.get('/healthz')
     def health(response: Response):
         alive = app.state.worker.thread.is_alive()
-        if not alive:
+        blocked = app.state.worker.save_blocked.is_set()
+        if not alive or blocked:
             response.status_code = 503
-        return {'status':'ok' if alive else 'worker_unavailable'}
+        return {'status':'worker_unavailable' if not alive else
+                'result_storage_unavailable' if blocked else 'ok'}
 
     @app.post('/v1/verification-call',response_model=Created,status_code=202,dependencies=[Depends(authorize)])
     def create(request: CallRequest):
-        if not app.state.worker.thread.is_alive():
+        if not app.state.worker.thread.is_alive() or app.state.worker.save_blocked.is_set():
             raise HTTPException(503,'통화 worker를 사용할 수 없습니다.')
         try:
             call_id = app.state.store.enqueue(request)
@@ -58,6 +61,18 @@ def create_app(settings=None, runner_factory=None):
         if result is None:
             raise HTTPException(404,'해당 통화가 없습니다.')
         return result
+
+    @app.get('/v1/verification-call/{verification_id}/logs',response_model=CallLogs,
+             dependencies=[Depends(authorize)])
+    def get_logs(verification_id: UUID, after: int = Query(default=0, ge=0)):
+        call_id = str(verification_id)
+        result = app.state.store.get(call_id)
+        if result is None:
+            raise HTTPException(404,'해당 통화가 없습니다.')
+        logs, cursor = read_call_logs(app.state.settings.data_dir/'calls'/call_id,after)
+        return {key:result[key] for key in (
+            'verificationId','status','startedAt','connectedAt','endedAt','failureReason')} | {
+                'logs':logs,'nextCursor':cursor}
 
     return app
 

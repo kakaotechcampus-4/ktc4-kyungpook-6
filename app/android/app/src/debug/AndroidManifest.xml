@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  시연·개발용 debug 빌드에만 붙는다. 노트북에서 띄운 백엔드는 http 라서
+  안드로이드 9 이상에서는 기본으로 막힌다. release 빌드는 건드리지 않는다.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application android:usesCleartextTraffic="true" tools:targetApi="28" />
+</manifest>

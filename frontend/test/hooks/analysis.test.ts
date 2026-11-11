@@ -3,6 +3,7 @@ import {
   progressLabelOf,
   toAnalysisTask,
   toCallStatusLabel,
+  toStorePhoneLabel,
 } from '../../src/hooks/analysis';
 import type {
   CallResponse,
@@ -271,18 +272,22 @@ describe('toCallStatusLabel — 확인 전화 상태', () => {
     ]);
   });
 
-  it('통화가 중간에 끊겨도 그때까지 들은 답을 버리지 않는다', () => {
+  it('통화가 중간에 끊기면 영업 여부는 적지 않고, 다른 항목의 들은 답은 남긴다', () => {
     // 전화 API 명세: "진행 중이거나 실패한 통화의 부분 결과도 포함될 수 있습니다"
     const result = toCallStatusLabel(
       call({
         status: 'FAILED',
         failureReason: 'HANGUP',
         failureKind: 'RETRY_LATER',
-        answers: [{ field: 'status', naturalField: '영업 여부', value: 'false', applied: false }],
+        answers: [
+          { field: 'status', naturalField: '영업 여부', value: 'false', applied: false },
+          { field: 'name', naturalField: '상호명', value: '신나는 자장면', applied: false },
+        ],
       }),
     );
 
-    expect(lines(result)).toContain('영업 여부: 영업 안 함');
+    expect(lines(result).some((line) => line.startsWith('영업 여부'))).toBe(false);
+    expect(lines(result)).toContain('상호명: 신나는 자장면');
   });
 });
 
@@ -369,4 +374,42 @@ describe('toAnalysisTask — 전화를 걸 수 있는가', () => {
       toAnalysisTask(task({ classification: 'PRIORITY_CHECK', storePhone: null })).canCall,
     ).toBe(false);
   });
+});
+
+describe('toStorePhoneLabel — 카드 주소 아래 전화번호', () => {
+  it('걸 수 있는 번호는 그대로 보여 준다', () => {
+    expect(toStorePhoneLabel('053-123-4567')).toEqual({ value: '053-123-4567' });
+  });
+
+  it.each([null, undefined, '', '   '])('번호가 %j 면 "전화번호 없음" 이다', (phone) => {
+    expect(toStorePhoneLabel(phone)).toEqual({ value: '전화번호 없음', issue: 'missing' });
+  });
+
+  it('걸 수 없는 모양이면 번호를 그대로 두고 그 사실을 붙인다', () => {
+    expect(toStorePhoneLabel('123456')).toEqual({ value: '123456', issue: 'invalid' });
+  });
+
+  it('카드 값에도 실린다', () => {
+    expect(toAnalysisTask(task({ storePhone: null })).phone.issue).toBe('missing');
+  });
+});
+
+describe('toCallStatusLabel — 전화 버튼 단계', () => {
+  it.each([
+    ['PENDING', 'waiting'],
+    ['IN_PROGRESS', 'calling'],
+    ['COMPLETED', 'done'],
+    ['FAILED', 'failed'],
+  ] as const)('%s 면 %s', (status, phase) => {
+    expect(toCallStatusLabel(call({ status }))?.phase).toBe(phase);
+  });
+});
+
+describe('toCallStatusLabel — 통화 로그 조회', () => {
+  it.each(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED'] as const)(
+    '%s 상태에서 실제 Call API 조회에 쓸 id를 전달한다',
+    (status) => {
+      expect(toCallStatusLabel(call({ callId: 42, status }))?.callId).toBe(42);
+    },
+  );
 });

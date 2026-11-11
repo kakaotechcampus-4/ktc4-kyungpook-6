@@ -68,7 +68,7 @@ class NearbyStoreControllerTest {
 
     @Test
     @WithMockUser(roles = "CHILD")
-    @DisplayName("위경도가 없거나 범위 밖(NaN·Infinity 포함), 반경 100~5000 밖, 검색어 50자 초과면 400 이고 찾지 않는다")
+    @DisplayName("위경도가 없거나 범위 밖(NaN·Infinity 포함), 반경 100~100000 밖, 검색어 50자 초과면 400 이고 찾지 않는다")
     void rejectsBadParameters() throws Exception {
         String longQuery = "가".repeat(51);
         List<String[]> bad = List.of(
@@ -82,7 +82,7 @@ class NearbyStoreControllerTest {
                 new String[]{"lat", "Infinity", "lng", "128.6107"},
                 new String[]{"lat", "35.8884", "lng", "-Infinity"},
                 new String[]{"lat", "35.8884", "lng", "128.6107", "radius", "99"},
-                new String[]{"lat", "35.8884", "lng", "128.6107", "radius", "5001"},
+                new String[]{"lat", "35.8884", "lng", "128.6107", "radius", "100001"},
                 new String[]{"lat", "35.8884", "lng", "128.6107", "q", longQuery},
                 new String[]{"lat", "abc", "lng", "128.6107"});
         for (String[] params : bad) {

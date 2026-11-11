@@ -6,12 +6,12 @@ import {
   confirmTask,
   getJobResult,
   requestCall,
-  requestCallsForJob,
 } from '../services/analysis';
 import type {
   CallFailureKindResponse,
   CallResponse,
   JobResultResponse,
+  PendingStoreResponse,
   TaskClassificationResponse,
   TaskResponse,
   VerificationResponse,
@@ -58,11 +58,26 @@ const CALLABLE: TaskClassification[] = ['priority', 'additional'];
  * label 은 늘 보이는 한마디("전화 확인 중"), details 는 칩에 마우스를 올리거나 누르면 펼치는 세부다.
  * 사유 코드·들은 답까지 한 줄에 이어 붙이면 실패 줄이 카드 폭을 넘어 무엇이 요점인지 안 보였다.
  */
+/**
+ * 세부 중 "요청 시각" 줄의 라벨. 전화 단계 판(CallPhaseButton)이 이 줄만 칸에서 빼서 맨 아래 작은
+ * 글자로 내린다 — 담당자가 읽을 것은 들은 답·할 일이고 시각은 곁들이는 정보다.
+ */
+export const REQUESTED_AT_LABEL = '요청 시각';
+
 export type CallStatusLabel = {
+  callId: number;
   label: string;
   tone: 'progress' | 'done' | 'failed';
+  /**
+   * 카드의 전화 버튼 자리에 찍을 단계. 칩(tone)은 대기와 통화 중을 한 색으로 묶지만,
+   * 버튼은 둘을 나눈다 — "아직 차례를 기다린다" 와 "지금 가게와 통화하고 있다" 는 담당자에게 다른 소식이다.
+   */
+  phase: CallPhase;
   details: StatusDetail[];
 };
+
+/** waiting 대기(PENDING) · calling 통화 중(IN_PROGRESS) · done 완료 · failed 실패 */
+export type CallPhase = 'waiting' | 'calling' | 'done' | 'failed';
 
 /**
  * 실패했을 때 담당자가 할 일. 백엔드가 분류(`failureKind`)만 주고 문구는 화면이 붙인다.
@@ -93,42 +108,57 @@ export function toCallStatusLabel(
 
   const requestedAt = formatDateTime(call.requestedAt);
   const requestedDetail: StatusDetail[] = requestedAt
-    ? [{ label: '요청 시각', value: requestedAt }]
+    ? [{ label: REQUESTED_AT_LABEL, value: requestedAt }]
     : [];
 
   if (call.status === 'PENDING' || call.status === 'IN_PROGRESS') {
     return {
+      callId: call.callId,
       tone: 'progress',
+      phase: call.status === 'PENDING' ? 'waiting' : 'calling',
       label: '전화 확인 중',
       details: requestedDetail,
     };
   }
 
-  /*
-    통화가 중간에 끊겨도 그때까지 들은 답은 온다(전화 API 명세: "진행 중이거나 실패한 통화의 부분
-    결과도 포함될 수 있습니다"). 그 답을 버리면 담당자가 "폐업이라고 들었는데 끊긴 전화" 를
-    그냥 실패로 보고 처음부터 다시 건다.
-  */
-  const answers = answerDetails(call);
-
   if (call.status === 'FAILED') {
+    /*
+      통화가 중간에 끊겨도 그때까지 들은 답은 온다(전화 API 명세: "진행 중이거나 실패한 통화의 부분
+      결과도 포함될 수 있습니다"). 그 답을 버리면 담당자가 "상호명을 들었는데 끊긴 전화" 를
+      그냥 실패로 보고 처음부터 다시 건다.
+
+      다만 영업 여부는 적지 않는다. 끊기기 전에 들은 "영업 중/안 함" 한마디가 실패 판에 섞이면
+      판정처럼 읽힌다 — 실패 판은 무슨 일이 있었고(사유 코드) 무엇을 할지(할 일)만 보인다.
+      상호명 등 다른 항목의 부분 답은 그대로 둔다.
+    */
+    const partialAnswers = answerDetails({
+      ...call,
+      answers: (call.answers ?? []).filter((answer) => answer.field !== 'status'),
+    });
     /* 사유 코드는 전화 API 가 정하는 값이라 번역하지 않는다 — 모르는 코드를 삼키면 원인이 사라진다. */
     const guide = FAILURE_GUIDE[call.failureKind ?? 'UNKNOWN'];
     return {
+      callId: call.callId,
       tone: 'failed',
+      phase: 'failed',
       label:
         call.failureKind === 'OUR_SIDE' ? '전화를 걸지 못했습니다' : '전화 확인 실패',
       details: [
-        ...(guide ? [{ label: '할 일', value: guide }] : []),
+        /* 무슨 일이 있었는지(사유 코드)를 먼저, 그래서 무엇을 할지(할 일)를 그 아래에 둔다. */
         ...(call.failureReason ? [{ label: '사유 코드', value: call.failureReason }] : []),
-        ...answers,
+        ...(guide ? [{ label: '할 일', value: guide }] : []),
+        ...partialAnswers,
         ...requestedDetail,
       ],
     };
   }
 
+  const answers = answerDetails(call);
+
   return {
+    callId: call.callId,
     tone: 'done',
+    phase: 'done',
     label: '전화 확인 완료',
     details: [
       ...(answers.length > 0 ? answers : [{ label: '들은 답', value: '없음' }]),
@@ -167,6 +197,8 @@ export type AnalysisTask = {
    * 표기용 "-"를 그대로 넘기면 담당자가 저장할 때 주소가 "-"로 덮인다.
    */
   addressRoad: string | null;
+  /** 카드에 찍는 가게 전화번호. 번호가 없거나 걸 수 없는 모양이면 issue 로 알린다. */
+  phone: StorePhoneLabel;
   classification: TaskClassification;
   evidences: SurveyEvidence[];
   changes: SurveyChange[];
@@ -200,16 +232,56 @@ function isCallablePhone(phone: string | null | undefined): boolean {
   return /^\+?\d{7,15}$/.test(phone.replace(/[-\s()]/g, ''));
 }
 
+/**
+ * 카드에 찍는 전화번호 한 줄.
+ *
+ * 비어 있으면 아예 줄을 내리지 않고 "전화번호 없음" 을 적는다 — 빈 자리는 "아직 안 불러왔다" 와
+ * 구분되지 않고, 전화하기 버튼이 왜 잠겼는지도 알 수 없다. 번호는 있는데 걸 수 없는 모양이면
+ * 번호를 그대로 보여 주고 그 사실을 붙인다 — 담당자가 고칠 값이 무엇인지 보여야 한다.
+ */
+export type StorePhoneLabel = {
+  value: string;
+  issue?: 'missing' | 'invalid';
+};
+
+export function toStorePhoneLabel(phone: string | null | undefined): StorePhoneLabel {
+  const trimmed = phone?.trim();
+  if (!trimmed) return { value: '전화번호 없음', issue: 'missing' };
+  return isCallablePhone(trimmed)
+    ? { value: trimmed }
+    : { value: trimmed, issue: 'invalid' };
+}
+
 /** 분류별로 나눈 Task 목록. 화면의 네 섹션과 1:1로 대응한다. */
 export type AnalysisTaskGroups = Record<TaskClassification, AnalysisTask[]>;
 
-/** 아직 돌고 있는 조사인가. 이 동안에는 결과를 주기적으로 다시 받아 온다. */
-function isRunning(status: JobResultResponse['status'] | undefined): boolean {
+/**
+ * 아직 돌고 있는 조사인가. 이 동안에는 결과를 주기적으로 다시 받아 온다.
+ *
+ * 우하단 진행 표시(hooks/surveyProgress)도 같은 판단을 써야 한다 — 화면과 표시가
+ * 서로 다른 기준으로 "도는 중" 을 정하면 한쪽만 폴링을 멈춘다.
+ */
+export function isJobRunning(
+  status: JobResultResponse['status'] | undefined,
+): boolean {
   return status === 'PENDING' || status === 'IN_PROGRESS';
 }
 
 /** 조사가 도는 동안 다시 물어보는 간격(ms). AI 는 가게 한 곳에 최대 60초를 쓴다. */
-const POLL_INTERVAL_MS = 3_000;
+export const POLL_INTERVAL_MS = 3_000;
+
+/**
+ * 조사 결과 조회의 쿼리 키. jobId 가 없으면 가장 최근 조사(`/api/jobs/latest`)다.
+ *
+ * 분석 결과 화면과 우하단 진행 표시가 **같은 키**를 써야 한다. 키가 어긋나면 같은 조사를
+ * 두 번 폴링하고, 조사를 시작한 뒤 한쪽 캐시만 갱신돼 표시가 안 뜬다.
+ */
+export const JOB_RESULT_QUERY_PREFIX = ['jobResult'] as const;
+
+export const jobResultQueryKey = (jobId?: string) => [
+  ...JOB_RESULT_QUERY_PREFIX,
+  jobId ?? 'latest',
+];
 
 /**
  * 진행 상황 한 줄. 끝난 조사면 undefined 다.
@@ -226,7 +298,7 @@ export function progressLabelOf(
       ? `조사가 멈췄습니다 — ${result.errorMessage}`
       : '조사가 멈췄습니다.';
   }
-  if (!isRunning(result.status)) return undefined;
+  if (!isJobRunning(result.status)) return undefined;
 
   return `조사 중 · ${result.targetCount}곳 중 ${result.completedCount}곳 끝남`;
 }
@@ -261,6 +333,7 @@ export function toAnalysisTask(task: TaskResponse): AnalysisTask {
     storeName: task.storeName,
     address: task.storeAddress ?? '-',
     addressRoad: task.storeAddress,
+    phone: toStorePhoneLabel(task.storePhone),
     classification,
     evidences:
       task.evidences?.map((evidence) => ({
@@ -329,7 +402,7 @@ const FALLBACK_RESULT: JobResultResponse = {
       storeId: 1,
       storeName: '맛나 치킨',
       storeAddress: '대구광역시 북구 대학로 80',
-      storePhone: null,
+      storePhone: '053-123-4567',
       lastCheckedAt: null,
       classification: 'PRIORITY_CHECK',
       failureReason: null,
@@ -361,7 +434,7 @@ const FALLBACK_RESULT: JobResultResponse = {
       storeId: 2,
       storeName: '짜장면',
       storeAddress: '인천광역시 부평구 부평동 32',
-      storePhone: null,
+      storePhone: '032-555-0142',
       lastCheckedAt: null,
       classification: 'PRIORITY_CHECK',
       failureReason: null,
@@ -405,7 +478,7 @@ const FALLBACK_RESULT: JobResultResponse = {
       storeId: 4,
       storeName: '정든 국밥집',
       storeAddress: '대구광역시 북구 대학로 82',
-      storePhone: null,
+      storePhone: '053-950-0082',
       lastCheckedAt: null,
       classification: 'NO_CHANGE',
       failureReason: null,
@@ -430,14 +503,14 @@ export type UseAnalysisResultPageResult = {
   finishedAtLabel: string | undefined;
   /** 분류별 Task 목록. 화면의 네 섹션이 그대로 쓴다. */
   groups: AnalysisTaskGroups;
+  /** 조사 대상이지만 아직 결과가 나오지 않은 가게. */
+  pendingStores: PendingStoreResponse[];
   /** 조사 결과 조회 중 여부. Skeleton 노출 여부에 쓰인다. */
   isPending: boolean;
   /** 조회 실패 여부. 목업 결과로 대체해 보여준다. 아래 noJobYet 인 경우는 빼고 센다. */
   isError: boolean;
   /** 조사한 기록이 아직 없는가(404). 고장이 아니라 빈 상태라 목업을 깔지 않는다. */
   noJobYet: boolean;
-  /** 조사가 아직 도는 중이면 진행 상황 한 줄. 끝났으면 undefined. */
-  progressLabel: string | undefined;
   /** 수정안 반영 중인 Task id. 버튼을 잠그는 데 쓴다. */
   processingTaskId: number | null;
   /** 반영·확인·전화에 실패했을 때 담당자에게 보일 문구. */
@@ -446,14 +519,6 @@ export type UseAnalysisResultPageResult = {
   applyChanges: (taskId: number) => void;
   /** "전화하기". 요청만 넣고 결과는 폴링으로 받는다. */
   requestOneCall: (taskId: number) => void;
-  /** 전화를 걸 만한 가게 수. 0 이면 한 번에 걸기 버튼을 내린다. */
-  callTargetCount: number;
-  /** "전화 대상 전체에 걸기". 조사 ID 를 모르면(목업·빈 상태) 아무 일도 하지 않는다. */
-  requestAllCalls: () => void;
-  /** 한 번에 걸기 요청이 날아가 있는 동안 true. */
-  isRequestingAllCalls: boolean;
-  /** 한 번에 걸고 난 결과. 요약 한마디와 세부(대상·요청·건너뜀). 아직 누르지 않았으면 undefined. */
-  bulkCallSummary: { label: string; details: StatusDetail[] } | undefined;
 };
 
 /**
@@ -467,7 +532,7 @@ export type UseAnalysisResultPageResult = {
 export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   const { jobId } = useParams<{ jobId?: string }>();
   const queryClient = useQueryClient();
-  const queryKey = ['jobResult', jobId ?? 'latest'];
+  const queryKey = jobResultQueryKey(jobId);
   const [actionErrorMessage, setActionErrorMessage] = useState<
     string | undefined
   >(undefined);
@@ -476,9 +541,14 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     queryKey,
     queryFn: () => getJobResult(jobId),
     retry: false,
-    /* 조사가 도는 동안만 다시 물어본다. 끝나면 false 라 더 부르지 않는다. */
+    /* 조사가 끝나도 확인 전화가 진행 중이면 상태 갱신을 계속 받는다. */
     refetchInterval: (query) =>
-      isRunning(query.state.data?.status) ? POLL_INTERVAL_MS : false,
+      isJobRunning(query.state.data?.status) ||
+      query.state.data?.tasks.some(({ call }) =>
+        call?.status === 'PENDING' || call?.status === 'IN_PROGRESS',
+      )
+        ? POLL_INTERVAL_MS
+        : false,
   });
 
   /*
@@ -508,13 +578,6 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     onError: (error) => setActionErrorMessage(messageOf(error)),
   });
 
-  const bulkCallMutation = useMutation({
-    mutationFn: (jobId: number) => requestCallsForJob(jobId),
-    onMutate: () => setActionErrorMessage(undefined),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-    onError: (error) => setActionErrorMessage(messageOf(error)),
-  });
-
   /*
     아직 조사한 적이 없으면(404) 목업을 깔지 않는다. 운영에 처음 올린 날 실제로 그랬는데,
     화면은 "불러오지 못해 목업 데이터를 표시합니다" 와 함께 가짜 가게 셋을 띄웠다. 담당자에게는
@@ -524,6 +587,7 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
   const isError = isQueryError && !noJobYet;
   const result = isError ? FALLBACK_RESULT : data;
   const groups = groupByClassification(result?.tasks.map(toAnalysisTask) ?? []);
+  const pendingStores = result?.pendingStores ?? [];
 
   const applyChanges = (taskId: number) => {
     const task = Object.values(groups)
@@ -532,32 +596,14 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     mutation.mutate({ taskId, hasChanges: task?.hasChanges ?? false });
   };
 
-  const callTargetCount = Object.values(groups)
-    .flat()
-    .filter((task) => task.canCall).length;
-
-  /*
-    한 번에 걸기는 조사 ID 가 있어야 한다. URL 에 없으면(최근 조사 화면) 응답의 jobId 를 쓰고,
-    조회가 실패해 목업을 깔았거나 조사한 적이 없으면 걸 곳이 없다 — 목업의 jobId(0)로 요청을 보내면
-    담당자는 404 만 보게 된다.
-  */
-  const callableJobId = isError || noJobYet ? undefined : data?.jobId;
-
-  const requestAllCalls = () => {
-    if (callableJobId === undefined) return;
-    bulkCallMutation.mutate(callableJobId);
-  };
-
-  const bulkResult = bulkCallMutation.data;
-
   return {
     /* 브레드크럼 표기. Figma 112:5450 "2026. 08. 20. 18:00" */
     finishedAtLabel: formatDateTime(result?.finishedAt),
     groups,
+    pendingStores,
     isPending,
     isError,
     noJobYet,
-    progressLabel: progressLabelOf(isQueryError ? undefined : data),
     processingTaskId: mutation.isPending
       ? mutation.variables.taskId
       : callMutation.isPending
@@ -566,25 +612,5 @@ export function useAnalysisResultPage(): UseAnalysisResultPageResult {
     actionErrorMessage,
     applyChanges,
     requestOneCall: (taskId: number) => callMutation.mutate(taskId),
-    callTargetCount: callableJobId === undefined ? 0 : callTargetCount,
-    requestAllCalls,
-    isRequestingAllCalls: bulkCallMutation.isPending,
-    bulkCallSummary: bulkResult
-      ? {
-          label: `${bulkResult.requested}곳에 전화를 넣었습니다`,
-          details: [
-            { label: '전화 대상', value: `${bulkResult.targetCount}곳` },
-            { label: '요청함', value: `${bulkResult.requested}곳` },
-            ...(bulkResult.skipped > 0
-              ? [
-                  {
-                    label: '건너뜀',
-                    value: `${bulkResult.skipped}곳 — 번호가 없거나 물을 것이 없습니다`,
-                  },
-                ]
-              : []),
-          ],
-        }
-      : undefined,
   };
 }

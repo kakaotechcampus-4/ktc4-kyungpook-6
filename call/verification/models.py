@@ -81,10 +81,50 @@ class CallResult(Model):
     endedAt: str | None = None
     failureReason: str | None = None
 
+class ConversationLog(Model):
+    sequence: int
+    timestamp: str
+    turn: int
+    type: Literal['ASSISTANT', 'USER']
+    text: str
+
+class JevLog(Model):
+    sequence: int
+    timestamp: str
+    turn: int
+    type: Literal['JEV']
+    verdict: Literal['PROCESS', 'IGNORE', 'INTERRUPT', 'BACKCHANNEL']
+    answer: Literal['YES', 'NO', 'VALUE', 'CUSTOM', 'UNCLEAR']
+    answerConfidence: float
+    control: Literal['STOP', 'WAIT', 'CONTINUE', 'REPEAT']
+    controlConfidence: float
+
+class CallLogs(Model):
+    verificationId: str
+    status: Literal['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED']
+    startedAt: str | None
+    connectedAt: str | None
+    endedAt: str | None
+    failureReason: str | None
+    logs: list[ConversationLog | JevLog]
+    nextCursor: int
+
 class Interpretation(Model):
     identity: Literal['YES', 'NO', 'UNKNOWN'] = 'UNKNOWN'
-    stop: StrictBool = False
+    control: Literal['STOP', 'WAIT', 'CONTINUE'] = 'CONTINUE'
     kind: Literal['YES', 'NO', 'CURRENT', 'EXPECTED', 'VALUE', 'UNCLEAR'] = 'UNCLEAR'
     value: Value | None = None
     evidence: str = ''
-    knowledgeReply: Annotated[str, Field(max_length=300)] = ''
+
+class ValueExtraction(Model):
+    value: Value | None
+    evidence: Annotated[str, Field(max_length=2000)]
+
+class CustomReply(Model):
+    reply: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+
+    @model_validator(mode='after')
+    def valid_reply(self):
+        if not self.reply.strip() or '\n' in self.reply:
+            raise ValueError('CUSTOM 답변은 한 줄의 문장이 필요합니다.')
+        return self

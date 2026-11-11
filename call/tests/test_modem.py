@@ -1,6 +1,7 @@
 import contextlib
 import io
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -16,6 +17,18 @@ class ModemTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.folder = Path(directory.name)
+
+    def test_shutdown_interrupts_answer_wait_but_still_sends_hangup(self):
+        modem = EP06Modem('unused')
+        modem.connection = Mock()
+        modem.abort_requested = threading.Event()
+        modem.abort_requested.set()
+        with patch.object(modem, '_exchange', return_value=['OK']) as exchange:
+            with self.assertRaisesRegex(InterruptedError, 'SERVER_SHUTDOWN'):
+                modem.wait_for_answer(seconds=45)
+            modem.__exit__(None, None, None)
+        self.assertEqual(exchange.call_args_list[0].args[0], 'AT+CHUP')
+        self.assertIsNone(modem.connection)
 
     def test_modem_audio_tuning_changes_downlink_and_restores_both_values(self):
         modem = EP06Modem('unused')

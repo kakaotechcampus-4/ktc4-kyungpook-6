@@ -70,11 +70,13 @@ public enum CallFailureKind {
             Map.entry("PROCESSING_ERROR", OUR_SIDE),    // STT·LLM·TTS·장치 오류
             Map.entry("SERVER_RESTARTED", OUR_SIDE),
             Map.entry("SERVER_SHUTDOWN", OUR_SIDE),
+            Map.entry("QUEUE_EXPIRED", OUR_SIDE),          // 15분 이상 대기해 발신하지 않음
 
             // 이따 다시 걸면 된다
             Map.entry("NO_ANSWER_OR_REJECTED", RETRY_LATER),  // 안 받음과 거절이 한 코드다 — 덜 단정적인 쪽으로
             Map.entry("REMOTE_HANGUP", RETRY_LATER),          // 마치기 전에 끊음. 들은 답은 함께 온다
             Map.entry("INPUT_TIMEOUT", RETRY_LATER),          // 정해진 시간 동안 응답 없음
+            Map.entry("WAIT_TIMEOUT", RETRY_LATER),           // "잠깐만요" 하고 정해진 시간 안에 돌아오지 않음
             Map.entry("CALL_TIME_LIMIT", RETRY_LATER),        // 최대 통화 시간 초과
             Map.entry("TURN_LIMIT", RETRY_LATER),             // 최대 대화 턴 초과
 

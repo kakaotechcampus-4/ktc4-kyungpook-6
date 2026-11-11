@@ -119,6 +119,38 @@ export type CallResponse = {
   answers: CallAnswerResponse[] | null;
 };
 
+/** Call API에서 기록되는 공개 대화·판정 로그. */
+export type CallLogEntry =
+  | {
+      sequence: number;
+      timestamp: string;
+      turn: number;
+      type: 'ASSISTANT' | 'USER';
+      text: string;
+    }
+  | {
+      sequence: number;
+      timestamp: string;
+      turn: number;
+      type: 'JEV';
+      verdict: 'PROCESS' | 'IGNORE' | 'INTERRUPT' | 'BACKCHANNEL';
+      answer: 'YES' | 'NO' | 'VALUE' | 'CUSTOM' | 'UNCLEAR';
+      answerConfidence: number;
+      control: 'STOP' | 'WAIT' | 'CONTINUE' | 'REPEAT';
+      controlConfidence: number;
+    };
+
+export type CallLogsResponse = {
+  verificationId: string;
+  status: CallStatusResponse;
+  startedAt: string | null;
+  connectedAt: string | null;
+  endedAt: string | null;
+  failureReason: string | null;
+  logs: CallLogEntry[];
+  nextCursor: number;
+};
+
 /** 한 번에 전화를 넣은 결과. */
 export type CallBulkResponse = {
   /** 전화를 걸 만한 결과 수. */
@@ -150,6 +182,14 @@ export type TaskResponse = {
   call: CallResponse | null;
 };
 
+/** 아직 조사 결과 Task 가 만들어지지 않은 대상 가게. */
+export type PendingStoreResponse = {
+  storeId: number;
+  storeName: string;
+  storeAddress: string;
+  storePhone: string | null;
+};
+
 /** 조사 1회(Job)의 결과. 분석 결과 화면이 통째로 받는 응답. */
 export type JobResultResponse = {
   jobId: number;
@@ -164,6 +204,8 @@ export type JobResultResponse = {
   /** 조사를 멈춘 이유. FAILED 일 때만. */
   errorMessage: string | null;
   tasks: TaskResponse[];
+  /** 조사 중인 Job 에서 아직 처리되지 않은 가게. 이전 API 응답에는 없을 수 있다. */
+  pendingStores?: PendingStoreResponse[];
 };
 
 /** 조사에서 빠진 가게와 이유. */
@@ -225,6 +267,10 @@ export const confirmTask = async (taskId: number) =>
  */
 export const requestCall = async (taskId: number) =>
   postRequest<CallResponse>(`/api/tasks/${taskId}/call`, undefined);
+
+/** callId로 통화 로그를 조회한다. 다음 조회에는 응답의 nextCursor를 after에 전달한다. */
+export const getCallLogs = async (callId: number, after = 0) =>
+  getRequest<CallLogsResponse>(`/api/calls/${callId}/logs`, { after });
 
 /**
  * 그 조사 결과에서 **전화를 걸 만한 가게 전부**에 전화를 요청한다.

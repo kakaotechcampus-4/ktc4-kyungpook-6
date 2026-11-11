@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import UnauthorizedRedirect from "./components/UnauthorizedRedirect";
 import SplashPage from "./pages/SplashPage";
 import RoleSelectPage from "./pages/RoleSelectPage";
@@ -27,7 +27,11 @@ import ChildQrPage from "./pages/ChildQrPage";
 
 function App() {
   return (
-    <BrowserRouter>
+    /*
+      하위 경로에 올렸을 때 라우터가 그 앞부분을 떼고 보게 한다. vite 의 base 가
+      그대로 들어온다 — 루트면 "/" 라 지금까지와 같다.
+    */
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <UnauthorizedRedirect />
       <Routes>
         {/* 앱을 열면 처음 뜨는 주소. 스플래시가 승인 대기 중이면 가입 완료 화면, 아니면 역할 선택으로 보낸다. */}
