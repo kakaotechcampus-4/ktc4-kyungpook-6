@@ -1,7 +1,7 @@
 # backend — API 서버
 
-가게·조사·인증·QR 체크인 API 서버(Spring Boot + PostgreSQL). 관리자 웹과 앱이 이 서버를 부르고,
-2차 조사는 AI 서버를 불러 맡긴다.
+가게·조사·인증·QR 체크인·주문·확인 전화 API 서버(Spring Boot + PostgreSQL). 관리자 웹과 앱이 이 서버를 부르고,
+2차 조사는 AI 서버를, 가게 확인 전화는 통화 서버를 불러 맡긴다.
 
 > 맥(macOS) 기준으로 작성했습니다. 윈도우는 맨 아래 [윈도우 사용자](#윈도우-사용자) 참고.
 
@@ -244,12 +244,14 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle bootRun
 | `INTERNAL_API_KEY` | AI 서버가 백엔드 조회 API 를 부를 수 없고, 백엔드가 AI 를 부를 때 키를 싣지 않음 |
 | `AI_BASE_URL` | `http://localhost:8000` 의 AI 서버를 찾음 |
 | `NTS_SERVICE_KEY` · `BIZNO_API_KEY` · `KAKAO_REST_API_KEY` | 국세청 대조 · 비즈노 조회 · 좌표 채우기가 동작하지 않음 |
+| `VERIFICATION_API_BASE_URL` · `VERIFICATION_API_KEY` | 확인 전화를 걸 수 없음 (통화 서버 주소와 키) |
 
-각 값의 설명은 [`.env.example`](.env.example) 에 있습니다. 전체 목록은 `src/main/resources/application.yml` 의
-`${...}` 를 보세요.
+대부분의 설명은 [`.env.example`](.env.example) 에 있습니다. `.env.example` 에 없는 값(`AI_BASE_URL` 등)까지 전체 목록은
+`src/main/resources/application.yml` 의 `${...}` 를 보세요.
 
-> **`gradle bootRun` 은 `.env` 파일을 읽지 않습니다.** `.env` 는 `docker compose` 만 읽습니다.
-> 직접 띄울 때는 터미널에서 넘겨 주세요.
+> **`gradle bootRun` 은 `.env` 파일을 읽지 않습니다.** 이 폴더의 `docker-compose.yml` 도 `.env` 를 DB·포트 값을 채우는 데만
+> 쓰고, 위 표의 값은 컨테이너에 넘기지 않습니다. 위 값을 넣어 띄울 때는 터미널에서 넘기거나, 저장소 루트의
+> `docker compose`(루트 README의 "로컬에서 시작하기")를 쓰세요.
 >
 > ```bash
 > JWT_SECRET=... ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=... \

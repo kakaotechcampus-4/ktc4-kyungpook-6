@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/d4581e1e-560c-4812-a4ec-76f607345c48
 
 조사에서 상호명이 바뀐 것 같다는 신호가 잡힌 가게에, 새 상호명이 맞는지 묻습니다. 가게가 맞다고 답하자 새 상호명을 답으로 돌려줍니다. 연결부터 끝까지 37초 걸렸습니다.
 
-#### 1. 백엔드가 확인할 항목을 보냅니다
+#### 1. 확인할 항목을 보냅니다
 
 ![POST](https://img.shields.io/badge/POST-CA8A04?style=flat-square) `/v1/verification-call`
 
@@ -99,7 +99,7 @@ https://github.com/user-attachments/assets/4f577b93-edc5-41a6-99ff-e4a5e6c70425
 
 확인한 지 오래된 가게에는 짚을 값 없이, 등록된 상호명과 영업 여부가 지금도 그대로인지 하나씩 묻습니다. 둘 다 그대로라는 답을 돌려줍니다. 연결부터 끝까지 47초 걸렸습니다.
 
-#### 1. 백엔드가 확인할 항목을 보냅니다
+#### 1. 확인할 항목을 보냅니다
 
 ![POST](https://img.shields.io/badge/POST-CA8A04?style=flat-square) `/v1/verification-call`
 
@@ -179,7 +179,7 @@ https://github.com/user-attachments/assets/a3106e2c-ee03-4d85-8f72-5cc16f91b427
 
 공개 정보는 가게가 지금 문을 열었는지까지 알려 주지 않습니다. 그래서 에이전트가 가게에 직접 전화합니다. 유심을 꽂은 LTE 모뎀으로 실제 번호에 발신합니다.
 
-[![AI 확인 전화 흐름: 담당자가 확인 전화 → LTE 모뎀으로 발신 → 관계자 확인 → 항목마다 묻고 듣기 → 수정안과 통화 기록](./docs/images/readme/feature-call.png)](./docs/images/readme/feature-call.png)
+[![AI 확인 전화 흐름: 담당자가 확인 전화 → LTE 모뎀으로 발신 → 관계자 확인 → 항목마다 묻고 듣기 → 상호·위치·전화는 바로 반영하고 영업 여부는 담당자가 판단, 통화 기록](./docs/images/readme/feature-call.png)](./docs/images/readme/feature-call.png)
 
 ### 02. AI 가게 조사
 
@@ -211,7 +211,7 @@ https://github.com/user-attachments/assets/a3106e2c-ee03-4d85-8f72-5cc16f91b427
 | --- | --- |
 | 지도를 먼저 보게 함 | 틀린 값 약 34곳 중 **22곳**을 잡음 (웹검색만 하면 10곳) |
 | 다음 검색을 AI가 정하게 함 | 맞는 값까지 고친 곳이 규칙 8곳 → AI **10~11곳**, 틀린 값 0 |
-| 맞는 가게를 건드리지 않음 | 대조군 24곳 중 16~20곳, 나머지는 담당자 승인 단계에서 걸러짐 |
+| 맞는 가게를 건드리지 않음 | 대조군 24곳 중 16~20곳 (웹검색만, 제공자 3종), 나머지는 담당자 승인 단계에서 걸러짐 |
 
 **확인 전화**: 실제로 건 통화에서 쟀습니다.
 
@@ -225,8 +225,8 @@ https://github.com/user-attachments/assets/a3106e2c-ee03-4d85-8f72-5cc16f91b427
 
 | 해 본 것 | 결과 | 그래서 |
 | --- | --- | --- |
-| 웹검색으로 폐업 찾기 | 폐업한 30곳 중 신호가 잡힌 곳 1곳 | 폐업은 국세청 사업자 상태로만 판정 |
-| 검색 결과의 전화번호 대조 | 상당수가 0507 안심번호라 멀쩡한 가게도 "다름"으로 나옴 | 안심번호는 대조에서 제외 |
+| 웹검색으로 폐업 찾기 | 폐업한 30곳 중 신호가 잡힌 곳 1곳 | 영업 상태는 국세청 사업자 상태를 주 근거로 두고, 웹의 "영업 중" 글은 변화로 세지 않음 |
+| 검색 결과의 전화번호 대조 | 0507 같은 안심번호가 섞여 멀쩡한 가게도 "다름"으로 나옴 | 안심번호는 대조에서 제외 (거짓 "다름" 11 → 10곳) |
 | 블로그를 읽는 조사 에이전트 | 잡은 곳 18 → 17, 고친 값 9 → 9, 가게당 25초 증가 | 효과 없이 느려져서 넣지 않음 |
 
 ## 서비스 구성
@@ -384,7 +384,7 @@ https://github.com/user-attachments/assets/a3106e2c-ee03-4d85-8f72-5cc16f91b427
 | [테스트 파이프라인](./docs/TADD_개발.md) | 파트별 테스트 방식과 CI/CD |
 | [깃 협업 규칙](./docs/깃_협업_규칙.md) · [백엔드 코딩 컨벤션](./backend/docs/백엔드_코딩_컨벤션_가이드.md) · [에러 처리](./docs/에러_처리_가이드.md) · [도메인 용어집](./docs/도메인_용어집.md) | 팀 컨벤션 |
 | [주간 코드 리뷰 PR](https://github.com/kakaotechcampus-4/ktc4-kyungpook-6/pulls?q=is%3Apr+base%3Amain) | 매주 멘토에게 리뷰받은 `develop → main` PR |
-| [경산시 커뮤니티매핑 결과보고서 (발췌)](./docs/외부활동/경산시_커뮤니티매핑_결과보고서_발췌.pdf) | 경산시 아동급식카드 가맹점 232건 확인 사례, (사)커뮤니티매핑센터 |
+| [경산시 커뮤니티매핑 결과보고서 (발췌)](./docs/외부활동/경산시_커뮤니티매핑_결과보고서_발췌.pdf) | 경산시 아동급식카드 관련 명단 232건 확인 사례, (사)커뮤니티매핑센터 |
 | [커뮤니티매핑센터 감사장](./docs/외부활동/커뮤니티매핑센터_감사장.png) | 경산시 작업에 대한 (사)커뮤니티매핑센터의 감사장 (2026.11.09) |
 
 <p align="center">
@@ -419,6 +419,7 @@ DB 값은 예시 그대로 써도 됩니다. 나머지는 쓰려는 기능에 �
 | `NTS_SERVICE_KEY` · `BIZNO_API_KEY` | 국세청 사업자 상태, 사업자번호 조회 | 해당 조회를 할 수 없습니다 |
 | `GOOGLE_CLOUD_PROJECT` · `VERTEX_KEY_PATH` | AI 조사 | 조사가 503으로 응답합니다 |
 | `KAKAO_REST_API_KEY` | 지도 대조, 주소 → 좌표 | 지도 대조 없이 웹검색만 합니다 |
+| `KAKAO_COMPARE_ENABLED` · `AGENT_ENABLED` (`true`) | 지도 먼저 대조하고, 다른 항목만 에이전트가 웹검색 | 기본값 `false`. 꺼 두면 웹검색 1회 → 규칙 판정(옛 동작) |
 | `VERIFICATION_API_BASE_URL` · `VERIFICATION_API_KEY` | 확인 전화 | 전화를 걸 수 없습니다 |
 
 각 값의 자세한 설명은 `.env.example` 의 주석에 있습니다.
@@ -471,10 +472,13 @@ AI 서버만 따로 띄울 때는 `cd ai && uv run uvicorn src.server.main:app -
 <summary><b>저장소 구조</b></summary>
 
 ```
-backend/    Spring Boot · Java 21     가게·조사·인증·QR 체크인 API
+backend/    Spring Boot · Java 21     가게·조사·인증·QR 체크인·주문·확인 전화 API
 ai/         FastAPI · Python          가게 정보 2차 조사 (웹검색·카카오맵·국세청)
 frontend/   React · Vite              관리자 웹 (가게 목록, 조사 결과 검토)
 app/        Capacitor · React         점주 앱 · 아동 앱 (한 코드에서 APK 둘)
+call/       FastAPI · Python          확인 전화 서버 (LTE 모뎀, 별도 Linux 장비)
+bot/        Cloudflare Workers        팀 디스코드 봇
+caddy/      Caddyfile                 HTTPS, /api · /app 길 나누기
 docs/       팀 공통 문서              용어집, 깃·Jira 규칙, 에러 규격
 scripts/    deploy.sh                 compose 파일을 묶어 배포
 .github/    워크플로                  테스트, 배포, 멘토 자동 배정, 디스코드 알림
@@ -520,9 +524,8 @@ dev 서버에서만 쓰는 값은 `.env.development` 에 따로 둡니다(`.env.
 
 `PUBLIC_` 접두사는 "여기 들어간 값은 전 세계가 본다" 는 뜻입니다. 내부망 주소를 넣지 마세요.
 
-서버 `.env` 에 `PUBLIC_BACKEND_URL` 이 없으면 옛 키(`BACKEND_BASE_URL`)로 떨어집니다 — 서버에 키를 넣기
-전에 머지돼도 화면이 죽지 않게 둔 폴백입니다. 서버 `.env` 에 키가 들어가면 `docker-compose.yml` 에서 그
-폴백을 지우세요.
+prod 는 `PUBLIC_BACKEND_URL` 이 없으면 빌드가 멈춥니다(`docker-compose.prod.yml`). base(로컬)만 키가 없을 때
+옛 키(`BACKEND_BASE_URL`)로 떨어지고, dev 는 저장소 변수 `PUBLIC_BACKEND_URL` 로 넣습니다.
 
 ⚠️ dev 의 AI 컨테이너는 **지금 공개 주소로 백엔드를 부릅니다**(서버 `.env` 에 들어 있는 값이 그것입니다).
 내부망 `http://backend:8080` 으로 돌리는 쪽이 맞지만, 호출 경로가 달라지므로 배포본에서 조사가 도는지
